@@ -3,25 +3,52 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #f7f8fc;
+  --foreground: #060f32;
+  --surface: #ffffff;
+  --text-muted: #5a6480;
+  --border: #e4e7f0;
+  --success: #16a34a;
+  --warning: #ca8a04;
+  --danger: #dc2626;
+  --status-gray: #6b7280;
+  --navy: #060f32;
+  --gold: #ffcf00;
+  --periwinkle: #869dff;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-outfit), system-ui, sans-serif;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+@layer components {
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-eyebrow text-muted;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill bg-gold px-5 py-2.5 text-sm font-semibold text-navy transition hover:brightness-95 disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill border border-navy/20 bg-white px-5 py-2.5 text-sm font-semibold text-navy transition hover:bg-navy/5 disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium text-navy/70 transition hover:bg-navy/5 hover:text-navy disabled:opacity-50;
+  }
+
+  .panel {
+    @apply rounded-panel border border-border bg-white;
+  }
+
+  .input-field {
+    @apply w-full rounded-xl border border-border bg-white px-3 py-2.5 text-sm text-navy outline-none transition focus:border-periwinkle focus:ring-2 focus:ring-periwinkle/20;
+  }
+
+  .label-field {
+    @apply mb-1.5 block text-sm font-medium text-navy;
   }
 }
