@@ -3,15 +3,39 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = ["/login", "/api/leads/website"];
 
+function isPublicPath(path: string) {
+  return (
+    PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/")) ||
+    path.startsWith("/_next") ||
+    path.includes(".")
+  );
+}
+
+function redirectTo(request: NextRequest, pathname: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  return NextResponse.redirect(url);
+}
+
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // Missing env on Vercel previously threw and produced MIDDLEWARE_INVOCATION_FAILED.
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (path === "/login" || isPublicPath(path)) {
+      return NextResponse.next();
+    }
+    return redirectTo(request, "/login");
+  }
+
   let response = NextResponse.next({
     request: { headers: request.headers },
   });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
+  try {
+    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
         get(name: string) {
           return request.cookies.get(name)?.value;
@@ -31,26 +55,22 @@ export async function middleware(request: NextRequest) {
           response.cookies.set({ name, value: "", ...options });
         },
       },
+    });
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const isPublic = isPublicPath(path);
+
+    if (!user && !isPublic && path !== "/") {
+      return redirectTo(request, "/login");
     }
-  );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    if (!user) {
+      return response;
+    }
 
-  const path = request.nextUrl.pathname;
-  const isPublic =
-    PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/")) ||
-    path.startsWith("/_next") ||
-    path.includes(".");
-
-  if (!user && !isPublic && path !== "/") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  if (user) {
     const { data: profile } = await supabase
       .from("users")
       .select("role, active")
@@ -60,23 +80,20 @@ export async function middleware(request: NextRequest) {
     const role = profile?.active ? profile.role : null;
 
     if (path === "/login" || path === "/") {
-      const url = request.nextUrl.clone();
-      if (role === "admin") url.pathname = "/admin/dashboard";
-      else if (role === "interviewer") url.pathname = "/interviewer/interviews";
-      else url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
+      if (role === "admin") return redirectTo(request, "/admin/dashboard");
+      if (role === "interviewer") return redirectTo(request, "/interviewer/interviews");
+      return redirectTo(request, "/dashboard");
     }
 
     if (path.startsWith("/admin") && role !== "admin") {
-      const url = request.nextUrl.clone();
-      url.pathname = role === "interviewer" ? "/interviewer/interviews" : "/dashboard";
-      return NextResponse.redirect(url);
+      return redirectTo(
+        request,
+        role === "interviewer" ? "/interviewer/interviews" : "/dashboard"
+      );
     }
 
     if (path.startsWith("/interviewer") && role !== "interviewer" && role !== "admin") {
-      const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
+      return redirectTo(request, "/dashboard");
     }
 
     if (
@@ -86,13 +103,17 @@ export async function middleware(request: NextRequest) {
         path.startsWith("/messages")) &&
       role === "interviewer"
     ) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/interviewer/interviews";
-      return NextResponse.redirect(url);
+      return redirectTo(request, "/interviewer/interviews");
     }
-  }
 
-  return response;
+    return response;
+  } catch {
+    // Auth/network failures must not take down every route on Edge.
+    if (path === "/login" || isPublicPath(path)) {
+      return NextResponse.next();
+    }
+    return redirectTo(request, "/login");
+  }
 }
 
 export const config = {
