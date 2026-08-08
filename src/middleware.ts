@@ -1,11 +1,12 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api/leads/website"];
+const PUBLIC_PATHS = ["/login", "/api/leads/website", "/api/track/event", "/go"];
 
 function isPublicPath(path: string) {
   return (
     PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/")) ||
+    path.startsWith("/api/cron/") ||
     path.startsWith("/_next") ||
     path.includes(".")
   );
@@ -15,6 +16,13 @@ function redirectTo(request: NextRequest, pathname: string) {
   const url = request.nextUrl.clone();
   url.pathname = pathname;
   return NextResponse.redirect(url);
+}
+
+function homeForRole(role: string | null) {
+  if (role === "admin") return "/admin/dashboard";
+  if (role === "interviewer") return "/interviewer/interviews";
+  if (role === "marketing") return "/marketing/dashboard";
+  return "/dashboard";
 }
 
 export async function middleware(request: NextRequest) {
@@ -80,20 +88,23 @@ export async function middleware(request: NextRequest) {
     const role = profile?.active ? profile.role : null;
 
     if (path === "/login" || path === "/") {
-      if (role === "admin") return redirectTo(request, "/admin/dashboard");
-      if (role === "interviewer") return redirectTo(request, "/interviewer/interviews");
-      return redirectTo(request, "/dashboard");
+      return redirectTo(request, homeForRole(role));
+    }
+
+    if (path.startsWith("/admin/marketing") && role !== "admin") {
+      return redirectTo(request, homeForRole(role));
     }
 
     if (path.startsWith("/admin") && role !== "admin") {
-      return redirectTo(
-        request,
-        role === "interviewer" ? "/interviewer/interviews" : "/dashboard"
-      );
+      return redirectTo(request, homeForRole(role));
+    }
+
+    if (path.startsWith("/marketing") && role !== "marketing" && role !== "admin") {
+      return redirectTo(request, homeForRole(role));
     }
 
     if (path.startsWith("/interviewer") && role !== "interviewer" && role !== "admin") {
-      return redirectTo(request, "/dashboard");
+      return redirectTo(request, homeForRole(role));
     }
 
     if (
@@ -104,6 +115,15 @@ export async function middleware(request: NextRequest) {
       role === "interviewer"
     ) {
       return redirectTo(request, "/interviewer/interviews");
+    }
+
+    if (
+      (path.startsWith("/dashboard") ||
+        path.startsWith("/attention") ||
+        path.startsWith("/messages")) &&
+      role === "marketing"
+    ) {
+      return redirectTo(request, "/marketing/dashboard");
     }
 
     return response;

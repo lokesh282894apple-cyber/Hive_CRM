@@ -1,28 +1,37 @@
 /**
- * Apply admissions schema migration.
+ * Apply a SQL migration file via DATABASE_URL (pg).
  *
- * Prefer: paste SQL in Supabase Dashboard SQL Editor.
- * Or set DATABASE_URL and re-run this script (requires `pg`).
+ * Usage:
+ *   npm run db:migrate
+ *     → applies 20260731000000_admissions_schema.sql only if users table missing
+ *   npm run db:migrate -- supabase/migrations/20260808120000_marketing_funnel_schema.sql
+ *     → applies the given migration file
  *
- * Dashboard:
- *   https://supabase.com/dashboard/project/myxdfsramkqxkiuzqbxk/sql/new
- * File:
- *   supabase/migrations/20260731000000_admissions_schema.sql
+ * Prefer: paste SQL in Supabase Dashboard SQL Editor when DATABASE_URL is unset.
  */
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
-const sqlPath = resolve(root, "supabase/migrations/20260731000000_admissions_schema.sql");
-const sql = readFileSync(sqlPath, "utf8");
 
+const argPath = process.argv[2];
+const defaultAdmissions = "supabase/migrations/20260731000000_admissions_schema.sql";
+const sqlPath = resolve(root, argPath || defaultAdmissions);
+
+if (!existsSync(sqlPath)) {
+  console.error(`Migration file not found: ${sqlPath}`);
+  process.exit(1);
+}
+
+const sql = readFileSync(sqlPath, "utf8");
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
+const isAdmissionsBootstrap = !argPath;
 
 async function schemaExists() {
   if (!url || !serviceKey) return false;
@@ -34,8 +43,11 @@ async function schemaExists() {
 }
 
 async function main() {
-  if (await schemaExists()) {
-    console.log("Schema already present (users table readable). Skipping.");
+  if (isAdmissionsBootstrap && (await schemaExists())) {
+    console.log("Schema already present (users table readable). Skipping admissions bootstrap.");
+    console.log(
+      "To apply marketing (or another) migration:\n  npm run db:migrate -- supabase/migrations/20260808120000_marketing_funnel_schema.sql"
+    );
     return;
   }
 
@@ -48,11 +60,10 @@ Apply manually:
 2. Paste contents of:
    ${sqlPath}
 3. Click Run
-4. Then: npm run seed:admin && npm run seed:mock
 
 Optional: add to .env.local
   DATABASE_URL=postgresql://postgres.[ref]:[PASSWORD]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres
-and re-run npm run db:migrate
+and re-run with the migration path.
 `);
     process.exit(0);
   }
@@ -64,7 +75,7 @@ and re-run npm run db:migrate
   await client.connect();
   try {
     await client.query(sql);
-    console.log("Migration applied successfully.");
+    console.log(`Migration applied successfully: ${sqlPath}`);
   } finally {
     await client.end();
   }

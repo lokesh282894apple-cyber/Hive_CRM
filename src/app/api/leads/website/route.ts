@@ -1,18 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isUuid, validateTrackApiKey } from "@/lib/marketing/track-auth";
 
 /**
  * Website form webhook — creates a lead and round-robins among counselors
  * scoped to the course/cohort when possible.
+ * Requires Authorization: Bearer ${CRM_TRACK_API_KEY}.
+ * Optional session_id bridges visitor_sessions → lead_attribution.
  */
 export async function POST(request: NextRequest) {
   try {
+    if (!process.env.CRM_TRACK_API_KEY) {
+      console.warn(
+        "[leads/website] CRM_TRACK_API_KEY unset — allowing request (set the key in production)"
+      );
+    } else if (!validateTrackApiKey(request)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const name = String(body.name || "").trim();
     const phone = String(body.phone || "").trim();
     const email = body.email ? String(body.email).trim() : null;
     const courseId = body.course_id ? String(body.course_id) : null;
     const cohortId = body.cohort_id ? String(body.cohort_id) : null;
+    const sessionId =
+      body.session_id && isUuid(String(body.session_id)) ? String(body.session_id) : null;
 
     if (!name || !phone) {
       return NextResponse.json({ error: "name and phone required" }, { status: 400 });
@@ -77,7 +90,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, id: data.id, allocated_to: allocatedTo });
+    let attributionLinked = false;
+    if (sessionId && data?.id) {
+      const { data: session } = await admin
+        .from("visitor_sessions")
+        .select("id, matched_campaign_id, first_seen_at")
+        .eq("id", sessionId)
+        .maybeSingle();
+
+      if (session) {
+        const now = new Date().toISOString();
+        const campaignId = session.matched_campaign_id;
+
+        const { data: byLead } = await admin
+          .from("lead_attribution")
+          .select("id, lead_id, first_touch_campaign_id")
+          .eq("lead_id", data.id)
+          .maybeSingle();
+
+        const { data: bySession } =
+          byLead != null
+            ? { data: null }
+            : await admin
+                .from("lead_attribution")
+                .select("id, lead_id, first_touch_campaign_id")
+                .eq("session_id", sessionId)
+                .maybeSingle();
+
+        const existingAttr = byLead ?? bySession;
+
+        if (existingAttr) {
+          // Last-touch update (same lead or same session — avoid duplicate)
+          await admin
+            .from("lead_attribution")
+            .update({
+              last_touch_campaign_id: campaignId ?? existingAttr.first_touch_campaign_id,
+              converted_at: now,
+            })
+            .eq("id", existingAttr.id);
+          attributionLinked = true;
+        } else {
+          const { error: attrErr } = await admin.from("lead_attribution").insert({
+            lead_id: data.id,
+            session_id: sessionId,
+            first_touch_campaign_id: campaignId,
+            last_touch_campaign_id: campaignId,
+            first_touch_at: session.first_seen_at,
+            converted_at: now,
+          });
+          attributionLinked = !attrErr;
+        }
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      id: data.id,
+      allocated_to: allocatedTo,
+      attribution_linked: attributionLinked,
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },

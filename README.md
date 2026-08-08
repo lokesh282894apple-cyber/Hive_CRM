@@ -49,10 +49,58 @@ npm run dev
 | Admin | `/admin/dashboard` |
 | Counselor | `/dashboard` |
 | Interviewer | `/interviewer/interviews` |
+| Marketing | `/marketing/dashboard` |
+
+## Marketing funnel
+
+One system with Admissions — same Supabase project, auth, and design system. Client tracking lives on hiveschool.co (separate repo).
+
+### Apply schema
+
+Paste [`supabase/migrations/20260808120000_marketing_funnel_schema.sql`](supabase/migrations/20260808120000_marketing_funnel_schema.sql) in the Supabase SQL editor, or:
+
+```bash
+npm run db:migrate -- supabase/migrations/20260808120000_marketing_funnel_schema.sql
+```
+
+(Requires `DATABASE_URL` in `.env.local`.)
+
+### Env
+
+```bash
+CRM_TRACK_API_KEY=   # Bearer token for POST /api/leads/website (and cron fallback)
+CRON_SECRET=         # Bearer for Vercel Cron → /api/cron/*
+NEXT_PUBLIC_APP_URL= # e.g. https://crm.hiveschool.co (tracked /go links)
+```
+
+### Public endpoints
+
+| Route | Auth | Purpose |
+|-------|------|---------|
+| `POST /api/track/event` | None (CORS: hiveschool.co) | Pageview / click / scroll ingest |
+| `GET /go/[slug]` | None | Tracked redirect → creative destination |
+| `POST /api/leads/website` | Bearer `CRM_TRACK_API_KEY` (if set) | Form webhook + optional `session_id` → `lead_attribution` |
+
+### Screens
+
+| Route | Roles |
+|-------|-------|
+| `/marketing/dashboard` | marketing, admin |
+| `/marketing/campaigns` | marketing, admin |
+| `/marketing/heatmaps` | marketing, admin |
+| `/admin/marketing/connections` | admin |
+| `/leads/[id]?tab=marketing` | counselor / admin / marketing |
+
+### Website prerequisites (hiveschool.co)
+
+1. Embed tracking script (session cookie + events → `/api/track/event`).
+2. Hidden `session_id` on admissions form → `/api/leads/website`.
+3. Rewrite `/go/*` to this CRM’s `/go/[slug]`.
 
 ## Website lead webhook
 
-`POST /api/leads/website` (public) — body JSON with `name`, `phone`, optional `email`, `course_id`, `cohort_id`, etc. Round-robins among counselors scoped to that course/cohort.
+`POST /api/leads/website` — body JSON with `name`, `phone`, optional `email`, `course_id`, `cohort_id`, `session_id`, etc. Round-robins among counselors scoped to that course/cohort. When `session_id` matches a `visitor_sessions` row, inserts/updates `lead_attribution`.
+
 
 ## Google Calendar + Meet
 
@@ -88,7 +136,7 @@ Replace-only (no live sync):
 - WhatsApp: `/messages` placeholder only
 - Attention rules: provisional thresholds in `app_settings`
 - Installment cadence: `days_between_installments` (default 30)
-- Marketing Box tab: placeholder
+- Ad platform spend sync: cron stub until Meta/Google/LinkedIn credentials are provided
 
 ## Scripts
 

@@ -18,6 +18,10 @@ import {
   type Stage,
 } from "@/lib/constants";
 import { StageBadge } from "@/components/ui/Primitives";
+import {
+  LeadMarketingTab,
+  type LeadMarketingData,
+} from "@/components/leads/LeadMarketingTab";
 import type { CallLog, Cohort, Course, Lead, StageHistory } from "@/types/database";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import Link from "next/link";
@@ -44,6 +48,7 @@ export function LeadDetailClient({
   isAdmin,
   counselorName,
   interviewBookings = [],
+  marketing = null,
 }: {
   lead: Lead;
   courses: Course[];
@@ -53,6 +58,7 @@ export function LeadDetailClient({
   isAdmin: boolean;
   counselorName?: string | null;
   interviewBookings?: LeadInterviewSummary[];
+  marketing?: LeadMarketingData | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -585,16 +591,16 @@ export function LeadDetailClient({
       ) : null}
 
       {tab === "marketing" ? (
-        <div className="panel p-8">
-          <p className="eyebrow">Provisional</p>
-          <h2 className="mt-2 text-xl font-semibold text-navy">
-            Marketing Box — <span className="font-display italic">coming later</span>
-          </h2>
-          <p className="mt-2 max-w-xl text-sm text-muted">
-            Marketing CRM fields are undefined by the client. This tab is a placeholder for the
-            future Marketing funnel build.
-          </p>
-        </div>
+        <LeadMarketingTab
+          data={
+            marketing ?? {
+              attribution: null,
+              session: null,
+              creativeName: null,
+              events: [],
+            }
+          }
+        />
       ) : null}
     </div>
   );

@@ -162,3 +162,100 @@ export type AppSetting = {
   value: unknown;
   updated_at: string;
 };
+
+export type MarketingChannel = {
+  id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+};
+
+export type Campaign = {
+  id: string;
+  channel_id: string;
+  platform_campaign_id: string | null;
+  name: string;
+  ad_account_id: string | null;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  source_type: "paid_ad" | "influencer" | "organic";
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdCreative = {
+  id: string;
+  campaign_id: string;
+  platform_ad_id: string | null;
+  creative_name: string;
+  influencer_name: string | null;
+  influencer_handle: string | null;
+  post_url: string | null;
+  destination_url: string;
+  creative_type: "reel" | "post" | "story" | "ad" | "video";
+  tracked_slug: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VisitorSession = {
+  id: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  device_type: string | null;
+  browser: string | null;
+  os: string | null;
+  entry_page_url: string | null;
+  referrer_url: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
+  click_id: string | null;
+  matched_campaign_id: string | null;
+  matched_ad_creative_id: string | null;
+};
+
+export type PageEvent = {
+  id: string;
+  session_id: string;
+  event_type: "pageview" | "click" | "scroll_depth";
+  page_url: string;
+  page_title: string | null;
+  element_selector: string | null;
+  x: number | null;
+  y: number | null;
+  viewport_width: number | null;
+  viewport_height: number | null;
+  occurred_at: string;
+};
+
+export type LeadAttribution = {
+  id: string;
+  lead_id: string;
+  session_id: string;
+  first_touch_campaign_id: string | null;
+  last_touch_campaign_id: string | null;
+  first_touch_at: string | null;
+  converted_at: string;
+};
+
+export type HeatmapPoint = {
+  page_url: string;
+  x_bucket: number;
+  y_bucket: number;
+  viewport_breakpoint: "mobile" | "tablet" | "desktop";
+  click_count: number;
+  last_updated_at: string;
+};
+
+export type AdPlatformConnectionStatus = {
+  id: string;
+  platform: "meta" | "google" | "linkedin";
+  account_id: string;
+  status: string;
+  connected_at: string;
+  connected_by: string | null;
+};

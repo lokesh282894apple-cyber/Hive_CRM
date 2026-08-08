@@ -1,4 +1,4 @@
-export const ROLES = ["admin", "counselor", "interviewer"] as const;
+export const ROLES = ["admin", "counselor", "interviewer", "marketing"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const STAGES = [
@@ -355,8 +355,15 @@ export const LEAD_SOURCES = [
 export function homeForRole(role: Role): string {
   if (role === "admin") return "/admin/dashboard";
   if (role === "interviewer") return "/interviewer/interviews";
+  if (role === "marketing") return "/marketing/dashboard";
   return "/dashboard";
 }
+
+export const CREATIVE_TYPES = ["reel", "post", "story", "ad", "video"] as const;
+export type CreativeType = (typeof CREATIVE_TYPES)[number];
+
+export const CAMPAIGN_SOURCE_TYPES = ["paid_ad", "influencer", "organic"] as const;
+export type CampaignSourceType = (typeof CAMPAIGN_SOURCE_TYPES)[number];
 
 export function stageTone(stage: Stage): "green" | "yellow" | "red" | "gray" | "blue" {
   if (stage === "closed_won") return "green";
