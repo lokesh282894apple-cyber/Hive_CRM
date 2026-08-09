@@ -86,7 +86,8 @@ function applyScopeFilter(
     return query.eq("id", "00000000-0000-0000-0000-000000000000");
   }
   const cohortIds = Array.from(new Set(scopes.map((s) => s.cohort_id)));
-  return query.in("cohort_id", cohortIds);
+  // Include website leads with no cohort yet so counselors can claim / work them
+  return query.or(`cohort_id.in.(${cohortIds.join(",")}),cohort_id.is.null`);
 }
 
 /**
