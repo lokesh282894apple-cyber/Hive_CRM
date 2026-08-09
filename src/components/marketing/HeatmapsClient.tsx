@@ -1,3 +1,5 @@
+"use client";
+
 import type { HeatmapPoint } from "@/types/database";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
