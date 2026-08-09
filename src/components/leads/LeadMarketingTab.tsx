@@ -4,6 +4,7 @@ import type { PageEvent, VisitorSession } from "@/types/database";
 import { formatDateTime } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/Primitives";
 import { MousePointer2, Eye, ArrowDown } from "lucide-react";
+import type { FormOriginSummary } from "@/lib/leads/form-origin";
 
 export type LeadMarketingData = {
   attribution: {
@@ -17,6 +18,7 @@ export type LeadMarketingData = {
   creativeName: string | null;
   events: PageEvent[];
   legacySource?: string | null;
+  formOrigin?: FormOriginSummary | null;
 };
 
 function durationLabel(start: string | null | undefined, end: string | null | undefined) {
@@ -178,20 +180,26 @@ export function LeadMarketingTab({ data }: { data: LeadMarketingData }) {
 
   if (!hasData) {
     return (
-      <div className="panel p-8">
-        <p className="eyebrow">Marketing Box</p>
-        <h2 className="mt-2 text-xl font-semibold text-navy">No website journey linked</h2>
-        <p className="mt-2 max-w-xl text-sm text-muted">
-          This lead has no <code className="text-xs">session_id</code> attribution yet. When the
-          admissions form posts through the website proxy with the tracking cookie, first-touch
-          campaign and page journey appear here — while you work them through the admissions
-          stages on Info / Calling.
-        </p>
-        {data.legacySource ? (
-          <p className="mt-4 text-sm text-navy">
-            Legacy source field: <span className="font-semibold">{data.legacySource}</span>
-          </p>
+      <div className="space-y-6">
+        {data.formOrigin ? (
+          <div className="panel p-5">
+            <p className="eyebrow">Form origin</p>
+            <p className="mt-2 text-lg font-semibold text-navy">{data.formOrigin.label}</p>
+            <p className="mt-1 text-sm text-muted">
+              Source tag: <span className="font-medium text-navy">{data.formOrigin.source ?? "—"}</span>
+            </p>
+          </div>
         ) : null}
+        <div className="panel p-8">
+          <p className="eyebrow">Marketing Box</p>
+          <h2 className="mt-2 text-xl font-semibold text-navy">No website journey linked</h2>
+          <p className="mt-2 max-w-xl text-sm text-muted">
+            This lead has no <code className="text-xs">session_id</code> attribution yet. When the
+            admissions form posts through the website proxy with the tracking cookie, first-touch
+            campaign and page journey appear here — while you work them through the admissions
+            stages on Info / Calling.
+          </p>
+        </div>
       </div>
     );
   }
@@ -204,6 +212,31 @@ export function LeadMarketingTab({ data }: { data: LeadMarketingData }) {
 
   return (
     <div className="space-y-6">
+      {data.formOrigin ? (
+        <div className="panel p-5">
+          <p className="eyebrow">Form origin</p>
+          <p className="mt-2 text-lg font-semibold text-navy">{data.formOrigin.label}</p>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+            <Meta label="Source tag" value={data.formOrigin.source ?? "—"} />
+            <Meta label="Programme" value={data.formOrigin.programme ?? "—"} />
+            <Meta
+              label="Form page"
+              value={
+                data.formOrigin.formPageTitle ||
+                data.formOrigin.formPageUrl ||
+                "—"
+              }
+            />
+            {data.formOrigin.formPageUrl ? (
+              <Meta label="Form URL" value={data.formOrigin.formPageUrl} />
+            ) : null}
+            {data.formOrigin.thankYouUrl ? (
+              <Meta label="Thank-you page" value={data.formOrigin.thankYouUrl} />
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="panel p-5">
           <p className="eyebrow">First touch</p>

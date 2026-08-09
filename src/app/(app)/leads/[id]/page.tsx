@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { LeadDetailClient } from "@/components/leads/LeadDetailClient";
 import type { LeadMarketingData } from "@/components/leads/LeadMarketingTab";
 import type { PageEvent, VisitorSession } from "@/types/database";
+import { buildFormOrigin } from "@/lib/leads/form-origin";
 import { notFound } from "next/navigation";
 
 export default async function LeadDetailPage({
@@ -62,6 +63,11 @@ export default async function LeadDetailPage({
     creativeName: null,
     events: [],
     legacySource: lead.source,
+    formOrigin: buildFormOrigin({
+      source: lead.source,
+      programme: lead.programme ?? null,
+      events: [],
+    }),
   };
 
   // Prefer lead_attribution.session_id; fall back to leads.website_session_id
@@ -152,7 +158,18 @@ export default async function LeadDetailPage({
       creativeName,
       events: (events ?? []) as PageEvent[],
       legacySource: lead.source,
+      formOrigin: buildFormOrigin({
+        source: lead.source,
+        programme: lead.programme ?? null,
+        events: (events ?? []) as PageEvent[],
+      }),
     };
+  } else {
+    marketing.formOrigin = buildFormOrigin({
+      source: lead.source,
+      programme: lead.programme ?? null,
+      events: [],
+    });
   }
 
   const interviewBookings = (bookings ?? []).map((b) => {

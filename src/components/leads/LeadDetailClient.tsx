@@ -178,6 +178,14 @@ export function LeadDetailClient({
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+            Form / source
+          </p>
+          <p className="mt-1 text-sm font-medium text-navy" title={lead.source ?? undefined}>
+            {marketing?.formOrigin?.label ?? lead.source ?? "—"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-border bg-white px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
             Lead creation date
           </p>
           <p className="mt-1 text-sm font-medium text-navy">
@@ -294,13 +302,28 @@ export function LeadDetailClient({
               </div>
               <div>
                 <label className="label-field">Source</label>
-                <select name="source" className="input-field" defaultValue={lead.source ?? "other"}>
-                  {LEAD_SOURCES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
+                {lead.source && !LEAD_SOURCES.includes(lead.source as (typeof LEAD_SOURCES)[number]) ? (
+                  <div className="space-y-2">
+                    <input
+                      className="input-field bg-slate-50"
+                      value={lead.source}
+                      readOnly
+                      title="Website form source (read-only)"
+                    />
+                    <input type="hidden" name="source" value={lead.source} />
+                    <p className="text-xs text-muted">
+                      From website form dual-write — keep this tag for marketing attribution.
+                    </p>
+                  </div>
+                ) : (
+                  <select name="source" className="input-field" defaultValue={lead.source ?? "other"}>
+                    {LEAD_SOURCES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div>
                 <label className="label-field">Course</label>

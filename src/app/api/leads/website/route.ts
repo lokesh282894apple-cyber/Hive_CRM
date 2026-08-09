@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       body.session_id && isUuid(String(body.session_id)) ? String(body.session_id) : null;
 
     const sourceRaw = body.source != null ? String(body.source).trim() : "";
-    const source = sourceRaw || "website";
+    let source = sourceRaw || "website";
 
     // Free-text programme: explicit field, or derive from source like website:pgp
     let programme =
@@ -207,6 +207,25 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = createAdminClient();
+
+    // Enrich bare "website" source from session page (e.g. PGP apply → website:pgp)
+    if (source === "website" && sessionId) {
+      const pageHint = await pageHintFromSession(admin, sessionId);
+      const hints = programmeHints(programme, source, pageHint);
+      if (hints[0] === "PGP") {
+        source = "website:pgp";
+        programme = programme || "pgp";
+      } else if (hints[0] === "Undergraduate") {
+        source = "website:ug";
+        programme = programme || "ug";
+      } else if (hints[0] === "Fellowship") {
+        source = "website:fellowship";
+        programme = programme || "fellowship";
+      } else if (hints[0] === "Executive") {
+        source = "website:executive";
+        programme = programme || "executive";
+      }
+    }
 
     const resolved = await resolveCourseAndCohort(
       admin,
