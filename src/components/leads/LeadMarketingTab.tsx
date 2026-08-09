@@ -42,20 +42,77 @@ function maxScroll(events: PageEvent[]): number {
 }
 
 type TimelineItem =
-  | { kind: "pageview_group"; page_url: string; page_title: string | null; count: number; at: string }
-  | { kind: "event"; event: PageEvent };
+  | {
+      kind: "pageview_group";
+      page_url: string;
+      page_title: string | null;
+      count: number;
+      at: string;
+    }
+  | {
+      kind: "click_group";
+      page_url: string;
+      page_title: string | null;
+      selector: string | null;
+      count: number;
+      at: string;
+    }
+  | { kind: "scroll"; page_url: string; depth: number; at: string };
 
+const MERGE_WINDOW_MS = 45_000;
+
+/** Collapse hash/query noise so /pgp and /pgp#apply group together. */
+function canonicalPageUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`.replace(/\/$/, "") || u.origin;
+  } catch {
+    return url.split("#")[0].split("?")[0];
+  }
+}
+
+function shortSelector(selector: string | null | undefined): string | null {
+  if (!selector) return null;
+  // Prefer readable form field ids over long CSS paths
+  const idMatch = selector.match(/#([a-zA-Z0-9_-]+)/);
+  if (idMatch) return `#${idMatch[1]}`;
+  if (selector.length > 80) return `${selector.slice(0, 77)}…`;
+  return selector;
+}
+
+function scrollDepth(ev: PageEvent): number {
+  const fromSelector = String(ev.element_selector || "").match(/(\d+)/);
+  if (fromSelector) return Number(fromSelector[1]);
+  if (typeof ev.y === "number" && ev.y <= 100) return ev.y;
+  return 0;
+}
+
+function withinWindow(earlierIso: string, laterIso: string): boolean {
+  return (
+    new Date(laterIso).getTime() - new Date(earlierIso).getTime() <= MERGE_WINDOW_MS
+  );
+}
+
+/**
+ * Collapse noisy doubles: hash pageviews, repeated field clicks, redundant scrolls.
+ * Raw events stay in DB — this is display-only.
+ */
 function buildTimeline(events: PageEvent[]): TimelineItem[] {
   const items: TimelineItem[] = [];
+
   for (const ev of events) {
     if (ev.event_type === "pageview") {
+      const canon = canonicalPageUrl(ev.page_url);
       const last = items[items.length - 1];
       if (
-        last &&
-        last.kind === "pageview_group" &&
-        last.page_url === ev.page_url
+        last?.kind === "pageview_group" &&
+        canonicalPageUrl(last.page_url) === canon &&
+        withinWindow(last.at, ev.occurred_at)
       ) {
         last.count += 1;
+        if (ev.page_title) last.page_title = ev.page_title;
+        // Prefer URL with hash if it indicates section (e.g. #apply)
+        if (ev.page_url.includes("#")) last.page_url = ev.page_url;
         continue;
       }
       items.push({
@@ -65,10 +122,51 @@ function buildTimeline(events: PageEvent[]): TimelineItem[] {
         count: 1,
         at: ev.occurred_at,
       });
-    } else {
-      items.push({ kind: "event", event: ev });
+      continue;
+    }
+
+    if (ev.event_type === "scroll_depth") {
+      const depth = scrollDepth(ev);
+      const canon = canonicalPageUrl(ev.page_url);
+      const last = items[items.length - 1];
+      if (last?.kind === "scroll" && canonicalPageUrl(last.page_url) === canon) {
+        last.depth = Math.max(last.depth, depth);
+        last.at = ev.occurred_at;
+        continue;
+      }
+      items.push({
+        kind: "scroll",
+        page_url: ev.page_url,
+        depth,
+        at: ev.occurred_at,
+      });
+      continue;
+    }
+
+    if (ev.event_type === "click") {
+      const selector = shortSelector(ev.element_selector);
+      const canon = canonicalPageUrl(ev.page_url);
+      const last = items[items.length - 1];
+      if (
+        last?.kind === "click_group" &&
+        canonicalPageUrl(last.page_url) === canon &&
+        last.selector === selector &&
+        withinWindow(last.at, ev.occurred_at)
+      ) {
+        last.count += 1;
+        continue;
+      }
+      items.push({
+        kind: "click_group",
+        page_url: ev.page_url,
+        page_title: ev.page_title,
+        selector,
+        count: 1,
+        at: ev.occurred_at,
+      });
     }
   }
+
   return items;
 }
 
@@ -201,29 +299,44 @@ export function LeadMarketingTab({ data }: { data: LeadMarketingData }) {
                   </li>
                 );
               }
-              const ev = item.event;
-              const Icon = ev.event_type === "click" ? MousePointer2 : ArrowDown;
+
+              if (item.kind === "scroll") {
+                return (
+                  <li key={`sc-${idx}`} className="flex items-start gap-3 px-5 py-3">
+                    <ArrowDown className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge label="scroll" tone="gray" />
+                        <span className="text-sm font-medium text-navy">{item.depth}%</span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-muted">{item.page_url}</p>
+                    </div>
+                    <p className="shrink-0 text-xs text-muted">{formatDateTime(item.at)}</p>
+                  </li>
+                );
+              }
+
               return (
-                <li key={ev.id} className="flex items-start gap-3 px-5 py-3">
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+                <li key={`ck-${idx}`} className="flex items-start gap-3 px-5 py-3">
+                  <MousePointer2 className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <StatusBadge
-                        label={ev.event_type}
-                        tone={ev.event_type === "click" ? "yellow" : "gray"}
-                      />
+                      <StatusBadge label="click" tone="yellow" />
+                      {item.count > 1 ? (
+                        <span className="text-[11px] text-muted">×{item.count}</span>
+                      ) : null}
                       <span className="truncate text-sm font-medium text-navy">
-                        {ev.page_title || ev.page_url}
+                        {item.page_title || item.page_url}
                       </span>
                     </div>
-                    <p className="mt-1 truncate text-xs text-muted">{ev.page_url}</p>
-                    {ev.element_selector ? (
+                    <p className="mt-1 truncate text-xs text-muted">{item.page_url}</p>
+                    {item.selector ? (
                       <p className="mt-0.5 truncate font-mono text-[11px] text-muted">
-                        {ev.element_selector}
+                        {item.selector}
                       </p>
                     ) : null}
                   </div>
-                  <p className="shrink-0 text-xs text-muted">{formatDateTime(ev.occurred_at)}</p>
+                  <p className="shrink-0 text-xs text-muted">{formatDateTime(item.at)}</p>
                 </li>
               );
             })}
