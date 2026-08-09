@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid, validateTrackApiKey } from "@/lib/marketing/track-auth";
+import {
+  findExistingLead,
+  normalizeEmail,
+  normalizePhone,
+} from "@/lib/leads/identity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Map website programme/source/page hints → course name substrings */
@@ -144,9 +149,8 @@ async function pickCounselor(
 }
 
 /**
- * Website form webhook — upserts lead by phone, links session_id → lead_attribution,
- * stores free-text programme/source. course_id/cohort_id accepted only when valid UUIDs;
- * otherwise inferred from programme/source/session page URLs.
+ * Website form webhook — upserts by phone (normalized) then email.
+ * course_id/cohort_id only when UUIDs; else inferred from programme/source/session.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -166,10 +170,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const name = String(body.name || "").trim();
-    const phone = String(body.phone || "")
-      .trim()
-      .replace(/[\s\-()]/g, "");
-    const email = body.email ? String(body.email).trim() : null;
+    const phone = normalizePhone(String(body.phone || ""));
+    const email = normalizeEmail(body.email ? String(body.email) : null);
 
     // Only persist real UUIDs — website may send null or programme slugs
     let courseId =
@@ -198,7 +200,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!name || !phone) {
-      return NextResponse.json({ error: "name and phone required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "name and phone required (phone must contain digits)" },
+        { status: 400 }
+      );
     }
 
     const admin = createAdminClient();
@@ -216,17 +221,16 @@ export async function POST(request: NextRequest) {
 
     const allocatedTo = await pickCounselor(admin, courseId, cohortId);
 
-    const { data: existing } = await admin
-      .from("leads")
-      .select("id, stage, lead_allocated_to, course_id, cohort_id")
-      .eq("phone", phone)
-      .maybeSingle();
+    const match = await findExistingLead(admin, phone, email);
+    let existing = match?.lead ?? null;
+    let matchedBy = match?.matchedBy ?? null;
 
     let leadId: string;
     let created = false;
 
     const sharedFields: Record<string, unknown> = {
       name,
+      phone, // always store canonical digits
       source,
       updated_at: new Date().toISOString(),
     };
@@ -247,6 +251,17 @@ export async function POST(request: NextRequest) {
     if (existing) {
       leadId = existing.id;
       const patch = { ...sharedFields };
+
+      if (matchedBy === "email" && normalizePhone(existing.phone) !== phone) {
+        const phoneOwner = await findExistingLead(admin, phone, null);
+        if (phoneOwner && phoneOwner.lead.id !== existing.id) {
+          // Submitted phone already belongs to another lead → that lead wins
+          leadId = phoneOwner.lead.id;
+          existing = phoneOwner.lead;
+          matchedBy = "phone";
+        }
+      }
+
       if (courseId && !existing.course_id) patch.course_id = courseId;
       if (cohortId && !existing.cohort_id) patch.cohort_id = cohortId;
       if (allocatedTo && !existing.lead_allocated_to) {
@@ -255,7 +270,6 @@ export async function POST(request: NextRequest) {
 
       const { error: updErr } = await admin.from("leads").update(patch).eq("id", leadId);
       if (updErr) {
-        // programme / website_session_id columns may not exist yet — retry without them
         if (/programme|website_session_id/i.test(updErr.message)) {
           delete patch.programme;
           delete patch.website_session_id;
@@ -270,7 +284,6 @@ export async function POST(request: NextRequest) {
     } else {
       const insertRow: Record<string, unknown> = {
         ...sharedFields,
-        phone,
         course_id: courseId,
         cohort_id: cohortId,
         lead_allocated_to: allocatedTo,
@@ -287,15 +300,11 @@ export async function POST(request: NextRequest) {
         error = retry.error;
       }
 
-      // Race: another request created same phone — fall back to update
+      // Race / unique phone — fall back to update
       if (error && /leads_phone_unique|duplicate key/i.test(error.message)) {
-        const { data: raced } = await admin
-          .from("leads")
-          .select("id")
-          .eq("phone", phone)
-          .maybeSingle();
+        const raced = await findExistingLead(admin, phone, email);
         if (raced) {
-          leadId = raced.id;
+          leadId = raced.lead.id;
           const racePatch = { ...sharedFields };
           if (courseId) racePatch.course_id = courseId;
           if (cohortId) racePatch.cohort_id = cohortId;
@@ -324,12 +333,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const attributionLinked = await linkAttribution(admin, leadId, sessionId);
+    const attributionLinked = await linkAttribution(admin, leadId!, sessionId);
 
     return NextResponse.json({
       ok: true,
-      id: leadId,
+      id: leadId!,
       created,
+      matched_by: matchedBy,
       allocated_to: allocatedTo,
       course_id: courseId,
       cohort_id: cohortId,
