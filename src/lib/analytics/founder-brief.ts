@@ -54,7 +54,6 @@ export function buildFounderBrief(data: AdmissionsAnalytics): FounderBrief {
   const wonInRange = daily.reduce((s, d) => s + d.won, 0);
   const callsInRange = kpis.callsInRange;
   const leadsPerDay = leadsInRange / days;
-  const winsPerDay = wonInRange / days;
   const sessionsPerDay = kpis.sessionsInRange / days;
   const formConvRate =
     kpis.sessionsInRange > 0
@@ -74,8 +73,6 @@ export function buildFounderBrief(data: AdmissionsAnalytics): FounderBrief {
   const horizon = 30;
   const projectedLeads = leadsPerDay * horizon;
   const projectedWinsFromPipeline = kpis.openLeads * winRateFrac;
-  const projectedWinsFromInflow = projectedLeads * winRateFrac;
-  const projectedWins = projectedWinsFromPipeline + projectedWinsFromInflow * 0.35; // pipeline-weighted
   const projectedRevenue =
     avgTicket > 0 ? projectedWinsFromPipeline * avgTicket : 0;
   const projectedForms = sessionsPerDay * formConvRate * horizon;
