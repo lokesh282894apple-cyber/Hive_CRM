@@ -188,22 +188,6 @@ export async function fetchMarketingOverview(
     }
   }
 
-  // Also count attributions onto campaigns even if session matched later
-  for (const a of attrList) {
-    const cid = a.first_touch_campaign_id;
-    if (!cid) continue;
-    const camp = campaignMap.get(cid);
-    if (!camp) continue;
-    if (!byCampaign.has(cid)) {
-      byCampaign.set(cid, { id: cid, name: camp.name, sessions: 0, attributed: 0 });
-    }
-    const cg = byCampaign.get(cid)!;
-    // attributed already counted via session set when possible; ensure at least attributed++
-    if (!attributedSessionIds.has(a.session_id) || true) {
-      // Prefer counting each attribution once on campaign
-    }
-  }
-
   const attrByCampaign = new Map<string, number>();
   for (const a of attrList) {
     const cid = a.first_touch_campaign_id;
