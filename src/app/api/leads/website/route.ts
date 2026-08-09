@@ -3,9 +3,150 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isUuid, validateTrackApiKey } from "@/lib/marketing/track-auth";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+/** Map website programme/source/page hints → course name substrings */
+function programmeHints(programme: string | null, source: string, pageHint: string | null): string[] {
+  const blob = `${programme ?? ""} ${source} ${pageHint ?? ""}`.toLowerCase();
+  const hints: string[] = [];
+  if (/pgp|revenue|entrepreneurship|placement-report/.test(blob)) {
+    hints.push("PGP");
+  }
+  if (/undergrad|\bug\b|brochure/.test(blob)) {
+    hints.push("Undergraduate");
+  }
+  if (/fellowship|ai marketing/.test(blob)) {
+    hints.push("Fellowship");
+  }
+  if (/executive|sprint/.test(blob)) {
+    hints.push("Executive");
+  }
+  return hints;
+}
+
+async function pageHintFromSession(
+  admin: SupabaseClient,
+  sessionId: string | null
+): Promise<string | null> {
+  if (!sessionId) return null;
+  const [{ data: session }, { data: events }] = await Promise.all([
+    admin
+      .from("visitor_sessions")
+      .select("entry_page_url")
+      .eq("id", sessionId)
+      .maybeSingle(),
+    admin
+      .from("page_events")
+      .select("page_url")
+      .eq("session_id", sessionId)
+      .order("occurred_at", { ascending: false })
+      .limit(8),
+  ]);
+  const urls = [
+    session?.entry_page_url,
+    ...(events ?? []).map((e) => e.page_url),
+  ].filter(Boolean) as string[];
+  return urls.join(" ") || null;
+}
+
+async function resolveCourseAndCohort(
+  admin: SupabaseClient,
+  courseId: string | null,
+  cohortId: string | null,
+  programme: string | null,
+  source: string,
+  sessionId: string | null
+): Promise<{ courseId: string | null; cohortId: string | null }> {
+  if (courseId && cohortId) return { courseId, cohortId };
+
+  let resolvedCourse = courseId;
+  let resolvedCohort = cohortId;
+
+  if (!resolvedCourse) {
+    const pageHint = await pageHintFromSession(admin, sessionId);
+    const hints = programmeHints(programme, source, pageHint);
+    if (hints.length) {
+      const { data: courses } = await admin
+        .from("courses")
+        .select("id, name")
+        .eq("active", true);
+      for (const hint of hints) {
+        const match = (courses ?? []).find((c) =>
+          c.name.toLowerCase().includes(hint.toLowerCase())
+        );
+        if (match) {
+          resolvedCourse = match.id;
+          break;
+        }
+      }
+    }
+  }
+
+  if (resolvedCourse && !resolvedCohort) {
+    const { data: scopes } = await admin
+      .from("counselor_scope")
+      .select("cohort_id")
+      .eq("course_id", resolvedCourse)
+      .limit(1);
+    if (scopes?.[0]?.cohort_id) {
+      resolvedCohort = scopes[0].cohort_id;
+    } else {
+      const { data: cohorts } = await admin
+        .from("cohorts")
+        .select("id")
+        .eq("course_id", resolvedCourse)
+        .eq("active", true)
+        .order("name")
+        .limit(1);
+      resolvedCohort = cohorts?.[0]?.id ?? null;
+    }
+  }
+
+  return { courseId: resolvedCourse, cohortId: resolvedCohort };
+}
+
+async function pickCounselor(
+  admin: SupabaseClient,
+  courseId: string | null,
+  cohortId: string | null
+): Promise<string | null> {
+  if (!courseId) return null;
+
+  let scopeQuery = admin
+    .from("counselor_scope")
+    .select("user_id, users!inner(id, active, role)")
+    .eq("course_id", courseId);
+  if (cohortId) scopeQuery = scopeQuery.eq("cohort_id", cohortId);
+
+  const { data: scopes } = await scopeQuery;
+  const counselorIds = (scopes ?? [])
+    .map((s) => {
+      const u = s.users as unknown as { id: string; active: boolean; role: string };
+      return u?.active && u.role === "counselor" ? u.id : null;
+    })
+    .filter(Boolean) as string[];
+
+  if (!counselorIds.length) return null;
+
+  const unique = Array.from(new Set(counselorIds));
+  const { data: rr } = await admin
+    .from("app_settings")
+    .select("value")
+    .eq("key", "round_robin_last")
+    .maybeSingle();
+  const last = typeof rr?.value === "string" ? rr.value.replace(/^"|"$/g, "") : null;
+  const idx = last ? unique.indexOf(last) : -1;
+  const allocatedTo = unique[(idx + 1) % unique.length];
+  await admin.from("app_settings").upsert({
+    key: "round_robin_last",
+    value: JSON.stringify(allocatedTo),
+    updated_at: new Date().toISOString(),
+  });
+  return allocatedTo;
+}
+
 /**
  * Website form webhook — upserts lead by phone, links session_id → lead_attribution,
- * stores free-text programme/source. course_id/cohort_id accepted only when valid UUIDs.
+ * stores free-text programme/source. course_id/cohort_id accepted only when valid UUIDs;
+ * otherwise inferred from programme/source/session page URLs.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -31,11 +172,11 @@ export async function POST(request: NextRequest) {
     const email = body.email ? String(body.email).trim() : null;
 
     // Only persist real UUIDs — website may send null or programme slugs
-    const courseId =
+    let courseId =
       body.course_id != null && isUuid(String(body.course_id))
         ? String(body.course_id)
         : null;
-    const cohortId =
+    let cohortId =
       body.cohort_id != null && isUuid(String(body.cohort_id))
         ? String(body.cohort_id)
         : null;
@@ -62,37 +203,18 @@ export async function POST(request: NextRequest) {
 
     const admin = createAdminClient();
 
-    let allocatedTo: string | null = null;
-    if (courseId && cohortId) {
-      const { data: scopes } = await admin
-        .from("counselor_scope")
-        .select("user_id, users!inner(id, active, role)")
-        .eq("course_id", courseId)
-        .eq("cohort_id", cohortId);
+    const resolved = await resolveCourseAndCohort(
+      admin,
+      courseId,
+      cohortId,
+      programme,
+      source,
+      sessionId
+    );
+    courseId = resolved.courseId;
+    cohortId = resolved.cohortId;
 
-      const counselorIds = (scopes ?? [])
-        .map((s) => {
-          const u = s.users as unknown as { id: string; active: boolean; role: string };
-          return u?.active && u.role === "counselor" ? u.id : null;
-        })
-        .filter(Boolean) as string[];
-
-      if (counselorIds.length) {
-        const { data: rr } = await admin
-          .from("app_settings")
-          .select("value")
-          .eq("key", "round_robin_last")
-          .maybeSingle();
-        const last = typeof rr?.value === "string" ? rr.value : null;
-        const idx = last ? counselorIds.indexOf(last) : -1;
-        allocatedTo = counselorIds[(idx + 1) % counselorIds.length];
-        await admin.from("app_settings").upsert({
-          key: "round_robin_last",
-          value: JSON.stringify(allocatedTo),
-          updated_at: new Date().toISOString(),
-        });
-      }
-    }
+    const allocatedTo = await pickCounselor(admin, courseId, cohortId);
 
     const { data: existing } = await admin
       .from("leads")
@@ -175,6 +297,9 @@ export async function POST(request: NextRequest) {
         if (raced) {
           leadId = raced.id;
           const racePatch = { ...sharedFields };
+          if (courseId) racePatch.course_id = courseId;
+          if (cohortId) racePatch.cohort_id = cohortId;
+          if (allocatedTo) racePatch.lead_allocated_to = allocatedTo;
           const { error: raceErr } = await admin
             .from("leads")
             .update(racePatch)
@@ -206,6 +331,8 @@ export async function POST(request: NextRequest) {
       id: leadId,
       created,
       allocated_to: allocatedTo,
+      course_id: courseId,
+      cohort_id: cohortId,
       attribution_linked: attributionLinked,
       session_id_received: Boolean(sessionId),
       programme: programme,
@@ -233,7 +360,6 @@ async function linkAttribution(
     .maybeSingle();
 
   if (!session) {
-    // Session row might arrive slightly later — still store website_session_id on lead
     return false;
   }
 
@@ -251,7 +377,6 @@ async function linkAttribution(
       last_touch_campaign_id: campaignId ?? byLead.first_touch_campaign_id,
       converted_at: now,
     };
-    // Only move session_id if free or already ours
     if (byLead.session_id !== sessionId) {
       const { data: taken } = await admin
         .from("lead_attribution")
@@ -281,7 +406,6 @@ async function linkAttribution(
         .eq("id", bySession.id);
       return true;
     }
-    // Session already attributed to another lead — don't steal
     return false;
   }
 
