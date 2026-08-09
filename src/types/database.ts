@@ -51,6 +51,10 @@ export type Lead = {
   course_id: string | null;
   cohort_id: string | null;
   source: string | null;
+  /** Free-text programme from website (e.g. pgp) when course_id UUID unknown */
+  programme?: string | null;
+  /** Last website hs_session_id from form dual-write */
+  website_session_id?: string | null;
   years_experience: number | null;
   preferred_industry: string | null;
   intent_score: number | null;

@@ -34,6 +34,7 @@ export function LeadsWorkspace({
   counselors,
   isAdmin,
   basePath = "/leads",
+  attributionByLead = {},
 }: {
   leads: LeadWithRelations[];
   /** For list pagination — count of matching rows if known, else leads.length */
@@ -44,6 +45,8 @@ export function LeadsWorkspace({
   counselors?: AppUser[];
   isAdmin: boolean;
   basePath?: string;
+  /** lead_id → campaign/channel label for Source column */
+  attributionByLead?: Record<string, { campaign_name: string | null; channel_name: string | null }>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -381,6 +384,7 @@ export function LeadsWorkspace({
                 <thead className="sticky top-0 z-10 border-b border-border bg-[#F7F8FC]">
                   <tr>
                     <th className="eyebrow px-4 py-3">Lead</th>
+                    <th className="eyebrow px-4 py-3">Source</th>
                     <th className="eyebrow px-4 py-3">Course</th>
                     <th className="eyebrow px-4 py-3">Stage</th>
                     <th className="eyebrow px-4 py-3">Intent</th>
@@ -395,7 +399,7 @@ export function LeadsWorkspace({
                   {displayList.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
                         className="px-4 py-12 text-center text-muted"
                       >
                         No leads match this filter.
@@ -408,6 +412,12 @@ export function LeadsWorkspace({
                         new Date(),
                         new Date(l.last_contacted_at ?? l.created_at)
                       );
+                      const attr = attributionByLead[l.id];
+                      const sourceLabel =
+                        attr?.campaign_name || l.source || "—";
+                      const leadHref = attr?.campaign_name
+                        ? `/leads/${l.id}?tab=marketing`
+                        : `/leads/${l.id}`;
                       return (
                         <tr
                           key={l.id}
@@ -423,7 +433,7 @@ export function LeadsWorkspace({
                               </span>
                               <div>
                                 <Link
-                                  href={`/leads/${l.id}`}
+                                  href={leadHref}
                                   className="font-medium text-navy hover:text-periwinkle"
                                 >
                                   {l.name}
@@ -431,6 +441,19 @@ export function LeadsWorkspace({
                                 <p className="text-xs text-muted">{l.phone}</p>
                               </div>
                             </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Link
+                              href={leadHref}
+                              className="block max-w-[140px] truncate text-xs text-muted hover:text-periwinkle"
+                              title={
+                                attr?.channel_name
+                                  ? `${attr.channel_name} · ${sourceLabel}`
+                                  : sourceLabel
+                              }
+                            >
+                              {sourceLabel}
+                            </Link>
                           </td>
                           <td className="px-4 py-3 text-muted">
                             {l.course?.name ?? "—"}

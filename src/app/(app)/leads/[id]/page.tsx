@@ -61,41 +61,61 @@ export default async function LeadDetailPage({
     session: null,
     creativeName: null,
     events: [],
+    legacySource: lead.source,
   };
 
-  if (attribution) {
+  // Prefer lead_attribution.session_id; fall back to leads.website_session_id
+  const sessionIdForJourney =
+    attribution?.session_id ??
+    (typeof lead.website_session_id === "string" ? lead.website_session_id : null);
+
+  if (attribution || sessionIdForJourney) {
     const [
       { data: firstCamp },
       { data: lastCamp },
       { data: session },
       { data: events },
     ] = await Promise.all([
-      attribution.first_touch_campaign_id
+      attribution?.first_touch_campaign_id
         ? supabase
             .from("campaigns")
-            .select("name")
+            .select("name, channel_id")
             .eq("id", attribution.first_touch_campaign_id)
             .maybeSingle()
         : Promise.resolve({ data: null }),
-      attribution.last_touch_campaign_id
+      attribution?.last_touch_campaign_id
         ? supabase
             .from("campaigns")
             .select("name")
             .eq("id", attribution.last_touch_campaign_id)
             .maybeSingle()
         : Promise.resolve({ data: null }),
-      supabase
-        .from("visitor_sessions")
-        .select("*")
-        .eq("id", attribution.session_id)
-        .maybeSingle(),
-      supabase
-        .from("page_events")
-        .select("*")
-        .eq("session_id", attribution.session_id)
-        .order("occurred_at", { ascending: true })
-        .limit(100),
+      sessionIdForJourney
+        ? supabase
+            .from("visitor_sessions")
+            .select("*")
+            .eq("id", sessionIdForJourney)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      sessionIdForJourney
+        ? supabase
+            .from("page_events")
+            .select("*")
+            .eq("session_id", sessionIdForJourney)
+            .order("occurred_at", { ascending: true })
+            .limit(200)
+        : Promise.resolve({ data: [] }),
     ]);
+
+    let channelName: string | null = null;
+    if (firstCamp?.channel_id) {
+      const { data: ch } = await supabase
+        .from("channels")
+        .select("name")
+        .eq("id", firstCamp.channel_id)
+        .maybeSingle();
+      channelName = ch?.name ?? null;
+    }
 
     let creativeName: string | null = null;
     const sess = session as VisitorSession | null;
@@ -106,20 +126,32 @@ export default async function LeadDetailPage({
         .eq("id", sess.matched_ad_creative_id)
         .maybeSingle();
       creativeName = creative
-        ? `${creative.creative_name} (/${creative.tracked_slug})`
+        ? `${creative.creative_name} (/go/${creative.tracked_slug})`
         : null;
     }
 
     marketing = {
-      attribution: {
-        first_touch_at: attribution.first_touch_at,
-        converted_at: attribution.converted_at,
-        first_touch_campaign: firstCamp?.name ?? null,
-        last_touch_campaign: lastCamp?.name ?? null,
-      },
+      attribution: attribution
+        ? {
+            first_touch_at: attribution.first_touch_at,
+            converted_at: attribution.converted_at,
+            first_touch_campaign: firstCamp?.name ?? null,
+            last_touch_campaign: lastCamp?.name ?? null,
+            first_touch_channel: channelName,
+          }
+        : sess
+          ? {
+              first_touch_at: sess.first_seen_at,
+              converted_at: sess.last_seen_at,
+              first_touch_campaign: null,
+              last_touch_campaign: null,
+              first_touch_channel: null,
+            }
+          : null,
       session: sess,
       creativeName,
       events: (events ?? []) as PageEvent[],
+      legacySource: lead.source,
     };
   }
 

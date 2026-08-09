@@ -598,6 +598,7 @@ export function LeadDetailClient({
               session: null,
               creativeName: null,
               events: [],
+              legacySource: lead.source,
             }
           }
         />

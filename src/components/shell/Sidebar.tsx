@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Cog,
   Flame,
+  FileText,
   LayoutDashboard,
   Link2,
   Megaphone,
@@ -17,6 +18,8 @@ import {
   UserCircle2,
   AlertTriangle,
   GraduationCap,
+  Activity,
+  UserCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -46,6 +49,10 @@ const adminNav: NavItem[] = [
 
 const marketingNav: NavItem[] = [
   { href: "/marketing/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/marketing/performance", label: "Performance", icon: BarChart3 },
+  { href: "/marketing/sessions", label: "Sessions", icon: Activity },
+  { href: "/marketing/pages", label: "Pages", icon: FileText },
+  { href: "/marketing/conversions", label: "Conversions", icon: UserCheck },
   { href: "/marketing/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/marketing/heatmaps", label: "Heatmaps", icon: Flame },
 ];
