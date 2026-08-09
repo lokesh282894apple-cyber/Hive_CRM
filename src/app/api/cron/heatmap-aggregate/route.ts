@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       : Number(settings?.value) || 20;
 
   const since = new Date();
-  since.setDate(since.getDate() - 2);
+  since.setDate(since.getDate() - 30);
 
   const { data: events, error } = await admin
     .from("page_events")

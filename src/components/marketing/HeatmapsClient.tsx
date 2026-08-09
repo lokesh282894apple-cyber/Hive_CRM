@@ -71,30 +71,37 @@ export function HeatmapsClient({
         <p className="eyebrow mb-3">
           {selectedPage} · {points.length} buckets · max {max} clicks
         </p>
-        <div
-          className="relative mx-auto rounded-xl border border-border bg-gradient-to-b from-slate-50 to-slate-100"
-          style={{ width, height, maxWidth: "100%" }}
-        >
-          {points.map((p) => {
-            const intensity = p.click_count / max;
-            return (
-              <div
-                key={`${p.x_bucket}-${p.y_bucket}`}
-                title={`${p.click_count} clicks @ (${p.x_bucket}, ${p.y_bucket})`}
-                className="absolute rounded-full"
-                style={{
-                  left: p.x_bucket,
-                  top: p.y_bucket,
-                  width: 18,
-                  height: 18,
-                  transform: "translate(-50%, -50%)",
-                  background: `rgba(255, 80, 40, ${0.15 + intensity * 0.75})`,
-                  boxShadow: `0 0 ${8 + intensity * 16}px rgba(255, 60, 20, ${intensity * 0.6})`,
-                }}
-              />
-            );
-          })}
-        </div>
+        {points.length === 0 ? (
+          <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-border bg-slate-50 px-6 text-center text-sm text-muted">
+            No heat dots for this breakpoint. Switch to mobile/tablet/desktop above, or pick a
+            page with click traffic.
+          </div>
+        ) : (
+          <div
+            className="relative mx-auto rounded-xl border border-border bg-gradient-to-b from-slate-50 to-slate-100"
+            style={{ width, height, maxWidth: "100%" }}
+          >
+            {points.map((p) => {
+              const intensity = p.click_count / max;
+              return (
+                <div
+                  key={`${p.x_bucket}-${p.y_bucket}`}
+                  title={`${p.click_count} clicks @ (${p.x_bucket}, ${p.y_bucket})`}
+                  className="absolute rounded-full"
+                  style={{
+                    left: p.x_bucket,
+                    top: p.y_bucket,
+                    width: 18,
+                    height: 18,
+                    transform: "translate(-50%, -50%)",
+                    background: `rgba(255, 80, 40, ${0.15 + intensity * 0.75})`,
+                    boxShadow: `0 0 ${8 + intensity * 16}px rgba(255, 60, 20, ${intensity * 0.6})`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
