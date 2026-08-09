@@ -2,15 +2,15 @@ import { cn } from "@/lib/utils";
 
 export type ChartDatum = { name: string; value: number; color?: string };
 
+/** Quieter single-hue ramp — less noisy than rainbow bars */
 const PALETTE = [
-  "#4F46E5", // periwinkle-ish
-  "#C9A227", // gold
-  "#0F2744", // navy
+  "#4F46E5",
+  "#6366F1",
+  "#818CF8",
+  "#0F2744",
+  "#334155",
+  "#C9A227",
   "#059669",
-  "#DC2626",
-  "#7C3AED",
-  "#0891B2",
-  "#EA580C",
   "#64748B",
 ];
 
@@ -79,12 +79,12 @@ export function HBarList({
             </span>
             <span className="shrink-0 font-semibold text-periwinkle">{d.value}</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-navy/[0.06]">
+          <div className="h-1.5 overflow-hidden rounded-full bg-navy/[0.06]">
             <div
-              className="h-full rounded-full transition-all"
+              className="h-full rounded-full"
               style={{
                 width: `${(d.value / max) * 100}%`,
-                background: d.color ?? chartColor(i),
+                background: d.color ?? (i === 0 ? "#4F46E5" : chartColor(i)),
               }}
             />
           </div>
