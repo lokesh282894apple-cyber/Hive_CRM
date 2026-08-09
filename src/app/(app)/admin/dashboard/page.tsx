@@ -2,6 +2,10 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { fetchAdmissionsAnalytics } from "@/lib/analytics/admissions";
+import {
+  buildFounderBrief,
+  type InsightSeverity,
+} from "@/lib/analytics/founder-brief";
 import { DonutChart, DualTrend, HBarList } from "@/components/charts/SimpleCharts";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
@@ -47,6 +51,18 @@ function Section({
   );
 }
 
+function severityStyles(s: InsightSeverity) {
+  if (s === "critical") return "bg-red-50 text-red-700 border-red-200";
+  if (s === "good") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  return "bg-amber-50 text-amber-800 border-amber-200";
+}
+
+function severityLabel(s: InsightSeverity) {
+  if (s === "critical") return "Act";
+  if (s === "good") return "Keep";
+  return "Tweak";
+}
+
 export default async function AdminDashboardPage({
   searchParams,
 }: {
@@ -59,16 +75,17 @@ export default async function AdminDashboardPage({
     : 30;
 
   const data = await fetchAdmissionsAnalytics(supabase, { rangeDays });
+  const brief = buildFounderBrief(data);
   const { kpis } = data;
   const ranges = [7, 30, 90];
 
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Admin"
+        eyebrow="Admin · Founder brief"
         title="Admissions"
         accent="Overview"
-        description={`Command view for the last ${rangeDays} days — summary first, then funnel, team, and money.`}
+        description={`What matters now, what’s projected next, and what to tweak — based on the last ${rangeDays} days.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
@@ -102,7 +119,89 @@ export default async function AdminDashboardPage({
         }
       />
 
-      {/* Summary — one calm strip, not a wall of cards */}
+      {/* Founder brief — projections + prioritized tweaks */}
+      <section className="panel overflow-hidden">
+        <div className="border-b border-border px-5 py-4 sm:px-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="eyebrow">Founder brief</p>
+              <h2 className="mt-1 text-lg font-semibold text-navy">{brief.headline}</h2>
+            </div>
+            <span className="rounded-full border border-border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Confidence · {brief.confidence}
+            </span>
+          </div>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">{brief.narrative}</p>
+        </div>
+
+        <div className="grid gap-0 lg:grid-cols-5">
+          <div className="border-b border-border p-5 sm:p-6 lg:col-span-2 lg:border-b-0 lg:border-r">
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Projections · next 30d
+            </p>
+            <p className="mt-1 text-xs text-muted">
+              Heuristic from recent velocity, win rate, and fee averages — not a guarantee.
+            </p>
+            <div className="mt-4 space-y-4">
+              {brief.projections.map((p) => (
+                <div key={p.label}>
+                  <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+                    {p.label}
+                  </p>
+                  <p className="mt-0.5 text-xl font-semibold tracking-tight text-navy">{p.value}</p>
+                  <p className="text-xs text-muted">{p.hint}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-5 sm:p-6 lg:col-span-3">
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              What to tweak
+            </p>
+            {brief.insights.length === 0 ? (
+              <p className="mt-4 text-sm text-muted">
+                Not enough signal yet — keep logging calls, wins, and fees.
+              </p>
+            ) : (
+              <ul className="mt-4 space-y-4">
+                {brief.insights.map((ins) => (
+                  <li key={ins.id} className="flex gap-3">
+                    <span
+                      className={`mt-0.5 h-fit shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${severityStyles(
+                        ins.severity
+                      )}`}
+                    >
+                      {severityLabel(ins.severity)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-navy">{ins.title}</p>
+                      <p className="mt-0.5 text-xs text-muted">{ins.detail}</p>
+                      <p className="mt-1 text-sm text-navy">
+                        <span className="text-muted">Do: </span>
+                        {ins.tweak}
+                        {ins.href ? (
+                          <>
+                            {" "}
+                            <Link
+                              href={ins.href}
+                              className="font-medium text-periwinkle hover:underline"
+                            >
+                              Open →
+                            </Link>
+                          </>
+                        ) : null}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Snapshot */}
       <section className="panel p-5 sm:p-6">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Open pipeline" value={kpis.openLeads} hint={`${kpis.totalLeads} total`} />
