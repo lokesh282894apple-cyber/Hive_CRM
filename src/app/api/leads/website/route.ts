@@ -382,14 +382,31 @@ async function linkAttribution(
 ): Promise<boolean> {
   if (!sessionId) return false;
 
-  const { data: session } = await admin
+  let { data: session } = await admin
     .from("visitor_sessions")
     .select("id, matched_campaign_id, first_seen_at")
     .eq("id", sessionId)
     .maybeSingle();
 
+  // Form can beat the first tracking beacon — create a stub session so attribution
+  // still links and Marketing Box can show once events catch up.
   if (!session) {
-    return false;
+    const now = new Date().toISOString();
+    const { data: created, error: sessErr } = await admin
+      .from("visitor_sessions")
+      .insert({
+        id: sessionId,
+        first_seen_at: now,
+        last_seen_at: now,
+        entry_page_url: "form-submit",
+      })
+      .select("id, matched_campaign_id, first_seen_at")
+      .maybeSingle();
+    if (sessErr || !created) {
+      console.warn("[leads/website] could not ensure visitor_session", sessionId, sessErr?.message);
+      return false;
+    }
+    session = created;
   }
 
   const now = new Date().toISOString();
