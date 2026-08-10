@@ -107,12 +107,10 @@ export default async function LeadDetailPage({
       sessionIdForJourney
         ? supabase
             .from("page_events")
-            .select(
-              "id, session_id, event_type, page_url, occurred_at, element_selector, element_text"
-            )
+            .select("*")
             .eq("session_id", sessionIdForJourney)
             .order("occurred_at", { ascending: true })
-            .limit(150)
+            .limit(200)
         : Promise.resolve({ data: [] }),
     ]);
 
@@ -155,12 +153,12 @@ export default async function LeadDetailPage({
           : null,
       session: sess,
       creativeName,
-      events: (events ?? []) as unknown as PageEvent[],
+      events: (events ?? []) as PageEvent[],
       legacySource: lead.source,
       formOrigin: buildFormOrigin({
         source: lead.source,
         programme: lead.programme ?? null,
-        events: (events ?? []) as unknown as PageEvent[],
+        events: (events ?? []) as PageEvent[],
       }),
     };
   } else {
