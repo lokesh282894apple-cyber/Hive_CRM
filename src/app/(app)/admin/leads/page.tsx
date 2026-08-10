@@ -10,6 +10,7 @@ import {
   parseLeadsSearchParams,
 } from "@/lib/leads-query";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
+import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
 
 export default async function AdminLeadsPage({
@@ -42,14 +43,14 @@ export default async function AdminLeadsPage({
     { data: leadsRaw },
     { count },
     { data: counselors },
-    { data: courses },
-    { data: cohorts },
+    courses,
+    cohorts,
   ] = await Promise.all([
     dataQuery,
     countQuery,
     supabase.from("users").select("*").eq("role", "counselor").order("name"),
-    supabase.from("courses").select("*").eq("active", true).order("name"),
-    supabase.from("cohorts").select("*").eq("active", true).order("name"),
+    getActiveCourses(),
+    getActiveCohorts(),
   ]);
 
   const leads = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
@@ -82,8 +83,8 @@ export default async function AdminLeadsPage({
           leads={leads}
           totalEstimate={count ?? 0}
           filters={filters}
-          courses={(courses as Course[]) ?? []}
-          cohorts={(cohorts as Cohort[]) ?? []}
+          courses={courses as Course[]}
+          cohorts={cohorts as Cohort[]}
           counselors={(counselors as AppUser[]) ?? []}
           isAdmin
           basePath="/admin/leads"

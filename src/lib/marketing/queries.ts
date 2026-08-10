@@ -102,7 +102,7 @@ export async function fetchMarketingOverview(
       )
       .gte("first_seen_at", since)
       .order("first_seen_at", { ascending: false })
-      .limit(8000),
+      .limit(3000),
     supabase
       .from("page_events")
       .select("*", { count: "exact", head: true })
@@ -114,7 +114,7 @@ export async function fetchMarketingOverview(
       )
       .gte("converted_at", since)
       .order("converted_at", { ascending: false })
-      .limit(2000),
+      .limit(1500),
     supabase.from("campaigns").select("id, name, channel_id, source_type, status"),
     supabase.from("channels").select("id, name"),
   ]);
@@ -291,7 +291,7 @@ export async function fetchTopPages(
     .from("page_events")
     .select("page_url, event_type, element_selector")
     .gte("occurred_at", since)
-    .limit(20000);
+    .limit(6000);
 
   const map = new Map<string, PageRow>();
   for (const ev of events ?? []) {
@@ -333,13 +333,13 @@ export async function fetchCampaignMetrics(
       .select("matched_campaign_id")
       .gte("first_seen_at", since)
       .not("matched_campaign_id", "is", null)
-      .limit(8000),
+      .limit(3000),
     supabase
       .from("lead_attribution")
       .select("first_touch_campaign_id")
       .gte("converted_at", since)
       .not("first_touch_campaign_id", "is", null)
-      .limit(2000),
+      .limit(1500),
   ]);
 
   const map = new Map<string, { sessions: number; attributed: number }>();

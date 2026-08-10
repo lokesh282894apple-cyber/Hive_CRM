@@ -1,7 +1,5 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { ensureDefaultCampaigns } from "@/lib/marketing/attribution";
 import {
   fetchMarketingOverview,
   fetchTopPages,
@@ -86,12 +84,6 @@ export default async function MarketingDashboardPage({
   searchParams: { range?: string };
 }) {
   await requireUser(["admin", "marketing"]);
-
-  try {
-    await ensureDefaultCampaigns(createAdminClient());
-  } catch {
-    /* ignore */
-  }
 
   const range = parseRange(searchParams.range) as RangeKey;
   const supabase = createClient();

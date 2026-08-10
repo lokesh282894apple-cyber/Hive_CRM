@@ -65,19 +65,7 @@ export default async function CounselorDashboardPage({
     rangeDays,
   });
   const { kpis } = data;
-
-  let myLeadIds: string[] = [];
-  if (isCounselor) {
-    const { data: mine } = await supabase
-      .from("leads")
-      .select("id")
-      .eq("lead_allocated_to", user.id)
-      .limit(3000);
-    myLeadIds = (mine ?? []).map((l) => l.id);
-  } else {
-    const { data: all } = await supabase.from("leads").select("id").limit(3000);
-    myLeadIds = (all ?? []).map((l) => l.id);
-  }
+  const myLeadIds = data.leadRows.map((l) => l.id);
   const attribution = await fetchCounselorAttributionGlance(supabase, myLeadIds);
   const ranges = [7, 30, 90];
 

@@ -11,6 +11,7 @@ import {
   parseLeadsSearchParams,
 } from "@/lib/leads-query";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
+import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
 
 export default async function LeadsPage({
@@ -27,7 +28,11 @@ export default async function LeadsPage({
     isAdmin,
   });
 
-  const scopes = isAdmin ? [] : await getCounselorScopePairs(supabase, user.id);
+  const [scopes, courses, cohorts] = await Promise.all([
+    isAdmin ? Promise.resolve([]) : getCounselorScopePairs(supabase, user.id),
+    getActiveCourses(),
+    getActiveCohorts(),
+  ]);
 
   const filterOpts = {
     filters,
@@ -42,12 +47,7 @@ export default async function LeadsPage({
   let countQuery = supabase.from("leads").select("id", { count: "exact", head: true });
   countQuery = applyLeadsFilters(countQuery, { ...filterOpts, paginate: false });
 
-  const [{ data }, { count }, { data: courses }, { data: cohorts }] = await Promise.all([
-    dataQuery,
-    countQuery,
-    supabase.from("courses").select("*").eq("active", true).order("name"),
-    supabase.from("cohorts").select("*").eq("active", true).order("name"),
-  ]);
+  const [{ data }, { count }] = await Promise.all([dataQuery, countQuery]);
 
   const leads = (data as unknown as LeadWithRelations[]) ?? [];
   const attrMap = await fetchAttributionForLeads(
@@ -83,8 +83,8 @@ export default async function LeadsPage({
           leads={leads}
           totalEstimate={count ?? 0}
           filters={filters}
-          courses={(courses as Course[]) ?? []}
-          cohorts={(cohorts as Cohort[]) ?? []}
+          courses={courses as Course[]}
+          cohorts={cohorts as Cohort[]}
           isAdmin={isAdmin}
           basePath="/leads"
           attributionByLead={attributionByLead}

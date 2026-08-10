@@ -9,14 +9,10 @@ import type { AdCreative, Campaign, MarketingChannel } from "@/types/database";
 
 export default async function MarketingCampaignsPage() {
   await requireUser(["admin", "marketing"]);
-
-  try {
-    await ensureDefaultCampaigns(createAdminClient());
-  } catch {
-    /* ignore */
-  }
-
   const supabase = createClient();
+
+  // Seed defaults in background — never block the page on N+1 campaign inserts
+  void ensureDefaultCampaigns(createAdminClient()).catch(() => {});
 
   const [{ data: channels }, { data: campaigns }, { data: creatives }, metricsMap] =
     await Promise.all([

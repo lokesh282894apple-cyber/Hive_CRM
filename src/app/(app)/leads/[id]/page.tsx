@@ -4,6 +4,7 @@ import { LeadDetailClient } from "@/components/leads/LeadDetailClient";
 import type { LeadMarketingData } from "@/components/leads/LeadMarketingTab";
 import type { PageEvent, VisitorSession } from "@/types/database";
 import { buildFormOrigin } from "@/lib/leads/form-origin";
+import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { notFound } from "next/navigation";
 
 export default async function LeadDetailPage({
@@ -18,16 +19,16 @@ export default async function LeadDetailPage({
   if (!lead) notFound();
 
   const [
-    { data: courses },
-    { data: cohorts },
+    courses,
+    cohorts,
     { data: history },
     { data: callLogs },
     { data: allocated },
     { data: bookings },
     { data: attribution },
   ] = await Promise.all([
-    supabase.from("courses").select("*").order("name"),
-    supabase.from("cohorts").select("*").order("name"),
+    getAllCourses(),
+    getAllCohorts(),
     supabase
       .from("stage_history")
       .select("*")
@@ -106,35 +107,33 @@ export default async function LeadDetailPage({
       sessionIdForJourney
         ? supabase
             .from("page_events")
-            .select("*")
+            .select(
+              "id, session_id, event_type, page_url, occurred_at, element_selector, element_text"
+            )
             .eq("session_id", sessionIdForJourney)
             .order("occurred_at", { ascending: true })
-            .limit(200)
+            .limit(150)
         : Promise.resolve({ data: [] }),
     ]);
 
-    let channelName: string | null = null;
-    if (firstCamp?.channel_id) {
-      const { data: ch } = await supabase
-        .from("channels")
-        .select("name")
-        .eq("id", firstCamp.channel_id)
-        .maybeSingle();
-      channelName = ch?.name ?? null;
-    }
-
-    let creativeName: string | null = null;
     const sess = session as VisitorSession | null;
-    if (sess?.matched_ad_creative_id) {
-      const { data: creative } = await supabase
-        .from("ad_creatives")
-        .select("creative_name, tracked_slug")
-        .eq("id", sess.matched_ad_creative_id)
-        .maybeSingle();
-      creativeName = creative
-        ? `${creative.creative_name} (/go/${creative.tracked_slug})`
-        : null;
-    }
+    const [{ data: ch }, { data: creative }] = await Promise.all([
+      firstCamp?.channel_id
+        ? supabase.from("channels").select("name").eq("id", firstCamp.channel_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+      sess?.matched_ad_creative_id
+        ? supabase
+            .from("ad_creatives")
+            .select("creative_name, tracked_slug")
+            .eq("id", sess.matched_ad_creative_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const channelName = ch?.name ?? null;
+    const creativeName = creative
+      ? `${creative.creative_name} (/go/${creative.tracked_slug})`
+      : null;
 
     marketing = {
       attribution: attribution
@@ -156,12 +155,12 @@ export default async function LeadDetailPage({
           : null,
       session: sess,
       creativeName,
-      events: (events ?? []) as PageEvent[],
+      events: (events ?? []) as unknown as PageEvent[],
       legacySource: lead.source,
       formOrigin: buildFormOrigin({
         source: lead.source,
         programme: lead.programme ?? null,
-        events: (events ?? []) as PageEvent[],
+        events: (events ?? []) as unknown as PageEvent[],
       }),
     };
   } else {
@@ -187,8 +186,8 @@ export default async function LeadDetailPage({
   return (
     <LeadDetailClient
       lead={lead}
-      courses={courses ?? []}
-      cohorts={cohorts ?? []}
+      courses={courses}
+      cohorts={cohorts}
       history={history ?? []}
       callLogs={callLogs ?? []}
       isAdmin={user.role === "admin"}

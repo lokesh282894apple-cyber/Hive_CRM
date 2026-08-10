@@ -10,7 +10,7 @@ export default async function AttentionPage() {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
 
-  const [{ data: settings }, { data: leads }] = await Promise.all([
+  const [{ data: settings }, { data: leads }, { data: overdueInst }] = await Promise.all([
     supabase.from("app_settings").select("*"),
     user.role === "admin"
       ? supabase.from("leads").select("id, name, stage, last_contacted_at, created_at").limit(500)
@@ -19,16 +19,15 @@ export default async function AttentionPage() {
           .select("id, name, stage, last_contacted_at, created_at")
           .eq("lead_allocated_to", user.id)
           .limit(500),
+    supabase
+      .from("installments")
+      .select("fee_record_id, fee_records(lead_id)")
+      .eq("status", "overdue"),
   ]);
 
   const map = Object.fromEntries((settings ?? []).map((s) => [s.key, s.value]));
   const noContactDaysThreshold = Number(map.attention_no_contact_days ?? 3);
   const unresolvedNoshowDays = Number(map.attention_unresolved_noshow_days ?? 2);
-
-  const { data: overdueInst } = await supabase
-    .from("installments")
-    .select("fee_record_id, fee_records(lead_id)")
-    .eq("status", "overdue");
 
   const overdueLeadIds = new Set(
     (overdueInst ?? [])
