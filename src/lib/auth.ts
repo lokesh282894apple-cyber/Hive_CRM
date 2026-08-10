@@ -2,8 +2,10 @@ import { homeForRole, type Role } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { AppUser } from "@/types/database";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 
-export async function getSessionUser(): Promise<AppUser | null> {
+/** Deduped per request — layout + page both call requireUser. */
+export const getSessionUser = cache(async (): Promise<AppUser | null> => {
   const supabase = createClient();
   const {
     data: { user },
@@ -18,7 +20,7 @@ export async function getSessionUser(): Promise<AppUser | null> {
     .maybeSingle();
 
   return (data as AppUser | null) ?? null;
-}
+});
 
 export async function requireUser(allowed?: Role[]): Promise<AppUser> {
   const user = await getSessionUser();

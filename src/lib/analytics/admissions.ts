@@ -63,6 +63,19 @@ export type AdmissionsAnalytics = {
   }[];
   paymentModeMix: NamedCount[];
   vendorLoanStats: { name: string; sent: number; approved: number; rate: number }[];
+  /** Shared raw rows so founder-command need not re-query */
+  leadRows: {
+    id: string;
+    stage: string;
+    source: string | null;
+    course_id: string | null;
+    cohort_id: string | null;
+    lead_allocated_to: string | null;
+    created_at: string;
+    updated_at: string;
+    last_contacted_at: string | null;
+  }[];
+  callRows: { lead_id: string; logged_at: string; counselor_id: string }[];
 };
 
 const ATTENTION_STAGES = [
@@ -110,7 +123,7 @@ export async function fetchAdmissionsAnalytics(
   let leadsQ = supabase
     .from("leads")
     .select(
-      "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at"
+      "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at"
     );
   if (counselorId) leadsQ = leadsQ.eq("lead_allocated_to", counselorId);
 
@@ -153,12 +166,12 @@ export async function fetchAdmissionsAnalytics(
     { data: vendors },
     { count: sessionsInRange },
     { count: formConversionsInRange },
-    { data: attributions },
+    { count: attributedCount },
   ] = await Promise.all([
     leadsQ.limit(5000),
     supabase.from("courses").select("id, name").eq("active", true),
     supabase.from("users").select("id, name").eq("role", "counselor").eq("active", true),
-    callsQ.limit(5000),
+    callsQ.limit(2500),
     interviewsTodayQ.limit(50),
     interviewsUpcomingQ,
     counselorId
@@ -178,13 +191,13 @@ export async function fetchAdmissionsAnalytics(
       .from("lead_attribution")
       .select("id", { count: "exact", head: true })
       .gte("converted_at", sinceIso),
-    supabase.from("lead_attribution").select("lead_id").limit(5000),
+    supabase.from("lead_attribution").select("id", { count: "exact", head: true }),
   ]);
 
   const all = leads ?? [];
   const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
   const counselorMap = new Map((counselors ?? []).map((c) => [c.id, c.name]));
-  const attributedSet = new Set((attributions ?? []).map((a) => a.lead_id));
+  // attributedCount is total attributed leads in CRM (unique lead_id)
 
   const openLeads = all.filter((l) => OPEN_STAGES.includes(l.stage as Stage)).length;
   const newLeads = all.filter((l) =>
@@ -197,7 +210,7 @@ export async function fetchAdmissionsAnalytics(
   const lost = all.filter((l) => l.stage === "closed_lost").length;
   const closed = won + lost;
   const unassigned = all.filter((l) => !l.lead_allocated_to).length;
-  const attributed = all.filter((l) => attributedSet.has(l.id)).length;
+  const attributed = attributedCount ?? 0;
 
   const funnelGroups = [
     ...STAGE_GROUPS.filter((g) => !["open", "all"].includes(g.id)),
@@ -381,5 +394,21 @@ export async function fetchAdmissionsAnalytics(
     interviewsToday,
     paymentModeMix,
     vendorLoanStats,
+    leadRows: all.map((l) => ({
+      id: l.id,
+      stage: l.stage,
+      source: l.source,
+      course_id: l.course_id,
+      cohort_id: l.cohort_id,
+      lead_allocated_to: l.lead_allocated_to,
+      created_at: l.created_at,
+      updated_at: l.updated_at,
+      last_contacted_at: (l as { last_contacted_at?: string | null }).last_contacted_at ?? null,
+    })),
+    callRows: (calls ?? []).map((c) => ({
+      lead_id: c.lead_id,
+      logged_at: c.logged_at,
+      counselor_id: c.counselor_id,
+    })),
   };
 }

@@ -104,11 +104,12 @@ export function Sidebar({
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition",
+                "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition active:scale-[0.98]",
                 active
                   ? "bg-gold/15 text-gold"
                   : "text-white/75 hover:bg-white/5 hover:text-white"
               )}
+              prefetch={true}
             >
               <Icon className="h-4 w-4 shrink-0" />
               {item.label}

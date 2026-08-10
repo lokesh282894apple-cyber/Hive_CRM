@@ -8,7 +8,7 @@ import {
 } from "@/app/actions/settings";
 import type { Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { type FormEvent, useState, useTransition } from "react";
 
 type Tab = "courses" | "vendors" | "fees";
 

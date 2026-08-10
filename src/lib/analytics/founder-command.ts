@@ -192,89 +192,51 @@ export async function fetchFounderCommand(
   const in14 = addDays(todayKey, 14);
   const in30 = addDays(todayKey, 30);
 
-  const admissions = await fetchAdmissionsAnalytics(supabase, { rangeDays });
-
-  type LeadRow = {
-    id: string;
-    stage: string;
-    cohort_id: string | null;
-    course_id: string | null;
-    created_at: string;
-    updated_at: string;
-    last_contacted_at: string | null;
-    lead_allocated_to: string | null;
-  };
+  const [admissions, extras] = await Promise.all([
+    fetchAdmissionsAnalytics(supabase, { rangeDays }),
+    Promise.all([
+      supabase
+        .from("cohorts")
+        .select("id, name, course_id, start_date, active")
+        .eq("active", true),
+      supabase.from("courses").select("id, name").eq("active", true),
+      supabase.from("stage_history").select("lead_id, to_stage").limit(4000),
+      supabase.from("interview_bookings").select("lead_id").limit(2000),
+      supabase
+        .from("installments")
+        .select("deadline, amount_to_realise, amount_realised, status"),
+      supabase
+        .from("app_settings")
+        .select("key, value")
+        .in("key", ["enrollment_targets", "manual_monthly_ad_spend"]),
+      supabase
+        .from("ad_spend_daily")
+        .select("spend")
+        .gte("date", sinceIso.slice(0, 10))
+        .limit(2000),
+    ]),
+  ]);
 
   const [
-    leadsRes,
     cohortsRes,
     coursesRes,
     historyRes,
-    firstCallsRes,
     bookingsRes,
     installmentsRes,
-    feeRecordsRes,
     settingsRes,
     spendRes,
-    callsForCounselorRes,
-  ] = await Promise.all([
-    supabase
-      .from("leads")
-      .select(
-        "id, stage, cohort_id, course_id, created_at, updated_at, last_contacted_at, lead_allocated_to"
-      )
-      .limit(5000),
-    supabase
-      .from("cohorts")
-      .select("id, name, course_id, start_date, active, default_total_fee")
-      .eq("active", true),
-    supabase.from("courses").select("id, name").eq("active", true),
-    supabase
-      .from("stage_history")
-      .select("lead_id, to_stage, changed_at")
-      .limit(8000),
-    supabase
-      .from("call_logs")
-      .select("lead_id, logged_at, counselor_id")
-      .order("logged_at", { ascending: true })
-      .limit(8000),
-    supabase
-      .from("interview_bookings")
-      .select("id, lead_id, outcome, scheduled_at, interviewer_id")
-      .limit(3000),
-    supabase
-      .from("installments")
-      .select("deadline, amount_to_realise, amount_realised, status"),
-    supabase.from("fee_records").select("id, lead_id, total_fee, remaining_fee"),
-    supabase
-      .from("app_settings")
-      .select("key, value")
-      .in("key", ["enrollment_targets", "manual_monthly_ad_spend"]),
-    supabase
-      .from("ad_spend_daily")
-      .select("spend, date")
-      .gte("date", sinceIso.slice(0, 10))
-      .limit(5000),
-    supabase
-      .from("call_logs")
-      .select("counselor_id, lead_id, logged_at")
-      .gte("logged_at", sinceIso)
-      .limit(5000),
-  ]);
+  ] = extras;
 
-  const leads = (leadsRes.data ?? []) as LeadRow[];
-  const cohorts = cohortsRes.data ?? [];
-  const courses = coursesRes.data ?? [];
+  const allLeads = admissions.leadRows;
   const history = historyRes.data ?? [];
-  const firstCalls = firstCallsRes.data ?? [];
   const bookings = bookingsRes.data ?? [];
   const installments = installmentsRes.data ?? [];
-  const feeRecords = feeRecordsRes.data ?? [];
   const settingsRows = settingsRes.data ?? [];
   const spendRows = spendRes.error ? [] : spendRes.data ?? [];
-  const callsForCounselor = callsForCounselorRes.data ?? [];
+  const cohorts = cohortsRes.data ?? [];
+  const courses = coursesRes.data ?? [];
+  const callsForCounselor = admissions.callRows;
 
-  const allLeads = leads;
   const courseMap = new Map(courses.map((c) => [c.id, c.name]));
   const settingsMap = new Map(settingsRows.map((s) => [s.key, s.value]));
   const targets = parseTargets(settingsMap.get("enrollment_targets"));
@@ -282,10 +244,11 @@ export async function fetchFounderCommand(
     settingsMap.get("manual_monthly_ad_spend")
   );
 
-  const feeBooks = feeRecords;
+  const feeBooks = admissions.paymentModeMix.reduce((s, p) => s + p.count, 0);
   const avgTicket =
-    feeBooks.length > 0
-      ? feeBooks.reduce((s, f) => s + Number(f.total_fee), 0) / feeBooks.length
+    feeBooks > 0 &&
+    admissions.kpis.feeCollected + admissions.kpis.feeOutstanding > 0
+      ? (admissions.kpis.feeCollected + admissions.kpis.feeOutstanding) / feeBooks
       : 0;
 
   const reached = {
@@ -377,8 +340,17 @@ export async function fetchFounderCommand(
       : null;
 
   const firstCallByLead = new Map<string, string>();
-  for (const c of firstCalls) {
+  // Prefer earliest call in range; fall back to last_contacted_at
+  const callsSorted = [...callsForCounselor].sort((a, b) =>
+    a.logged_at.localeCompare(b.logged_at)
+  );
+  for (const c of callsSorted) {
     if (!firstCallByLead.has(c.lead_id)) firstCallByLead.set(c.lead_id, c.logged_at);
+  }
+  for (const l of allLeads) {
+    if (!firstCallByLead.has(l.id) && l.last_contacted_at) {
+      firstCallByLead.set(l.id, l.last_contacted_at);
+    }
   }
   const latencies: number[] = [];
   for (const l of allLeads) {
@@ -541,7 +513,7 @@ export async function fetchFounderCommand(
 
   const callsByCounselor = new Map<string, number>();
   const responseHoursByCounselor = new Map<string, number[]>();
-  const leadCreated = new Map<string, LeadRow>(allLeads.map((l) => [l.id, l]));
+  const leadCreated = new Map(allLeads.map((l) => [l.id, l]));
   for (const c of callsForCounselor) {
     callsByCounselor.set(
       c.counselor_id,
