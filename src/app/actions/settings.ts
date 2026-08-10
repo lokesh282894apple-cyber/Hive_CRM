@@ -75,5 +75,64 @@ export async function updateAppSetting(key: string, value: unknown): Promise<Act
   });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/config");
+  revalidatePath("/admin/dashboard");
+  revalidatePath("/admin/analytics");
+  return { ok: true };
+}
+
+/** Upsert seat target for one cohort inside enrollment_targets map. */
+export async function setCohortSeatTarget(
+  cohortId: string,
+  seats: number | null
+): Promise<ActionResult> {
+  await requireUser(["admin"]);
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", "enrollment_targets")
+    .maybeSingle();
+
+  const current =
+    data?.value && typeof data.value === "object" && !Array.isArray(data.value)
+      ? { ...(data.value as Record<string, number>) }
+      : {};
+
+  if (seats == null || seats <= 0) {
+    delete current[cohortId];
+  } else {
+    current[cohortId] = Math.round(seats);
+  }
+
+  const { error } = await supabase.from("app_settings").upsert({
+    key: "enrollment_targets",
+    value: current,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/dashboard");
+  revalidatePath("/admin/analytics");
+  revalidatePath("/admin/config");
+  return { ok: true };
+}
+
+export async function setManualMonthlyAdSpend(
+  amount: number | null
+): Promise<ActionResult> {
+  await requireUser(["admin"]);
+  const supabase = createClient();
+  const value =
+    amount != null && Number.isFinite(amount) && amount > 0
+      ? { amount: Math.round(amount) }
+      : { amount: 0 };
+  const { error } = await supabase.from("app_settings").upsert({
+    key: "manual_monthly_ad_spend",
+    value,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/dashboard");
+  revalidatePath("/admin/analytics");
+  revalidatePath("/admin/config");
   return { ok: true };
 }

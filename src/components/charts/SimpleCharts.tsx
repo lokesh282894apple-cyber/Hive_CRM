@@ -151,6 +151,130 @@ export function DonutChart({
   );
 }
 
+/** Confidence badge for forecasts */
+export function ForecastBadge({
+  confidence,
+  reason,
+}: {
+  confidence: "low" | "medium" | "high";
+  reason?: string;
+}) {
+  const tone =
+    confidence === "high"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : confidence === "medium"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-border bg-navy/[0.03] text-muted";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-eyebrow ${tone}`}
+      title={reason}
+    >
+      Forecast · {confidence}
+    </span>
+  );
+}
+
+/** Line chart with solid history + optional dashed forecast */
+export function LineChart({
+  series,
+  height = 160,
+  className,
+  dimForecast = false,
+}: {
+  series: {
+    id: string;
+    label: string;
+    color: string;
+    points: { date: string; value: number }[];
+    dashed?: boolean;
+  }[];
+  height?: number;
+  className?: string;
+  dimForecast?: boolean;
+}) {
+  const all = series.flatMap((s) => s.points);
+  if (!all.length) {
+    return <p className="py-8 text-center text-sm text-muted">No data yet.</p>;
+  }
+  const dates = Array.from(new Set(all.map((p) => p.date))).sort();
+  const max = Math.max(1, ...all.map((p) => p.value));
+  const padX = 8;
+  const padY = 12;
+  const w = 400;
+  const h = height;
+  const innerW = w - padX * 2;
+  const innerH = h - padY * 2;
+
+  function xAt(i: number, n: number) {
+    if (n <= 1) return padX + innerW / 2;
+    return padX + (i / (n - 1)) * innerW;
+  }
+  function yAt(v: number) {
+    return padY + innerH - (v / max) * innerH;
+  }
+  function pathFor(points: { date: string; value: number }[]) {
+    const map = new Map(points.map((p) => [p.date, p.value]));
+    const pts = dates
+      .map((d, i) => {
+        const v = map.get(d);
+        if (v == null) return null;
+        return `${xAt(i, dates.length)},${yAt(v)}`;
+      })
+      .filter(Boolean);
+    if (!pts.length) return "";
+    return `M ${pts.join(" L ")}`;
+  }
+
+  return (
+    <div className={cn("w-full", className)}>
+      <div className="mb-2 flex flex-wrap gap-3 text-[11px] text-muted">
+        {series.map((s) => (
+          <span key={s.id} className="inline-flex items-center gap-1.5">
+            <span
+              className="h-0.5 w-3"
+              style={{
+                background: s.color,
+                opacity: s.dashed && dimForecast ? 0.45 : 1,
+                borderTop: s.dashed ? `2px dashed ${s.color}` : undefined,
+                height: s.dashed ? 0 : 2,
+              }}
+            />
+            {s.label}
+          </span>
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="h-auto w-full" role="img">
+        <line
+          x1={padX}
+          y1={padY + innerH}
+          x2={padX + innerW}
+          y2={padY + innerH}
+          stroke="currentColor"
+          strokeOpacity={0.08}
+        />
+        {series.map((s) => {
+          const d = pathFor(s.points);
+          if (!d) return null;
+          return (
+            <path
+              key={s.id}
+              d={d}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={2}
+              strokeDasharray={s.dashed ? "5 4" : undefined}
+              strokeOpacity={s.dashed && dimForecast ? 0.45 : 0.9}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 /** Dual-series mini trend (leads vs calls) */
 export function DualTrend({
   series,

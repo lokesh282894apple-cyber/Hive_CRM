@@ -1,42 +1,33 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
-import { fetchAdmissionsAnalytics } from "@/lib/analytics/admissions";
-import { DonutChart, DualTrend, HBarList } from "@/components/charts/SimpleCharts";
+import { fetchFounderCommand } from "@/lib/analytics/founder-command";
+import {
+  BarChart,
+  DonutChart,
+  ForecastBadge,
+  HBarList,
+  LineChart,
+} from "@/components/charts/SimpleCharts";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 
-function Metric({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tracking-tight text-navy">{value}</p>
-      {hint ? <p className="mt-0.5 text-xs text-muted">{hint}</p> : null}
-    </div>
-  );
-}
-
 function Section({
   title,
+  action,
   children,
   className = "",
 }: {
   title: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
   return (
     <section className={`panel overflow-hidden ${className}`}>
-      <div className="border-b border-border px-5 py-3.5">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3.5">
         <h2 className="text-sm font-semibold text-navy">{title}</h2>
+        {action}
       </div>
       <div className="p-5">{children}</div>
     </section>
@@ -54,7 +45,8 @@ export default async function AdminAnalyticsPage({
     ? Number(searchParams.range)
     : 30;
 
-  const data = await fetchAdmissionsAnalytics(supabase, { rangeDays });
+  const cmd = await fetchFounderCommand(supabase, { rangeDays });
+  const { admissions: data, northStar: ns } = cmd;
   const { kpis } = data;
 
   return (
@@ -63,7 +55,7 @@ export default async function AdminAnalyticsPage({
         eyebrow="Admin · Analytics"
         title="Deep"
         accent="Cut"
-        description="Full stage table, sources, fees, and loan rates — same data as Overview."
+        description="Full stages, programmes, cash calendar, and CPE — same command model as Overview."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/admin/dashboard" className="btn-primary text-xs">
@@ -89,30 +81,85 @@ export default async function AdminAnalyticsPage({
       />
 
       <section className="panel p-5 sm:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-navy">
+            <strong>{ns.cohortName ?? "Pipeline"}</strong>
+            {ns.seats != null
+              ? ` · ${ns.won}/${ns.seats} · projected ~${Math.round(ns.projectedFill)}`
+              : ` · ${ns.won} won · seats unset`}
+          </p>
+          <ForecastBadge confidence={cmd.confidence} reason={cmd.confidenceReason} />
+        </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="Leads in CRM" value={kpis.totalLeads} />
-          <Metric label="Win rate" value={`${kpis.winRate.toFixed(1)}%`} />
-          <Metric label="Fee collected" value={formatCurrency(kpis.feeCollected)} />
-          <Metric label="Fee outstanding" value={formatCurrency(kpis.feeOutstanding)} />
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Yield
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-navy">
+              {ns.yieldRate.toFixed(1)}%
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Fee collected
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-navy">
+              {formatCurrency(kpis.feeCollected)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Overdue
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-navy">
+              {formatCurrency(cmd.money.overdueAmount)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              CPE
+            </p>
+            <p className="mt-1 text-2xl font-semibold text-navy">
+              {cmd.cpe.available ? formatCurrency(cmd.cpe.cpe ?? 0) : "—"}
+            </p>
+          </div>
         </div>
       </section>
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        <Section title={`Leads vs calls · ${rangeDays}d`} className="lg:col-span-3">
-          <DualTrend
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Section title={`Pulse · ${rangeDays}d`} action={<ForecastBadge confidence={cmd.confidence} />}>
+          <LineChart
             height={160}
-            series={data.daily.map((d) => ({
-              date: d.date,
-              a: d.leads,
-              b: d.calls,
-              aLabel: "Leads",
-              bLabel: "Calls",
-            }))}
+            dimForecast={cmd.confidence === "low"}
+            series={[
+              {
+                id: "leads",
+                label: "Leads",
+                color: "#4F46E5",
+                points: cmd.pulse.historyLeads,
+              },
+              {
+                id: "wins",
+                label: "Wins",
+                color: "#C9A227",
+                points: cmd.pulse.historyWins,
+              },
+              {
+                id: "leads-f",
+                label: "Leads forecast",
+                color: "#4F46E5",
+                points: cmd.pulse.forecastLeads,
+                dashed: true,
+              },
+            ]}
           />
         </Section>
-        <Section title="Funnel groups" className="lg:col-span-2">
+        <Section title="Conversion rates">
           <HBarList
-            data={data.funnelGroups.map((g) => ({ name: g.name, value: g.count }))}
+            data={cmd.conversions.map((c) => ({
+              name: c.name,
+              value: c.rate != null ? Math.round(c.rate) : 0,
+            }))}
           />
         </Section>
       </div>
@@ -121,76 +168,65 @@ export default async function AdminAnalyticsPage({
         <Section title="Every stage">
           <div className="max-h-[420px] overflow-y-auto pr-1">
             <HBarList
-              data={data.stageBreakdown.map((s) => ({ name: s.name, value: s.count }))}
+              data={data.stageBreakdown.map((s) => ({
+                name: s.name,
+                value: s.count,
+              }))}
             />
           </div>
         </Section>
-        <Section title="Sources">
+        <Section title="Programmes">
           <DonutChart
             size={130}
-            data={data.sourceMix.map((s) => ({ name: s.name, value: s.count }))}
+            data={data.courseMix.map((s) => ({ name: s.name, value: s.count }))}
           />
         </Section>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Section title="Counselors">
+        <Section title="Cash · expected">
+          <BarChart data={cmd.money.expectedBars} height={120} />
+          <p className="mt-3 text-xs text-muted">
+            Next 14d {formatCurrency(cmd.money.expected14d)} · Next 30d{" "}
+            {formatCurrency(cmd.money.expected30d)}
+          </p>
+        </Section>
+        <Section title="Counselor won">
+          <BarChart
+            height={140}
+            data={cmd.counselorExec.map((c) => ({ name: c.name, value: c.won }))}
+          />
+        </Section>
+      </div>
+
+      <Section title="Loan vendors">
+        {data.vendorLoanStats.length === 0 ? (
+          <p className="text-sm text-muted">No loan data yet.</p>
+        ) : (
           <div className="-mx-5 -mb-5 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-border bg-navy/[0.02]">
                 <tr>
-                  <th className="eyebrow px-5 py-2.5">Name</th>
-                  <th className="eyebrow px-4 py-2.5">Total</th>
-                  <th className="eyebrow px-4 py-2.5">Open</th>
-                  <th className="eyebrow px-4 py-2.5">Won</th>
-                  <th className="eyebrow px-5 py-2.5">Win %</th>
+                  <th className="eyebrow px-5 py-2.5">Vendor</th>
+                  <th className="eyebrow px-4 py-2.5">Sent</th>
+                  <th className="eyebrow px-4 py-2.5">Approved+</th>
+                  <th className="eyebrow px-5 py-2.5">Rate</th>
                 </tr>
               </thead>
               <tbody>
-                {data.counselorBoard.map((c) => (
-                  <tr key={c.id} className="border-b border-border last:border-0">
-                    <td className="px-5 py-3 font-medium text-navy">{c.name}</td>
-                    <td className="px-4 py-3 text-muted">{c.total}</td>
-                    <td className="px-4 py-3 text-muted">{c.open}</td>
-                    <td className="px-4 py-3 text-muted">{c.won}</td>
-                    <td className="px-5 py-3 font-semibold text-periwinkle">
-                      {c.winRate.toFixed(0)}%
-                    </td>
+                {data.vendorLoanStats.map((v) => (
+                  <tr key={v.name} className="border-b border-border last:border-0">
+                    <td className="px-5 py-3 font-medium text-navy">{v.name}</td>
+                    <td className="px-4 py-3 text-muted">{v.sent}</td>
+                    <td className="px-4 py-3 text-muted">{v.approved}</td>
+                    <td className="px-5 py-3 font-semibold text-periwinkle">{v.rate}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </Section>
-        <Section title="Loan vendors">
-          {data.vendorLoanStats.length === 0 ? (
-            <p className="text-sm text-muted">No loan data yet.</p>
-          ) : (
-            <div className="-mx-5 -mb-5 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-navy/[0.02]">
-                  <tr>
-                    <th className="eyebrow px-5 py-2.5">Vendor</th>
-                    <th className="eyebrow px-4 py-2.5">Sent</th>
-                    <th className="eyebrow px-4 py-2.5">Approved+</th>
-                    <th className="eyebrow px-5 py-2.5">Rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.vendorLoanStats.map((v) => (
-                    <tr key={v.name} className="border-b border-border last:border-0">
-                      <td className="px-5 py-3 font-medium text-navy">{v.name}</td>
-                      <td className="px-4 py-3 text-muted">{v.sent}</td>
-                      <td className="px-4 py-3 text-muted">{v.approved}</td>
-                      <td className="px-5 py-3 font-semibold text-periwinkle">{v.rate}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Section>
-      </div>
+        )}
+      </Section>
     </div>
   );
 }

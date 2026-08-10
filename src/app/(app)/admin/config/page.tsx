@@ -18,6 +18,15 @@ export default async function AdminConfigPage() {
   const map = Object.fromEntries((settings ?? []).map((s) => [s.key, s.value]));
   const daysBetween = Number(map.days_between_installments ?? 30);
   const defaultInstallmentCount = Number(map.default_installment_count ?? 3);
+  const manualSpendRaw = map.manual_monthly_ad_spend;
+  const manualMonthlyAdSpend =
+    typeof manualSpendRaw === "number"
+      ? manualSpendRaw
+      : manualSpendRaw &&
+          typeof manualSpendRaw === "object" &&
+          "amount" in (manualSpendRaw as object)
+        ? Number((manualSpendRaw as { amount: number }).amount) || 0
+        : 0;
 
   return (
     <div>
@@ -33,6 +42,7 @@ export default async function AdminConfigPage() {
         vendors={vendors ?? []}
         daysBetween={daysBetween}
         defaultInstallmentCount={defaultInstallmentCount}
+        manualMonthlyAdSpend={manualMonthlyAdSpend}
         googleMeetConfigured={isGoogleCalendarConfigured()}
       />
     </div>

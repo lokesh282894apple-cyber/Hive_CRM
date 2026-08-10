@@ -8,7 +8,7 @@ import {
 } from "@/app/actions/settings";
 import type { Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 
 type Tab = "courses" | "vendors" | "fees";
 
@@ -18,6 +18,7 @@ export function SettingsClient({
   vendors,
   daysBetween,
   defaultInstallmentCount,
+  manualMonthlyAdSpend = 0,
   googleMeetConfigured = false,
 }: {
   courses: Course[];
@@ -25,6 +26,7 @@ export function SettingsClient({
   vendors: LoanVendor[];
   daysBetween: number;
   defaultInstallmentCount: number;
+  manualMonthlyAdSpend?: number;
   googleMeetConfigured?: boolean;
 }) {
   const router = useRouter();
@@ -217,6 +219,11 @@ export function SettingsClient({
                 "default_installment_count",
                 Number(fd.get("default_installment_count"))
               );
+              const spend = Number(fd.get("manual_monthly_ad_spend") || 0);
+              await updateAppSetting(
+                "manual_monthly_ad_spend",
+                spend > 0 ? { amount: Math.round(spend) } : { amount: 0 }
+              );
               return { ok: true };
             });
           }}
@@ -245,6 +252,20 @@ export function SettingsClient({
               defaultValue={defaultInstallmentCount}
               min={1}
             />
+          </div>
+          <div>
+            <label className="label-field">Manual monthly ad spend (₹)</label>
+            <input
+              name="manual_monthly_ad_spend"
+              type="number"
+              className="input-field"
+              defaultValue={manualMonthlyAdSpend || ""}
+              min={0}
+              placeholder="For rough CPE until ad platforms connect"
+            />
+            <p className="mt-1 text-xs text-muted">
+              Used on the founder dashboard for cost-per-enrolled when live spend is empty.
+            </p>
           </div>
           <button type="submit" className="btn-primary" disabled={pending}>
             Save fee settings
