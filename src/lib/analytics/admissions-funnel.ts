@@ -234,26 +234,6 @@ function emptyDayCounts(): DayRoundCounts {
   };
 }
 
-function emptyRound(): RoundMetrics {
-  return {
-    onCalendar: 0,
-    noShow: 0,
-    reschedule: 0,
-    conducted: 0,
-    moved: 0,
-    reject: 0,
-    yetToMove: 0,
-    rates: {
-      noShow: null,
-      reschedule: null,
-      conducted: null,
-      moved: null,
-      reject: null,
-    },
-    weakest: null,
-  };
-}
-
 function withRates(m: Omit<RoundMetrics, "rates" | "weakest">): RoundMetrics {
   const rates: RoundRates = {
     noShow: rate(m.noShow, m.onCalendar),
@@ -501,7 +481,7 @@ function computeRound(
   });
 }
 
-function computeOffer(facts: LeadFacts[], _mode: FunnelMode): OfferMetrics {
+function computeOffer(facts: LeadFacts[]): OfferMetrics {
   let offered = 0;
   let won = 0;
   let lost = 0;
@@ -808,7 +788,7 @@ export async function fetchAdmissionsFunnel(
   const facts = filterAttr(allFacts, attribution);
 
   const roundFunnel = roundBundle(facts, mode);
-  const offerFunnel = computeOffer(facts, mode);
+  const offerFunnel = computeOffer(facts);
   const conversionPercents = computeConversions(facts, offerFunnel);
   const totals = leadTotalsOf(facts);
 
@@ -847,7 +827,7 @@ export async function fetchAdmissionsFunnel(
       );
       const mf = filterAttr(Array.from(monthFactsMap.values()), attribution);
       const rf = roundBundle(mf, "period");
-      const of = computeOffer(mf, "period");
+      const of = computeOffer(mf);
       byMonth.push({
         month: key,
         label: monthLabel(key),
@@ -869,7 +849,7 @@ export async function fetchAdmissionsFunnel(
         name: c.name,
         leadTotals: leadTotalsOf(cf),
         roundFunnel: roundBundle(cf, mode),
-        offerFunnel: computeOffer(cf, mode),
+        offerFunnel: computeOffer(cf),
       };
     })
     .filter(Boolean) as CohortFunnelSummary[];
@@ -890,12 +870,12 @@ export async function fetchAdmissionsFunnel(
     organic: {
       leadTotals: leadTotalsOf(organicFacts),
       roundFunnel: roundBundle(organicFacts, mode),
-      offerFunnel: computeOffer(organicFacts, mode),
+      offerFunnel: computeOffer(organicFacts),
     },
     inorganic: {
       leadTotals: leadTotalsOf(inorganicFacts),
       roundFunnel: roundBundle(inorganicFacts, mode),
-      offerFunnel: computeOffer(inorganicFacts, mode),
+      offerFunnel: computeOffer(inorganicFacts),
     },
   };
 }
