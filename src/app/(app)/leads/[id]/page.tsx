@@ -26,6 +26,7 @@ export default async function LeadDetailPage({
     { data: allocated },
     { data: bookings },
     { data: attribution },
+    { data: feeRow },
   ] = await Promise.all([
     getAllCourses(),
     getAllCohorts(),
@@ -54,6 +55,11 @@ export default async function LeadDetailPage({
       .select(
         "id, session_id, first_touch_at, converted_at, first_touch_campaign_id, last_touch_campaign_id"
       )
+      .eq("lead_id", params.id)
+      .maybeSingle(),
+    supabase
+      .from("fee_records")
+      .select("total_fee, remaining_fee, payment_mode, list_price")
       .eq("lead_id", params.id)
       .maybeSingle(),
   ]);
@@ -192,6 +198,16 @@ export default async function LeadDetailPage({
       counselorName={allocated?.name}
       interviewBookings={interviewBookings}
       marketing={marketing}
+      feeSummary={
+        feeRow
+          ? {
+              total_fee: Number(feeRow.total_fee),
+              remaining_fee: Number(feeRow.remaining_fee),
+              payment_mode: feeRow.payment_mode,
+              list_price: feeRow.list_price != null ? Number(feeRow.list_price) : null,
+            }
+          : null
+      }
     />
   );
 }

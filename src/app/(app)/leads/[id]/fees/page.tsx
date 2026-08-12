@@ -2,16 +2,17 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { FeesClient } from "@/components/leads/FeesClient";
+import type { Stage } from "@/lib/constants";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 export default async function FeesPage({ params }: { params: { id: string } }) {
-  await requireUser(["counselor", "admin"]);
+  const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
 
   const { data: lead } = await supabase
     .from("leads")
-    .select("id, name, cohort_id, cohorts(default_total_fee)")
+    .select("id, name, stage, cohort_id, cohorts(default_total_fee)")
     .eq("id", params.id)
     .maybeSingle();
   if (!lead) notFound();
@@ -46,7 +47,7 @@ export default async function FeesPage({ params }: { params: { id: string } }) {
         eyebrow="Fees & collection"
         title={lead.name}
         accent="Fees"
-        description="Direct installments or loan pipeline. Totals default from cohort and are admin-overridable."
+        description="Offer fee is set by admin for this lead only. Counselors record payments against the locked amount."
         actions={
           <Link href={`/leads/${params.id}`} className="btn-secondary">
             Back to lead
@@ -55,6 +56,8 @@ export default async function FeesPage({ params }: { params: { id: string } }) {
       />
       <FeesClient
         leadId={params.id}
+        leadStage={lead.stage as Stage}
+        canEditFee={user.role === "admin"}
         feeRecord={feeRecord}
         installments={installments ?? []}
         loan={loan}

@@ -23,7 +23,7 @@ import {
   type LeadMarketingData,
 } from "@/components/leads/LeadMarketingTab";
 import type { CallLog, Cohort, Course, Lead, StageHistory } from "@/types/database";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useMemo, useState, useTransition } from "react";
@@ -39,6 +39,13 @@ export type LeadInterviewSummary = {
   interviewerName: string | null;
 };
 
+export type LeadFeeSummary = {
+  total_fee: number;
+  remaining_fee: number;
+  payment_mode: string;
+  list_price?: number | null;
+} | null;
+
 export function LeadDetailClient({
   lead,
   courses,
@@ -49,6 +56,7 @@ export function LeadDetailClient({
   counselorName,
   interviewBookings = [],
   marketing = null,
+  feeSummary = null,
 }: {
   lead: Lead;
   courses: Course[];
@@ -59,6 +67,7 @@ export function LeadDetailClient({
   counselorName?: string | null;
   interviewBookings?: LeadInterviewSummary[];
   marketing?: LeadMarketingData | null;
+  feeSummary?: LeadFeeSummary;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -173,6 +182,50 @@ export function LeadDetailClient({
           </Link>
         </div>
       </div>
+
+      {feeSummary ? (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white px-4 py-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+              Offer fee (this lead)
+            </p>
+            <p className="mt-1 text-lg font-semibold text-navy">
+              {formatCurrency(feeSummary.total_fee)}
+              <span className="ml-2 text-sm font-normal text-muted">
+                · remaining {formatCurrency(feeSummary.remaining_fee)}
+              </span>
+            </p>
+            <p className="mt-0.5 text-xs text-muted">
+              {feeSummary.payment_mode === "loan" ? "Loan" : "Direct installments"}
+              {feeSummary.list_price != null &&
+              Number(feeSummary.list_price) !== Number(feeSummary.total_fee)
+                ? ` · list ${formatCurrency(feeSummary.list_price)}`
+                : null}
+              {!isAdmin ? " · amount locked (admin only)" : null}
+            </p>
+          </div>
+          <Link href={`/leads/${lead.id}/fees`} className="btn-secondary text-xs">
+            {isAdmin ? "Manage fee" : "Record payments"}
+          </Link>
+        </div>
+      ) : lead.stage === "offered" || lead.stage === "closed_won" ? (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border bg-[#F7F8FC] px-4 py-3">
+          <p className="text-sm text-muted">
+            {isAdmin
+              ? "No offer fee set for this lead yet."
+              : "Offer fee not set yet. Only an admin can set this lead’s fee — you can collect once it’s set."}
+          </p>
+          {isAdmin ? (
+            <Link href={`/leads/${lead.id}/fees`} className="btn-secondary text-xs">
+              Set offer fee
+            </Link>
+          ) : (
+            <span className="text-xs font-semibold uppercase tracking-eyebrow text-muted">
+              Admin only
+            </span>
+          )}
+        </div>
+      ) : null}
 
       {/* Standard lead cells — summary strip */}
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
