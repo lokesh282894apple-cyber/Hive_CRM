@@ -127,6 +127,10 @@ export type FeeRecord = {
   total_fee: number;
   remaining_fee: number;
   notes: string | null;
+  /** Cohort list price at the time the offer fee was set */
+  list_price?: number | null;
+  fee_set_by?: string | null;
+  fee_set_at?: string | null;
   created_at: string;
   updated_at: string;
 };
