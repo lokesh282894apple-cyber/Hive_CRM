@@ -275,7 +275,7 @@ export function LineChart({
   );
 }
 
-/** Dual-series mini trend (leads vs calls) */
+/** Dual series with independent scales so a small series stays visible. */
 export function DualTrend({
   series,
   className,
@@ -285,10 +285,12 @@ export function DualTrend({
   className?: string;
   height?: number;
 }) {
-  const max = Math.max(1, ...series.map((d) => Math.max(d.a, d.b)));
+  const maxA = Math.max(1, ...series.map((d) => d.a));
+  const maxB = Math.max(1, ...series.map((d) => d.b));
   if (!series.length) {
     return <p className="py-8 text-center text-sm text-muted">No data yet.</p>;
   }
+  const half = Math.max(24, Math.floor((height - 8) / 2));
   return (
     <div className={className}>
       <div className="mb-2 flex gap-4 text-[11px] text-muted">
@@ -308,14 +310,185 @@ export function DualTrend({
           >
             <div
               className="w-full rounded-t bg-periwinkle/75"
-              style={{ height: `${(d.a / max) * 100}%`, minHeight: d.a ? 2 : 0 }}
+              style={{
+                height: d.a ? Math.max(4, Math.round((d.a / maxA) * half)) : 0,
+              }}
             />
             <div
               className="w-full rounded-t bg-gold"
-              style={{ height: `${(d.b / max) * 100}%`, minHeight: d.b ? 2 : 0 }}
+              style={{
+                height: d.b ? Math.max(4, Math.round((d.b / maxB) * half)) : 0,
+              }}
             />
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** Day-by-day visits vs form fills — readable for marketers (own scale per metric). */
+export function DailyVisitsConversions({
+  days,
+  className,
+}: {
+  days: { date: string; sessions: number; conversions: number }[];
+  className?: string;
+}) {
+  if (!days.length) {
+    return <p className="py-8 text-center text-sm text-muted">No traffic in this range yet.</p>;
+  }
+
+  // Latest 14 days so bars stay wide; totals still cover full range
+  const recent = days.length > 14 ? days.slice(-14) : days;
+  const maxSessions = Math.max(1, ...recent.map((d) => d.sessions));
+  const maxConv = Math.max(1, ...recent.map((d) => d.conversions));
+  const totalSessions = days.reduce((s, d) => s + d.sessions, 0);
+  const totalConv = days.reduce((s, d) => s + d.conversions, 0);
+  const BAR_MAX_PX = 140;
+
+  function shortDay(iso: string) {
+    const d = new Date(`${iso}T12:00:00`);
+    if (Number.isNaN(d.getTime())) return iso.slice(5);
+    return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  }
+
+  function barPx(value: number, max: number) {
+    if (!value) return 0;
+    return Math.max(14, Math.round((value / max) * BAR_MAX_PX));
+  }
+
+  return (
+    <div className={className}>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <p className="text-sm font-semibold text-navy">Website visits</p>
+            <p className="text-xs text-muted">{totalSessions} total in range</p>
+          </div>
+          <p className="mb-3 text-xs text-muted">
+            People who started a visit that day (India time). Latest {recent.length} days below.
+          </p>
+          <div
+            className="flex items-end gap-1.5 rounded-xl border border-border bg-[#F7F8FC] px-3 pb-2 pt-3"
+            style={{ height: BAR_MAX_PX + 24 }}
+          >
+            {recent.map((d) => {
+              const h = barPx(d.sessions, maxSessions);
+              return (
+                <div
+                  key={`s-${d.date}`}
+                  className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                  title={`${shortDay(d.date)}: ${d.sessions} visits`}
+                >
+                  {d.sessions > 0 ? (
+                    <span className="pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded bg-navy px-1.5 py-0.5 text-[10px] font-semibold text-white group-hover:block">
+                      {d.sessions}
+                    </span>
+                  ) : null}
+                  <div
+                    className="w-full min-w-[8px] max-w-[36px] rounded-t bg-periwinkle"
+                    style={{ height: h }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <p className="text-sm font-semibold text-navy">Form fills</p>
+            <p className="text-xs text-muted">{totalConv} total in range</p>
+          </div>
+          <p className="mb-3 text-xs text-muted">
+            Form submits that became leads that day (India time).
+          </p>
+          <div
+            className="flex items-end gap-1.5 rounded-xl border border-border bg-[#F7F8FC] px-3 pb-2 pt-3"
+            style={{ height: BAR_MAX_PX + 24 }}
+          >
+            {recent.map((d) => {
+              const h = barPx(d.conversions, maxConv);
+              return (
+                <div
+                  key={`c-${d.date}`}
+                  className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end"
+                  title={`${shortDay(d.date)}: ${d.conversions} form fills`}
+                >
+                  {d.conversions > 0 ? (
+                    <span className="pointer-events-none absolute bottom-full z-10 mb-1 hidden whitespace-nowrap rounded bg-navy px-1.5 py-0.5 text-[10px] font-semibold text-white group-hover:block">
+                      {d.conversions}
+                    </span>
+                  ) : null}
+                  <div
+                    className="w-full min-w-[8px] max-w-[36px] rounded-t bg-gold"
+                    style={{ height: h }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 overflow-x-auto rounded-xl border border-border">
+        <table className="w-full min-w-[420px] text-left text-sm">
+          <thead className="border-b border-border bg-[#F7F8FC] text-[11px] uppercase tracking-eyebrow text-muted">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Day</th>
+              <th className="px-3 py-2 font-semibold">Visits</th>
+              <th className="px-3 py-2 font-semibold">Form fills</th>
+              <th className="px-3 py-2 font-semibold">Fill rate</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {[...recent].reverse().map((d) => {
+              const rate =
+                d.sessions > 0
+                  ? `${((d.conversions / d.sessions) * 100).toFixed(1)}%`
+                  : d.conversions > 0
+                    ? "n/a"
+                    : "—";
+              return (
+                <tr key={d.date} className="text-navy">
+                  <td className="px-3 py-2 font-medium">{shortDay(d.date)}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-8 tabular-nums">{d.sessions}</span>
+                      <span
+                        className="h-2 rounded-full bg-periwinkle/70"
+                        style={{
+                          width: `${Math.max(
+                            d.sessions ? 12 : 0,
+                            (d.sessions / maxSessions) * 96
+                          )}px`,
+                        }}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 tabular-nums">{d.conversions}</td>
+                  <td
+                    className="px-3 py-2 text-muted"
+                    title={
+                      rate === "n/a"
+                        ? "Form fills that day without a tracked visit starting the same day (they may have started browsing on an earlier day)."
+                        : undefined
+                    }
+                  >
+                    {rate}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p className="border-t border-border px-3 py-2 text-[11px] text-muted">
+          Days use India time (IST). Fill rate = form fills ÷ visits that day.
+          {days.length > 14
+            ? ` Showing latest 14 of ${days.length} days in range.`
+            : null}
+        </p>
       </div>
     </div>
   );
