@@ -39,7 +39,7 @@ export default async function BookInterviewPage({
   const today = format(new Date(), "yyyy-MM-dd");
   const endDate = format(addDays(new Date(), windowDays), "yyyy-MM-dd");
 
-  const [{ data: slots }, { data: bookings }] = await Promise.all([
+  const [{ data: slots }, { data: bookings }, { data: panelists }] = await Promise.all([
     supabase
       .from("interviewer_availability")
       .select("*, interviewer:users!interviewer_availability_interviewer_id_fkey(*)")
@@ -54,6 +54,12 @@ export default async function BookInterviewPage({
       .select("*")
       .eq("lead_id", params.id)
       .order("scheduled_at", { ascending: false }),
+    supabase
+      .from("users")
+      .select("id, name")
+      .eq("role", "interviewer")
+      .eq("active", true)
+      .order("name"),
   ]);
 
   const slotCount = slots?.length ?? 0;
@@ -65,7 +71,7 @@ export default async function BookInterviewPage({
         eyebrow="Interview scheduling"
         title={lead.name}
         accent="Book"
-        description={`Soonest free slots in the next ${windowDays} days — ask the student, tap a slot, confirm.`}
+        description={`Soonest free slots in the next ${windowDays} days — ask the student, tap a slot, confirm. Manual override available below.`}
         actions={
           <Link href={`/leads/${params.id}`} className="btn-secondary">
             Back to lead
@@ -77,6 +83,7 @@ export default async function BookInterviewPage({
         leadName={lead.name}
         slots={slots ?? []}
         existingBookings={bookings ?? []}
+        panelists={panelists ?? []}
         windowDays={windowDays}
         truncated={truncated}
         googleMeetConfigured={isGoogleCalendarConfigured()}

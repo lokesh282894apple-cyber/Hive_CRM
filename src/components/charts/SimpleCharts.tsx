@@ -18,6 +18,54 @@ export function chartColor(i: number) {
   return PALETTE[i % PALETTE.length];
 }
 
+/** Tiny trend line for KPI cards */
+export function Sparkline({
+  values,
+  className,
+  stroke = "#4F46E5",
+  height = 36,
+  width = 96,
+}: {
+  values: number[];
+  className?: string;
+  stroke?: string;
+  height?: number;
+  width?: number;
+}) {
+  if (values.length < 2) {
+    return <div className={className} style={{ width, height }} />;
+  }
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const span = Math.max(max - min, 1);
+  const pts = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * width;
+      const y = height - ((v - min) / span) * (height - 4) - 2;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <svg
+      className={className}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      aria-hidden
+    >
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={pts}
+        opacity={0.85}
+      />
+    </svg>
+  );
+}
+
 /** Vertical bar chart */
 export function BarChart({
   data,

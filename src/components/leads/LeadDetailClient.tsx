@@ -4,6 +4,7 @@ import {
   claimLead,
   createCallLog,
   deleteCallLog,
+  reassignLead,
   updateLeadInfo,
   updateLeadStage,
 } from "@/app/actions/leads";
@@ -22,13 +23,23 @@ import {
   LeadMarketingTab,
   type LeadMarketingData,
 } from "@/components/leads/LeadMarketingTab";
-import type { CallLog, Cohort, Course, Lead, StageHistory } from "@/types/database";
+import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
+import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
+import type {
+  AppUser,
+  CallLog,
+  Cohort,
+  Course,
+  Lead,
+  StageHistory,
+} from "@/types/database";
+import { cohortNumberMap } from "@/lib/cohorts/display";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useState, useTransition } from "react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
-type Tab = "info" | "calling" | "marketing";
+type Tab = "info" | "calling" | "activity" | "marketing";
 
 export type LeadInterviewSummary = {
   id: string;
@@ -54,9 +65,12 @@ export function LeadDetailClient({
   callLogs,
   isAdmin,
   counselorName,
+  counselors = [],
+  allocatedToId = null,
   interviewBookings = [],
   marketing = null,
   feeSummary = null,
+  twilioConfigured = false,
 }: {
   lead: Lead;
   courses: Course[];
@@ -65,9 +79,12 @@ export function LeadDetailClient({
   callLogs: CallLog[];
   isAdmin: boolean;
   counselorName?: string | null;
+  counselors?: AppUser[];
+  allocatedToId?: string | null;
   interviewBookings?: LeadInterviewSummary[];
   marketing?: LeadMarketingData | null;
   feeSummary?: LeadFeeSummary;
+  twilioConfigured?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -76,15 +93,40 @@ export function LeadDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>(lead.stage);
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
+  const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
+
+  useEffect(() => {
+    setOwnerId(allocatedToId ?? "");
+  }, [allocatedToId]);
 
   const filteredCohorts = useMemo(
     () => cohorts.filter((c) => c.course_id === courseId),
     [cohorts, courseId]
   );
+  const cohortNums = useMemo(() => cohortNumberMap(cohorts), [cohorts]);
+  const activeCounselors = useMemo(
+    () =>
+      [...counselors]
+        .filter((c) => c.active !== false)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [counselors]
+  );
 
-  const stageOptions = isAdmin
-    ? STAGES
-    : Array.from(new Set([lead.stage, ...(STAGE_TRANSITIONS[lead.stage] ?? [])]));
+  const bookingRequired = new Set<Stage>([
+    "r1_booked",
+    "r2_booked",
+    "r3_booked",
+    "r1_reschedule",
+    "r2_reschedule",
+    "r3_reschedule",
+  ]);
+  const stageOptions = (isAdmin ? [...STAGES] : Array.from(
+    new Set([
+      lead.stage,
+      ...(STAGE_TRANSITIONS[lead.stage] ?? []),
+      "closed_lost" as Stage,
+    ])
+  )).filter((s) => !bookingRequired.has(s) || s === lead.stage);
 
   const upcomingInterview = useMemo(() => {
     const ts = Date.now();
@@ -103,7 +145,8 @@ export function LeadDetailClient({
   const totalCalls = callLogs.length;
 
   function setTab(next: Tab) {
-    const url = next === "info" ? `/leads/${lead.id}` : `/leads/${lead.id}?tab=${next}`;
+    const url =
+      next === "info" ? `/leads/${lead.id}` : `/leads/${lead.id}?tab=${next}`;
     router.push(url);
   }
 
@@ -125,6 +168,20 @@ export function LeadDetailClient({
       const res = await updateLeadStage(lead.id, stage);
       if (!res.ok) setError(res.error);
       else {
+        setError(null);
+        router.refresh();
+      }
+    });
+  }
+
+  function onOwnerChange(next: string) {
+    setOwnerId(next);
+    startTransition(async () => {
+      const res = await reassignLead(lead.id, next);
+      if (!res.ok) {
+        setError(res.error);
+        setOwnerId(allocatedToId ?? "");
+      } else {
         setError(null);
         router.refresh();
       }
@@ -154,7 +211,24 @@ export function LeadDetailClient({
           <h1 className="mt-1 text-3xl font-semibold text-navy">{lead.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StageBadge stage={lead.stage} />
-            {counselorName ? (
+            {activeCounselors.length > 0 ? (
+              <label className="inline-flex items-center gap-2 text-sm text-muted">
+                <span className="whitespace-nowrap">Allocated to</span>
+                <select
+                  className="input-field w-auto py-1 text-xs"
+                  value={ownerId}
+                  disabled={pending}
+                  onChange={(e) => onOwnerChange(e.target.value)}
+                >
+                  <option value="">Unassigned</option>
+                  {activeCounselors.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : counselorName ? (
               <span className="text-sm text-muted">Allocated to {counselorName}</span>
             ) : (
               <button
@@ -250,7 +324,9 @@ export function LeadDetailClient({
             Lead allocated to
           </p>
           <p className="mt-1 text-sm font-medium text-navy">
-            {counselorName ?? "Unassigned"}
+            {activeCounselors.find((c) => c.id === ownerId)?.name ??
+              counselorName ??
+              "Unassigned"}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
@@ -314,6 +390,7 @@ export function LeadDetailClient({
           [
             ["info", "Info"],
             ["calling", "Calling"],
+            ["activity", "Activity"],
             ["marketing", "Marketing Box"],
           ] as const
         ).map(([id, label]) => (
@@ -400,7 +477,7 @@ export function LeadDetailClient({
                   <option value="">—</option>
                   {filteredCohorts.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}
+                      {cohortNums.get(c.id) ?? c.name}
                     </option>
                   ))}
                 </select>
@@ -547,16 +624,26 @@ export function LeadDetailClient({
             </div>
 
             <div className="panel p-5">
-              <p className="eyebrow">Activity timeline</p>
+              <p className="eyebrow">Stage history</p>
+              <p className="mt-1 text-xs text-muted">
+                Full feed (calls + interviews) lives under{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-periwinkle hover:underline"
+                  onClick={() => setTab("activity")}
+                >
+                  Activity
+                </button>
+                .
+              </p>
               <ul className="mt-3 space-y-3">
-                {history.map((h) => (
+                {history.slice(0, 5).map((h) => (
                   <li key={h.id} className="border-l-2 border-periwinkle/40 pl-3">
                     <p className="text-sm text-navy">
                       {h.from_stage ? STAGE_LABELS[h.from_stage as Stage] : "—"} →{" "}
                       {STAGE_LABELS[h.to_stage as Stage]}
                     </p>
                     <p className="text-xs text-muted">{formatDateTime(h.changed_at)}</p>
-                    {h.notes ? <p className="text-xs text-muted">{h.notes}</p> : null}
                   </li>
                 ))}
                 {history.length === 0 ? (
@@ -572,6 +659,11 @@ export function LeadDetailClient({
         <div className="grid gap-6 lg:grid-cols-2">
           <form onSubmit={onCallLog} className="panel space-y-3 p-5">
             <p className="eyebrow">Log a call</p>
+            <ClickToCallButton
+              leadId={lead.id}
+              leadPhone={lead.phone}
+              twilioConfigured={twilioConfigured}
+            />
             <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-[#F7F8FC] px-3 py-2.5 text-sm">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
@@ -631,14 +723,23 @@ export function LeadDetailClient({
                       <p className="text-xs text-muted">{formatDateTime(c.logged_at)}</p>
                       {c.notes ? <p className="mt-1 text-sm text-muted">{c.notes}</p> : null}
                       {c.recording_url ? (
-                        <a
-                          href={c.recording_url}
-                          className="mt-1 inline-block text-xs text-periwinkle hover:underline"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Recording #{callLogs.length - index}
-                        </a>
+                        <div className="mt-2">
+                          <audio
+                            controls
+                            preload="none"
+                            className="h-9 w-full max-w-sm"
+                            src={c.recording_url}
+                          >
+                            <a
+                              href={c.recording_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-periwinkle"
+                            >
+                              Open recording
+                            </a>
+                          </audio>
+                        </div>
                       ) : (
                         <p className="mt-1 text-xs text-muted">No recording</p>
                       )}
@@ -663,6 +764,25 @@ export function LeadDetailClient({
               ) : null}
             </ul>
           </div>
+        </div>
+      ) : null}
+
+      {tab === "activity" ? (
+        <div className="panel p-5 sm:p-6">
+          <div className="mb-4">
+            <p className="eyebrow">Activity timeline</p>
+            <h2 className="mt-1 text-sm font-semibold text-navy">
+              Calls · stage changes · interviews
+            </h2>
+            <p className="mt-0.5 text-xs text-muted">
+              Newest first — same pattern as a CRM activity feed.
+            </p>
+          </div>
+          <LeadActivityTimeline
+            callLogs={callLogs}
+            history={history}
+            interviews={interviewBookings}
+          />
         </div>
       ) : null}
 

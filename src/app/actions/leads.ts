@@ -58,6 +58,22 @@ export async function updateLeadStage(
 
   if (!STAGES.includes(stage)) return { ok: false, error: "Invalid stage" };
 
+  const bookingRequired: Stage[] = [
+    "r1_booked",
+    "r2_booked",
+    "r3_booked",
+    "r1_reschedule",
+    "r2_reschedule",
+    "r3_reschedule",
+  ];
+  if (bookingRequired.includes(stage)) {
+    return {
+      ok: false,
+      error:
+        "Date, time, and panelist are required. Use Book interview (or Manual override) to move into Booked / Reschedule.",
+    };
+  }
+
   const { data: lead } = await supabase
     .from("leads")
     .select("stage")
@@ -127,7 +143,7 @@ export async function reassignLead(
   leadId: string,
   counselorId: string
 ): Promise<ActionResult> {
-  await requireUser(["admin"]);
+  await requireUser(["admin", "counselor"]);
   const supabase = createClient();
   const { error } = await supabase
     .from("leads")
@@ -135,6 +151,7 @@ export async function reassignLead(
     .eq("id", leadId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/leads");
+  revalidatePath("/leads");
   revalidatePath(`/leads/${leadId}`);
   return { ok: true };
 }

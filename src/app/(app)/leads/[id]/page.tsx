@@ -5,6 +5,7 @@ import type { LeadMarketingData } from "@/components/leads/LeadMarketingTab";
 import type { PageEvent, VisitorSession } from "@/types/database";
 import { buildFormOrigin } from "@/lib/leads/form-origin";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
+import { isTwilioConfigured } from "@/lib/twilio";
 import { notFound } from "next/navigation";
 
 export default async function LeadDetailPage({
@@ -27,6 +28,7 @@ export default async function LeadDetailPage({
     { data: bookings },
     { data: attribution },
     { data: feeRow },
+    { data: counselors },
   ] = await Promise.all([
     getAllCourses(),
     getAllCohorts(),
@@ -62,6 +64,12 @@ export default async function LeadDetailPage({
       .select("total_fee, remaining_fee, payment_mode, list_price")
       .eq("lead_id", params.id)
       .maybeSingle(),
+    supabase
+      .from("users")
+      .select("id, name, email, role, active, created_at")
+      .eq("role", "counselor")
+      .eq("active", true)
+      .order("name"),
   ]);
 
   let marketing: LeadMarketingData = {
@@ -196,6 +204,8 @@ export default async function LeadDetailPage({
       callLogs={callLogs ?? []}
       isAdmin={user.role === "admin"}
       counselorName={allocated?.name}
+      counselors={counselors ?? []}
+      allocatedToId={lead.lead_allocated_to}
       interviewBookings={interviewBookings}
       marketing={marketing}
       feeSummary={
@@ -208,6 +218,7 @@ export default async function LeadDetailPage({
             }
           : null
       }
+      twilioConfigured={isTwilioConfigured()}
     />
   );
 }

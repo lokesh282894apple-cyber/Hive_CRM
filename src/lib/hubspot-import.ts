@@ -207,6 +207,8 @@ export function guessHiveStage(raw: string): Stage | null {
     [/\br1\b.*\breject/, "r1_reject"],
     [/\br1\b.*\bconfirm/, "r1_confirmed"],
     [/\br1\b.*\bbook/, "r1_booked"],
+    [/\bnurtur/, "call_logged_nurturing"],
+    [/\bcall\s*logged\b/, "call_logged_nurturing"],
     [/\bdnp\b|did not pick|not picking/, "dnp"],
     [/\bno\s*show\b/, "no_show"],
     [/\breschedule\b/, "reschedule"],

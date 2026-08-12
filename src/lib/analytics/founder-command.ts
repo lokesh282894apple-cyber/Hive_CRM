@@ -81,6 +81,13 @@ export type FounderCommand = {
     expected30d: number;
     weeklyCollected: { name: string; value: number }[];
     expectedBars: { name: string; value: number }[];
+    overdueItems: {
+      id: string;
+      leadId: string;
+      leadName: string;
+      deadline: string;
+      due: number;
+    }[];
   };
   counselorExec: {
     id: string;
@@ -180,9 +187,17 @@ function rate(to: number, from: number): number | null {
 
 export async function fetchFounderCommand(
   supabase: SupabaseClient,
-  opts?: { rangeDays?: number }
+  opts?: {
+    rangeDays?: number;
+    counselorId?: string | null;
+    courseId?: string | null;
+    cohortId?: string | null;
+  }
 ): Promise<FounderCommand> {
   const rangeDays = opts?.rangeDays ?? 30;
+  const counselorId = opts?.counselorId ?? null;
+  const courseId = opts?.courseId ?? null;
+  const cohortId = opts?.cohortId ?? null;
   const since = new Date();
   since.setDate(since.getDate() - rangeDays);
   const sinceIso = since.toISOString();
@@ -193,7 +208,12 @@ export async function fetchFounderCommand(
   const in30 = addDays(todayKey, 30);
 
   const [admissions, extras] = await Promise.all([
-    fetchAdmissionsAnalytics(supabase, { rangeDays }),
+    fetchAdmissionsAnalytics(supabase, {
+      rangeDays,
+      counselorId,
+      courseId,
+      cohortId,
+    }),
     Promise.all([
       supabase
         .from("cohorts")
@@ -202,9 +222,9 @@ export async function fetchFounderCommand(
       supabase.from("courses").select("id, name").eq("active", true),
       supabase.from("stage_history").select("lead_id, to_stage").limit(4000),
       supabase.from("interview_bookings").select("lead_id").limit(2000),
-      supabase
-        .from("installments")
-        .select("deadline, amount_to_realise, amount_realised, status"),
+      supabase.from("installments").select(
+        "id, deadline, amount_to_realise, amount_realised, status, fee_record_id, fee_records!inner(lead_id, leads!inner(id, name))"
+      ),
       supabase
         .from("app_settings")
         .select("key, value")
@@ -228,9 +248,33 @@ export async function fetchFounderCommand(
   ] = extras;
 
   const allLeads = admissions.leadRows;
-  const history = historyRes.data ?? [];
-  const bookings = bookingsRes.data ?? [];
-  const installments = installmentsRes.data ?? [];
+  const leadIdSet = new Set(allLeads.map((l) => l.id));
+  const filtered = Boolean(counselorId || courseId || cohortId);
+  const history = (historyRes.data ?? []).filter(
+    (h) => !filtered || leadIdSet.has(h.lead_id)
+  );
+  const bookings = (bookingsRes.data ?? []).filter(
+    (b) => !filtered || leadIdSet.has(b.lead_id)
+  );
+  type InstRow = {
+    id: string;
+    deadline: string;
+    amount_to_realise: number;
+    amount_realised: number;
+    status: string;
+    fee_record_id: string;
+    fee_records:
+      | { lead_id: string; leads: { id: string; name: string } | null }
+      | { lead_id: string; leads: { id: string; name: string } | null }[]
+      | null;
+  };
+  const installmentsRaw = (installmentsRes.data ?? []) as unknown as InstRow[];
+  const installments = filtered
+    ? installmentsRaw.filter((i) => {
+        const fr = Array.isArray(i.fee_records) ? i.fee_records[0] : i.fee_records;
+        return fr?.lead_id ? leadIdSet.has(fr.lead_id) : false;
+      })
+    : installmentsRaw;
   const settingsRows = settingsRes.data ?? [];
   const spendRows = spendRes.error ? [] : spendRes.data ?? [];
   const cohorts = cohortsRes.data ?? [];
@@ -369,6 +413,25 @@ export async function fetchFounderCommand(
       s + Math.max(0, Number(i.amount_to_realise) - Number(i.amount_realised)),
     0
   );
+  const overdueItems = overdue
+    .map((i) => {
+      const fr = Array.isArray(i.fee_records) ? i.fee_records[0] : i.fee_records;
+      const lead = fr?.leads ?? null;
+      const due = Math.max(
+        0,
+        Number(i.amount_to_realise) - Number(i.amount_realised)
+      );
+      return {
+        id: i.id,
+        leadId: lead?.id ?? fr?.lead_id ?? "",
+        leadName: lead?.name ?? "Lead",
+        deadline: i.deadline,
+        due,
+      };
+    })
+    .filter((i) => i.leadId)
+    .sort((a, b) => a.deadline.localeCompare(b.deadline))
+    .slice(0, 20);
   let expected14d = 0;
   let expected30d = 0;
   for (const i of installments) {
@@ -617,6 +680,7 @@ export async function fetchFounderCommand(
       expected30d,
       weeklyCollected,
       expectedBars,
+      overdueItems,
     },
     counselorExec,
     cpe: {

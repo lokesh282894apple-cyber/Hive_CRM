@@ -77,6 +77,7 @@ export async function updateAppSetting(key: string, value: unknown): Promise<Act
   revalidatePath("/admin/config");
   revalidatePath("/admin/dashboard");
   revalidatePath("/admin/analytics");
+  revalidatePath("/admin/forecast");
   return { ok: true };
 }
 
@@ -112,6 +113,7 @@ export async function setCohortSeatTarget(
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/dashboard");
   revalidatePath("/admin/analytics");
+  revalidatePath("/admin/forecast");
   revalidatePath("/admin/config");
   return { ok: true };
 }
@@ -133,6 +135,7 @@ export async function setManualMonthlyAdSpend(
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/dashboard");
   revalidatePath("/admin/analytics");
+  revalidatePath("/admin/forecast");
   revalidatePath("/admin/config");
   return { ok: true };
 }

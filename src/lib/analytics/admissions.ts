@@ -43,6 +43,7 @@ export type AdmissionsAnalytics = {
     lost: number;
     attention: number;
     winRate: number;
+    calls: number;
   }[];
   daily: DailyCount[];
   recentLeads: {
@@ -105,10 +106,17 @@ function emptyDaily(days: number): DailyCount[] {
 
 export async function fetchAdmissionsAnalytics(
   supabase: SupabaseClient,
-  opts?: { counselorId?: string | null; rangeDays?: number }
+  opts?: {
+    counselorId?: string | null;
+    courseId?: string | null;
+    cohortId?: string | null;
+    rangeDays?: number;
+  }
 ): Promise<AdmissionsAnalytics> {
   const rangeDays = opts?.rangeDays ?? 30;
   const counselorId = opts?.counselorId ?? null;
+  const courseId = opts?.courseId ?? null;
+  const cohortId = opts?.cohortId ?? null;
   const since = new Date();
   since.setDate(since.getDate() - rangeDays);
   const sinceIso = since.toISOString();
@@ -126,6 +134,8 @@ export async function fetchAdmissionsAnalytics(
       "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at"
     );
   if (counselorId) leadsQ = leadsQ.eq("lead_allocated_to", counselorId);
+  if (courseId) leadsQ = leadsQ.eq("course_id", courseId);
+  if (cohortId) leadsQ = leadsQ.eq("cohort_id", cohortId);
 
   let callsQ = supabase
     .from("call_logs")
@@ -136,7 +146,7 @@ export async function fetchAdmissionsAnalytics(
   let interviewsTodayQ = supabase
     .from("interview_bookings")
     .select(
-      "id, scheduled_at, round, meet_link, lead_id, leads!inner(id, name, lead_allocated_to)"
+      "id, scheduled_at, round, meet_link, lead_id, leads!inner(id, name, lead_allocated_to, course_id, cohort_id)"
     )
     .gte("scheduled_at", today.toISOString())
     .lt("scheduled_at", tomorrow.toISOString())
@@ -144,15 +154,22 @@ export async function fetchAdmissionsAnalytics(
   if (counselorId) {
     interviewsTodayQ = interviewsTodayQ.eq("leads.lead_allocated_to", counselorId);
   }
+  if (courseId) interviewsTodayQ = interviewsTodayQ.eq("leads.course_id", courseId);
+  if (cohortId) interviewsTodayQ = interviewsTodayQ.eq("leads.cohort_id", cohortId);
 
   let interviewsUpcomingQ = supabase
     .from("interview_bookings")
-    .select("id, leads!inner(lead_allocated_to)", { count: "exact", head: true })
+    .select("id, leads!inner(lead_allocated_to, course_id, cohort_id)", {
+      count: "exact",
+      head: true,
+    })
     .gte("scheduled_at", today.toISOString())
     .lt("scheduled_at", weekAhead.toISOString());
   if (counselorId) {
     interviewsUpcomingQ = interviewsUpcomingQ.eq("leads.lead_allocated_to", counselorId);
   }
+  if (courseId) interviewsUpcomingQ = interviewsUpcomingQ.eq("leads.course_id", courseId);
+  if (cohortId) interviewsUpcomingQ = interviewsUpcomingQ.eq("leads.cohort_id", cohortId);
 
   const [
     { data: leads },
@@ -161,9 +178,6 @@ export async function fetchAdmissionsAnalytics(
     { data: calls },
     { data: interviewsTodayRows },
     { count: interviewsUpcoming },
-    { data: feeRecords },
-    { data: loans },
-    { data: vendors },
     { count: sessionsInRange },
     { count: formConversionsInRange },
     { count: attributedCount },
@@ -174,15 +188,6 @@ export async function fetchAdmissionsAnalytics(
     callsQ.limit(2500),
     interviewsTodayQ.limit(50),
     interviewsUpcomingQ,
-    counselorId
-      ? Promise.resolve({ data: [] as { total_fee: number; remaining_fee: number; payment_mode: string | null }[] })
-      : supabase.from("fee_records").select("total_fee, remaining_fee, payment_mode"),
-    counselorId
-      ? Promise.resolve({ data: [] as { stage: string; loan_vendor_id: string | null }[] })
-      : supabase.from("loans").select("stage, loan_vendor_id, amount_realised, total_fee"),
-    counselorId
-      ? Promise.resolve({ data: [] as { id: string; name: string }[] })
-      : supabase.from("loan_vendors").select("id, name"),
     supabase
       .from("visitor_sessions")
       .select("id", { count: "exact", head: true })
@@ -195,13 +200,62 @@ export async function fetchAdmissionsAnalytics(
   ]);
 
   const all = leads ?? [];
+  const leadIds = all.map((l) => l.id);
+  const filtered = Boolean(counselorId || courseId || cohortId);
+
+  let feeRecords: {
+    lead_id?: string;
+    total_fee: number;
+    remaining_fee: number;
+    payment_mode: string | null;
+  }[] = [];
+  let loans: {
+    stage: string;
+    loan_vendor_id: string | null;
+    amount_realised?: number;
+    total_fee?: number;
+  }[] = [];
+  let vendors: { id: string; name: string }[] = [];
+
+  if (filtered && leadIds.length === 0) {
+    feeRecords = [];
+    loans = [];
+    vendors = [];
+  } else if (filtered) {
+    const { data: fees } = await supabase
+      .from("fee_records")
+      .select("id, lead_id, total_fee, remaining_fee, payment_mode")
+      .in("lead_id", leadIds.slice(0, 1000));
+    feeRecords = fees ?? [];
+    const feeIds = (fees ?? []).map((f) => f.id);
+    if (feeIds.length) {
+      const { data: loanRows } = await supabase
+        .from("loans")
+        .select("stage, loan_vendor_id, amount_realised, total_fee, fee_record_id")
+        .in("fee_record_id", feeIds);
+      loans = loanRows ?? [];
+    }
+    const { data: vendorRows } = await supabase
+      .from("loan_vendors")
+      .select("id, name");
+    vendors = vendorRows ?? [];
+  } else {
+    const [feesRes, loansRes, vendorsRes] = await Promise.all([
+      supabase.from("fee_records").select("total_fee, remaining_fee, payment_mode"),
+      supabase.from("loans").select("stage, loan_vendor_id, amount_realised, total_fee"),
+      supabase.from("loan_vendors").select("id, name"),
+    ]);
+    feeRecords = feesRes.data ?? [];
+    loans = loansRes.data ?? [];
+    vendors = vendorsRes.data ?? [];
+  }
   const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
   const counselorMap = new Map((counselors ?? []).map((c) => [c.id, c.name]));
   // attributedCount is total attributed leads in CRM (unique lead_id)
 
   const openLeads = all.filter((l) => OPEN_STAGES.includes(l.stage as Stage)).length;
   const newLeads = all.filter((l) =>
-    ["new_lead", "lead_created"].includes(l.stage)
+    ["new_lead", "lead_created", "call_logged_nurturing"].includes(l.stage)
   ).length;
   const attentionLeads = all.filter((l) =>
     (ATTENTION_STAGES as readonly string[]).includes(l.stage)
@@ -256,6 +310,15 @@ export async function fetchAdmissionsAnalytics(
     ? (counselors ?? []).filter((c) => c.id === counselorId)
     : counselors ?? [];
 
+  const callsByCounselor = new Map<string, number>();
+  for (const c of calls ?? []) {
+    if (!c.counselor_id) continue;
+    callsByCounselor.set(
+      c.counselor_id,
+      (callsByCounselor.get(c.counselor_id) ?? 0) + 1
+    );
+  }
+
   const counselorBoard = boardCounselors
     .map((c) => {
       const mine = all.filter((l) => l.lead_allocated_to === c.id);
@@ -273,6 +336,7 @@ export async function fetchAdmissionsAnalytics(
           (ATTENTION_STAGES as readonly string[]).includes(l.stage)
         ).length,
         winRate: cClosed ? (cWon / cClosed) * 100 : 0,
+        calls: callsByCounselor.get(c.id) ?? 0,
       };
     })
     .sort((a, b) => b.total - a.total);

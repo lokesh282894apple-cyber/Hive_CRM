@@ -140,7 +140,11 @@ export async function bookInterview(input: {
   let warning: string | undefined;
 
   const [{ data: lead }, { data: interviewer }, { data: slot }] = await Promise.all([
-    supabase.from("leads").select("name, email").eq("id", input.leadId).single(),
+    supabase
+      .from("leads")
+      .select("name, email, lead_allocated_to")
+      .eq("id", input.leadId)
+      .single(),
     supabase.from("users").select("name, email").eq("id", input.interviewerId).single(),
     supabase
       .from("interviewer_availability")
@@ -148,6 +152,16 @@ export async function bookInterview(input: {
       .eq("id", input.availabilitySlotId)
       .single(),
   ]);
+
+  let counselorEmail: string | null = null;
+  if (lead?.lead_allocated_to) {
+    const { data: counselor } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", lead.lead_allocated_to)
+      .maybeSingle();
+    counselorEmail = counselor?.email ?? null;
+  }
 
   if (previousEventId) {
     await deleteInterviewMeetEvent(previousEventId);
@@ -160,7 +174,9 @@ export async function bookInterview(input: {
     try {
       const startDateTime = slotDateTime(slot.date, slot.start_time);
       const endDateTime = slotDateTime(slot.date, slot.end_time);
-      const attendees = [lead.email, interviewer.email].filter(Boolean) as string[];
+      const attendees = [lead.email, interviewer.email, counselorEmail].filter(
+        Boolean
+      ) as string[];
 
       const meet = await createInterviewMeetEvent({
         requestId: booking.id,
@@ -169,8 +185,11 @@ export async function bookInterview(input: {
           `HiveSchool admissions interview (${input.round}).`,
           `Candidate: ${lead.name}${lead.email ? ` <${lead.email}>` : ""}`,
           `Panel: ${interviewer.name} <${interviewer.email}>`,
+          counselorEmail ? `Counselor: ${counselorEmail}` : null,
           `Booked in Hive CRM.`,
-        ].join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n"),
         startDateTime,
         endDateTime,
         attendeeEmails: attendees,
@@ -193,6 +212,171 @@ export async function bookInterview(input: {
       }
     } catch (err) {
       console.error("[bookInterview] Google Meet failed:", err);
+      warning =
+        err instanceof Error
+          ? `Interview booked, but Meet failed: ${err.message}`
+          : "Interview booked, but Meet link could not be created.";
+    }
+  }
+
+  revalidatePath(`/leads/${input.leadId}`);
+  revalidatePath(`/leads/${input.leadId}/book-interview`);
+  revalidatePath("/interviewer/interviews");
+  revalidatePath("/dashboard");
+  return { ok: true, meetLink, warning };
+}
+
+/** Manual override — book any round with explicit panelist + datetime (no availability slot). */
+export async function bookInterviewManual(input: {
+  leadId: string;
+  round: InterviewRound;
+  interviewerId: string;
+  /** Local datetime: yyyy-MM-ddTHH:mm */
+  startLocal: string;
+  /** Duration minutes, default 30 */
+  durationMinutes?: number;
+  rescheduleBookingId?: string;
+}): Promise<ActionResult> {
+  await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+
+  if (!input.interviewerId) {
+    return { ok: false, error: "Pick a panelist" };
+  }
+  if (!input.startLocal || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(input.startLocal)) {
+    return { ok: false, error: "Date and time are required" };
+  }
+
+  const duration = Math.min(180, Math.max(15, input.durationMinutes ?? 30));
+  const start = new Date(input.startLocal);
+  if (Number.isNaN(start.getTime())) {
+    return { ok: false, error: "Invalid date/time" };
+  }
+  const end = new Date(start.getTime() + duration * 60_000);
+  const scheduledAt = start.toISOString();
+  const date = input.startLocal.slice(0, 10);
+  const startTime = input.startLocal.slice(11, 16);
+  const endTime = `${String(end.getHours()).padStart(2, "0")}:${String(
+    end.getMinutes()
+  ).padStart(2, "0")}`;
+
+  let previousEventId: string | null = null;
+  if (input.rescheduleBookingId) {
+    const { data: old } = await supabase
+      .from("interview_bookings")
+      .select("availability_slot_id, calendar_event_id")
+      .eq("id", input.rescheduleBookingId)
+      .single();
+    if (old?.availability_slot_id) {
+      await supabase
+        .from("interviewer_availability")
+        .update({ status: "free" })
+        .eq("id", old.availability_slot_id);
+    }
+    previousEventId = old?.calendar_event_id ?? null;
+  }
+
+  const { data: booking, error } = input.rescheduleBookingId
+    ? await supabase
+        .from("interview_bookings")
+        .update({
+          interviewer_id: input.interviewerId,
+          availability_slot_id: null,
+          scheduled_at: scheduledAt,
+          round: input.round,
+          outcome: null,
+          feedback_notes: null,
+          submitted_by: null,
+          submitted_at: null,
+          meet_link: null,
+          calendar_event_id: null,
+        })
+        .eq("id", input.rescheduleBookingId)
+        .select("id")
+        .single()
+    : await supabase
+        .from("interview_bookings")
+        .insert({
+          lead_id: input.leadId,
+          round: input.round,
+          interviewer_id: input.interviewerId,
+          availability_slot_id: null,
+          scheduled_at: scheduledAt,
+        })
+        .select("id")
+        .single();
+
+  if (error || !booking) {
+    return { ok: false, error: error?.message ?? "Booking failed" };
+  }
+
+  await supabase
+    .from("leads")
+    .update({ stage: ROUND_BOOKED[input.round] })
+    .eq("id", input.leadId);
+
+  let meetLink: string | null = null;
+  let warning: string | undefined;
+
+  const [{ data: lead }, { data: interviewer }] = await Promise.all([
+    supabase
+      .from("leads")
+      .select("name, email, lead_allocated_to")
+      .eq("id", input.leadId)
+      .single(),
+    supabase.from("users").select("name, email").eq("id", input.interviewerId).single(),
+  ]);
+
+  let counselorEmail: string | null = null;
+  if (lead?.lead_allocated_to) {
+    const { data: counselor } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", lead.lead_allocated_to)
+      .maybeSingle();
+    counselorEmail = counselor?.email ?? null;
+  }
+
+  if (previousEventId) {
+    await deleteInterviewMeetEvent(previousEventId);
+  }
+
+  if (!isGoogleCalendarConfigured()) {
+    warning =
+      "Interview booked, but Google Meet is not connected. Add GOOGLE_* env vars to create Meet links.";
+  } else if (lead && interviewer) {
+    try {
+      const attendees = [lead.email, interviewer.email, counselorEmail].filter(
+        Boolean
+      ) as string[];
+      const meet = await createInterviewMeetEvent({
+        requestId: booking.id,
+        summary: `HiveSchool ${input.round} · ${lead.name}`,
+        description: [
+          `HiveSchool admissions interview (${input.round}) — manual booking.`,
+          `Candidate: ${lead.name}${lead.email ? ` <${lead.email}>` : ""}`,
+          `Panel: ${interviewer.name} <${interviewer.email}>`,
+          counselorEmail ? `Counselor: ${counselorEmail}` : null,
+          `Booked in Hive CRM.`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        startDateTime: slotDateTime(date, startTime),
+        endDateTime: slotDateTime(date, endTime),
+        attendeeEmails: attendees,
+      });
+      if (meet) {
+        meetLink = meet.meetLink;
+        await supabase
+          .from("interview_bookings")
+          .update({
+            meet_link: meet.meetLink,
+            calendar_event_id: meet.eventId,
+          })
+          .eq("id", booking.id);
+      }
+    } catch (err) {
+      console.error("[bookInterviewManual] Google Meet failed:", err);
       warning =
         err instanceof Error
           ? `Interview booked, but Meet failed: ${err.message}`
@@ -264,15 +448,22 @@ export async function markNoShowOrReschedule(input: {
   kind: "no_show" | "reschedule";
 }): Promise<ActionResult> {
   await requireUser(["counselor", "admin"]);
+  if (input.kind === "reschedule") {
+    return {
+      ok: false,
+      error:
+        "Reschedule needs a new date, time, and panelist. Open Book interview and pick a slot (or use Manual override).",
+    };
+  }
   const supabase = createClient();
-  const stageMap: Record<InterviewRound, Record<"no_show" | "reschedule", Stage>> = {
-    R1: { no_show: "r1_no_show", reschedule: "r1_reschedule" },
-    R2: { no_show: "r2_no_show", reschedule: "r2_reschedule" },
-    R3: { no_show: "r3_no_show", reschedule: "r3_reschedule" },
+  const stageMap: Record<InterviewRound, Stage> = {
+    R1: "r1_no_show",
+    R2: "r2_no_show",
+    R3: "r3_no_show",
   };
   const { error } = await supabase
     .from("leads")
-    .update({ stage: stageMap[input.round][input.kind] })
+    .update({ stage: stageMap[input.round] })
     .eq("id", input.leadId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/leads/${input.leadId}`);

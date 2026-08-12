@@ -48,7 +48,12 @@ export default async function AdminLeadsPage({
   ] = await Promise.all([
     dataQuery,
     countQuery,
-    supabase.from("users").select("*").eq("role", "counselor").order("name"),
+    supabase
+      .from("users")
+      .select("*")
+      .eq("role", "counselor")
+      .eq("active", true)
+      .order("name"),
     getActiveCourses(),
     getActiveCohorts(),
   ]);

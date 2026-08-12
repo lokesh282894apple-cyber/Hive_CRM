@@ -5,6 +5,7 @@ export const STAGES = [
   "lead_created",
   "in_funnel",
   "new_lead",
+  "call_logged_nurturing",
   "dnp",
   "no_show",
   "reschedule",
@@ -30,10 +31,26 @@ export const STAGES = [
 
 export type Stage = (typeof STAGES)[number];
 
+/** Primary pre-interview stages shown in counselor UI. */
+export const PRIMARY_PRE_INTERVIEW_STAGES = [
+  "new_lead",
+  "call_logged_nurturing",
+  "dnp",
+] as const satisfies readonly Stage[];
+
+/** Legacy pre-interview stages — kept for existing leads, hidden in primary UI. */
+export const LEGACY_PRE_INTERVIEW_STAGES = [
+  "lead_created",
+  "in_funnel",
+  "no_show",
+  "reschedule",
+] as const satisfies readonly Stage[];
+
 export const STAGE_LABELS: Record<Stage, string> = {
   lead_created: "Lead Created",
   in_funnel: "In-Funnel",
   new_lead: "New Lead",
+  call_logged_nurturing: "Call Logged – Nurturing",
   dnp: "DNP",
   no_show: "No Show",
   reschedule: "Reschedule",
@@ -57,40 +74,93 @@ export const STAGE_LABELS: Record<Stage, string> = {
   closed_lost: "Closed - Lost",
 };
 
-/** Soft-allowed transitions for counselor UI. Admin can set any stage. */
+/** Soft-allowed transitions for counselor UI. Admin can set any stage. closed_lost is global. */
 export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
-  lead_created: ["in_funnel", "new_lead", "dnp", "no_show", "reschedule", "closed_lost"],
-  in_funnel: ["new_lead", "dnp", "no_show", "reschedule", "r1_booked", "closed_lost"],
-  new_lead: ["in_funnel", "dnp", "no_show", "reschedule", "r1_booked", "closed_lost"],
-  dnp: ["in_funnel", "new_lead", "r1_booked", "closed_lost"],
-  no_show: ["in_funnel", "reschedule", "r1_booked", "closed_lost"],
-  reschedule: ["r1_booked", "in_funnel", "closed_lost"],
-  r1_booked: ["r1_confirmed", "r1_reject", "r1_no_show", "r1_reschedule"],
+  lead_created: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "r1_booked",
+    "closed_lost",
+  ],
+  in_funnel: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "r1_booked",
+    "closed_lost",
+  ],
+  new_lead: ["call_logged_nurturing", "dnp", "r1_booked", "closed_lost"],
+  call_logged_nurturing: ["new_lead", "dnp", "r1_booked", "closed_lost"],
+  dnp: ["new_lead", "call_logged_nurturing", "r1_booked", "closed_lost"],
+  no_show: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "r1_booked",
+    "closed_lost",
+  ],
+  reschedule: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "r1_booked",
+    "closed_lost",
+  ],
+  r1_booked: [
+    "r1_confirmed",
+    "r1_reject",
+    "r1_no_show",
+    "r1_reschedule",
+    "closed_lost",
+  ],
   r1_confirmed: ["r2_booked", "closed_lost"],
   r1_reject: ["closed_lost"],
   r1_no_show: ["r1_booked", "r1_reschedule", "closed_lost"],
-  r1_reschedule: ["r1_booked"],
-  r2_booked: ["r2_tbb", "r2_reject", "r2_no_show", "r2_reschedule"],
+  r1_reschedule: ["r1_booked", "closed_lost"],
+  r2_booked: [
+    "r2_tbb",
+    "r2_reject",
+    "r2_no_show",
+    "r2_reschedule",
+    "closed_lost",
+  ],
   r2_tbb: ["r3_booked", "closed_lost"],
   r2_reject: ["closed_lost"],
   r2_no_show: ["r2_booked", "r2_reschedule", "closed_lost"],
-  r2_reschedule: ["r2_booked"],
+  r2_reschedule: ["r2_booked", "closed_lost"],
   r3_booked: ["r3_tbb", "r3_no_show", "r3_reschedule", "closed_lost"],
   r3_tbb: ["yet_to_offer", "closed_lost"],
   r3_no_show: ["r3_booked", "r3_reschedule", "closed_lost"],
-  r3_reschedule: ["r3_booked"],
+  r3_reschedule: ["r3_booked", "closed_lost"],
   yet_to_offer: ["offered", "closed_lost"],
   offered: ["closed_won", "closed_lost"],
   closed_won: [],
-  closed_lost: ["in_funnel", "new_lead"],
+  closed_lost: ["new_lead", "call_logged_nurturing"],
 };
 
 export const LEAD_LIST_TABS = [
-  { id: "in_funnel", label: "In-Funnel", stages: ["in_funnel"] as Stage[] },
-  { id: "new_lead", label: "New Leads", stages: ["new_lead", "lead_created"] as Stage[] },
-  { id: "dnp", label: "DNP", stages: ["dnp"] as Stage[] },
-  { id: "no_show", label: "No Shows", stages: ["no_show", "r1_no_show", "r2_no_show", "r3_no_show"] as Stage[] },
-  { id: "reschedule", label: "Reschedules", stages: ["reschedule", "r1_reschedule", "r2_reschedule", "r3_reschedule"] as Stage[] },
+  {
+    id: "new_lead",
+    label: "New Leads",
+    stages: ["new_lead", "lead_created", "in_funnel"] as Stage[],
+  },
+  {
+    id: "nurturing",
+    label: "Nurturing",
+    stages: ["call_logged_nurturing"] as Stage[],
+  },
+  { id: "dnp", label: "DNP", stages: ["dnp", "no_show", "reschedule"] as Stage[] },
+  {
+    id: "no_show",
+    label: "Interview no-shows",
+    stages: ["r1_no_show", "r2_no_show", "r3_no_show"] as Stage[],
+  },
+  {
+    id: "reschedule",
+    label: "Interview reschedules",
+    stages: ["r1_reschedule", "r2_reschedule", "r3_reschedule"] as Stage[],
+  },
   { id: "all", label: "All", stages: [...STAGES] as Stage[] },
 ] as const;
 
@@ -107,8 +177,16 @@ export const STAGE_GROUPS = [
   },
   {
     id: "pre_r1",
-    label: "Pre-R1",
-    stages: ["lead_created", "in_funnel", "new_lead", "dnp", "no_show", "reschedule"] as Stage[],
+    label: "Pre-interview",
+    stages: [
+      "new_lead",
+      "call_logged_nurturing",
+      "dnp",
+      "lead_created",
+      "in_funnel",
+      "no_show",
+      "reschedule",
+    ] as Stage[],
   },
   {
     id: "r1",
@@ -170,27 +248,27 @@ export type BoardColumnDef = {
 
 export const BOARD_COLUMNS: BoardColumnDef[] = [
   {
-    id: "intake",
-    label: "Intake",
-    hint: "New & created",
-    stages: ["lead_created", "new_lead"],
+    id: "new_lead",
+    label: "New Lead",
+    hint: "Fresh intake · legacy intake folded here",
+    stages: ["new_lead", "lead_created", "in_funnel"],
     dropStage: "new_lead",
     accent: "periwinkle",
     section: "Pre-interview",
   },
   {
-    id: "in_funnel",
-    label: "In Funnel",
-    hint: "Active outreach",
-    stages: ["in_funnel"],
-    dropStage: "in_funnel",
+    id: "nurturing",
+    label: "Call Logged – Nurturing",
+    hint: "In conversation · not ready to book",
+    stages: ["call_logged_nurturing"],
+    dropStage: "call_logged_nurturing",
     accent: "periwinkle",
     section: "Pre-interview",
   },
   {
-    id: "follow_up",
-    label: "Follow-up",
-    hint: "DNP · No show · Reschedule",
+    id: "dnp",
+    label: "DNP",
+    hint: "Did not pick · legacy no-show/reschedule here",
     stages: ["dnp", "no_show", "reschedule"],
     dropStage: "dnp",
     accent: "warning",
@@ -235,7 +313,7 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
   {
     id: "closed",
     label: "Closed",
-    hint: "Won · Lost",
+    hint: "Won · Lost (global)",
     stages: ["closed_won", "closed_lost"],
     dropStage: "closed_won",
     accent: "gray",
@@ -258,6 +336,7 @@ function sectionForStage(stage: Stage): string {
   if (
     stage === "lead_created" ||
     stage === "new_lead" ||
+    stage === "call_logged_nurturing" ||
     stage === "in_funnel" ||
     stage === "dnp" ||
     stage === "no_show" ||
@@ -272,8 +351,11 @@ function sectionForStage(stage: Stage): string {
   return "Closed";
 }
 
-/** One column per stage — full funnel breakdown (R1 booked / confirmed / reject / …). */
-export const BOARD_COLUMNS_BREAKDOWN: BoardColumnDef[] = STAGES.map((stage) => ({
+/** Breakdown hides legacy pre-interview stages unless you need them via admin list. */
+export const BOARD_COLUMNS_BREAKDOWN: BoardColumnDef[] = STAGES.filter(
+  (stage) =>
+    !(LEGACY_PRE_INTERVIEW_STAGES as readonly string[]).includes(stage)
+).map((stage) => ({
   id: stage,
   label: STAGE_LABELS[stage],
   hint: sectionForStage(stage),
@@ -304,6 +386,10 @@ export const CALL_OUTCOMES = [
   "voicemail",
   "wrong_number",
   "callback_requested",
+  "dialing",
+  "busy",
+  "no_answer",
+  "failed",
   "other",
 ] as const;
 

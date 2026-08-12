@@ -1,6 +1,6 @@
 "use client";
 
-import { bookInterview } from "@/app/actions/interviews";
+import { bookInterview, bookInterviewManual } from "@/app/actions/interviews";
 import { INTERVIEW_ROUNDS, type InterviewRound } from "@/lib/constants";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { AppUser, InterviewBooking, InterviewerAvailability } from "@/types/database";
@@ -51,6 +51,7 @@ export function BookInterviewClient({
   leadName,
   slots,
   existingBookings,
+  panelists = [],
   windowDays = 7,
   truncated = false,
   googleMeetConfigured = false,
@@ -59,6 +60,7 @@ export function BookInterviewClient({
   leadName: string;
   slots: SlotRow[];
   existingBookings: InterviewBooking[];
+  panelists?: { id: string; name: string }[];
   windowDays?: number;
   truncated?: boolean;
   googleMeetConfigured?: boolean;
@@ -70,19 +72,24 @@ export function BookInterviewClient({
   const [dayFilter, setDayFilter] = useState<DayFilter>("week");
   const [partFilter, setPartFilter] = useState<PartOfDay>("any");
   const [interviewerFilter, setInterviewerFilter] = useState("all");
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualPanelist, setManualPanelist] = useState("");
+  const [manualStart, setManualStart] = useState("");
+  const [manualDuration, setManualDuration] = useState(30);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [successNote, setSuccessNote] = useState<string | null>(null);
 
   const interviewers = useMemo(() => {
     const map = new Map<string, string>();
+    for (const p of panelists) map.set(p.id, p.name);
     for (const s of slots) {
       if (s.interviewer?.name) map.set(s.interviewer_id, s.interviewer.name);
     }
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [slots]);
+  }, [slots, panelists]);
 
   const freeSlots = useMemo(() => {
     const today = startOfDay(new Date());
@@ -122,6 +129,25 @@ export function BookInterviewClient({
   const selected = freeSlots.find((s) => s.id === slotId) ?? null;
   const earliest = freeSlots[0] ?? null;
 
+  function handleBookResult(res: Awaited<ReturnType<typeof bookInterview>>) {
+    if (!res.ok) {
+      setError(res.error);
+      setSuccessNote(null);
+      return;
+    }
+    setError(null);
+    if (res.meetLink) {
+      setSuccessNote(`Booked — Meet ready. Opening lead…`);
+      router.push(`/leads/${leadId}?meet=1`);
+    } else if (res.warning) {
+      setSuccessNote(res.warning);
+      router.push(`/leads/${leadId}?meet_warn=1`);
+    } else {
+      router.push(`/leads/${leadId}`);
+    }
+    router.refresh();
+  }
+
   function confirmBooking() {
     if (!selected) return;
     const scheduledAt = `${selected.date}T${selected.start_time}`;
@@ -134,22 +160,25 @@ export function BookInterviewClient({
         scheduledAt,
         rescheduleBookingId: rescheduleId || undefined,
       });
-      if (!res.ok) {
-        setError(res.error);
-        setSuccessNote(null);
-        return;
-      }
-      setError(null);
-      if (res.meetLink) {
-        setSuccessNote(`Booked — Meet ready. Opening lead…`);
-        router.push(`/leads/${leadId}?meet=1`);
-      } else if (res.warning) {
-        setSuccessNote(res.warning);
-        router.push(`/leads/${leadId}?meet_warn=1`);
-      } else {
-        router.push(`/leads/${leadId}`);
-      }
-      router.refresh();
+      handleBookResult(res);
+    });
+  }
+
+  function confirmManual() {
+    if (!manualPanelist || !manualStart) {
+      setError("Panelist and date/time are required for manual booking.");
+      return;
+    }
+    startTransition(async () => {
+      const res = await bookInterviewManual({
+        leadId,
+        round,
+        interviewerId: manualPanelist,
+        startLocal: manualStart,
+        durationMinutes: manualDuration,
+        rescheduleBookingId: rescheduleId || undefined,
+      });
+      handleBookResult(res);
     });
   }
 
@@ -165,7 +194,7 @@ export function BookInterviewClient({
       ) : (
         <div className="mb-4 rounded-xl border border-periwinkle/30 bg-periwinkle/5 px-4 py-2.5 text-sm text-navy">
           Confirming a slot creates a Google Calendar event with a Meet link and invites the
-          student + interviewer.
+          student, interviewer, and counselor.
         </div>
       )}
       {successNote ? (
@@ -173,6 +202,77 @@ export function BookInterviewClient({
           {successNote}
         </div>
       ) : null}
+
+      <div className="mb-4 rounded-panel border border-border bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-navy">Manual override</p>
+            <p className="text-xs text-muted">
+              Book any round outside open slots — panelist + date/time required.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={() => setManualOpen((v) => !v)}
+          >
+            {manualOpen ? "Hide" : "Open manual booking"}
+          </button>
+        </div>
+        {manualOpen ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="label-field">Panelist</label>
+              <select
+                className="input-field"
+                value={manualPanelist}
+                onChange={(e) => setManualPanelist(e.target.value)}
+                required
+              >
+                <option value="">Select panelist</option>
+                {interviewers.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label-field">Date & time</label>
+              <input
+                type="datetime-local"
+                className="input-field"
+                value={manualStart}
+                onChange={(e) => setManualStart(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="label-field">Duration (min)</label>
+              <input
+                type="number"
+                min={15}
+                max={180}
+                step={15}
+                className="input-field"
+                value={manualDuration}
+                onChange={(e) => setManualDuration(Number(e.target.value) || 30)}
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                className="btn-primary w-full"
+                disabled={pending || !manualPanelist || !manualStart}
+                onClick={confirmManual}
+              >
+                Confirm manual {round}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {/* Call-desk banner */}
       <div className="mb-4 flex flex-col gap-3 rounded-panel border border-gold/40 bg-gradient-to-r from-gold/20 via-white to-periwinkle/10 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">

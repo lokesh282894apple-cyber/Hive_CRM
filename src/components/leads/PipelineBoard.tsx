@@ -71,12 +71,14 @@ function LeadCard({
   compact,
   showClaim,
   onClaim,
+  cohortLabel,
 }: {
   lead: LeadWithRelations;
   dragging?: boolean;
   compact?: boolean;
   showClaim?: boolean;
   onClaim?: (id: string) => void;
+  cohortLabel?: string | null;
 }) {
   const stale = isStale(lead);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -135,7 +137,9 @@ function LeadCard({
             <>
               <p className="mt-2 truncate text-xs text-muted">
                 {lead.course?.name ?? "No course"}
-                {lead.cohort ? ` · ${lead.cohort.name}` : ""}
+                {lead.cohort
+                  ? ` · ${cohortLabel ?? lead.cohort.name}`
+                  : ""}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
                 <span className="inline-flex items-center gap-1">
@@ -187,6 +191,7 @@ function BoardColumn({
   onJumpStage,
   showClaim,
   onClaim,
+  cohortNums,
 }: {
   column: BoardColumnDef;
   leads: LeadWithRelations[];
@@ -194,6 +199,7 @@ function BoardColumn({
   onJumpStage?: (stage: Stage) => void;
   showClaim?: boolean;
   onClaim?: (id: string) => void;
+  cohortNums?: Map<string, string>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
   const compact = density === "breakdown";
@@ -275,6 +281,11 @@ function BoardColumn({
             compact={compact}
             showClaim={showClaim}
             onClaim={onClaim}
+            cohortLabel={
+              lead.cohort
+                ? cohortNums?.get(lead.cohort.id) ?? lead.cohort.name
+                : null
+            }
           />
         ))}
         {leads.length === 0 ? (
@@ -331,11 +342,13 @@ export function PipelineBoard({
   isAdmin,
   showClaim,
   onClaim,
+  cohortNums,
 }: {
   leads: LeadWithRelations[];
   isAdmin?: boolean;
   showClaim?: boolean;
   onClaim?: (id: string) => void;
+  cohortNums?: Map<string, string>;
 }) {
   const [items, setItems] = useState(leads);
   const [density, setDensity] = useState<BoardDensity>("grouped");
@@ -548,6 +561,7 @@ export function PipelineBoard({
                   density={density}
                   showClaim={showClaim}
                   onClaim={onClaim}
+                  cohortNums={cohortNums}
                   onJumpStage={(stage) =>
                     setFocusStage((prev) => (prev === stage ? null : stage))
                   }
@@ -565,6 +579,12 @@ export function PipelineBoard({
                 compact={density === "breakdown"}
                 showClaim={showClaim}
                 onClaim={onClaim}
+                cohortLabel={
+                  activeLead.cohort
+                    ? cohortNums?.get(activeLead.cohort.id) ??
+                      activeLead.cohort.name
+                    : null
+                }
               />
             </div>
           ) : null}

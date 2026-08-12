@@ -2,6 +2,7 @@
 
 import { createLead } from "@/app/actions/leads";
 import { LEAD_SOURCES } from "@/lib/constants";
+import { cohortNumberMap } from "@/lib/cohorts/display";
 import type { Cohort, Course } from "@/types/database";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState, useTransition } from "react";
@@ -22,6 +23,7 @@ export function AddLeadForm({
     () => cohorts.filter((c) => c.course_id === courseId && c.active),
     [cohorts, courseId]
   );
+  const cohortNums = useMemo(() => cohortNumberMap(cohorts), [cohorts]);
 
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -87,7 +89,7 @@ export function AddLeadForm({
           <select name="cohort_id" className="input-field" required>
             {filteredCohorts.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {cohortNums.get(c.id) ?? c.name}
               </option>
             ))}
           </select>

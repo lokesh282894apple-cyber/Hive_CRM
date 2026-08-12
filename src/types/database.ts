@@ -81,6 +81,8 @@ export type CallLog = {
   notes: string | null;
   recording_url: string | null;
   logged_at: string;
+  twilio_call_sid?: string | null;
+  call_status?: string | null;
 };
 
 export type StageHistory = {

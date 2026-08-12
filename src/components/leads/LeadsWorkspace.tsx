@@ -17,6 +17,7 @@ import {
   filtersToSearchParams,
   type LeadsFilterParams,
 } from "@/lib/leads-query";
+import { cohortNumberMap } from "@/lib/cohorts/display";
 import { cn, formatDate } from "@/lib/utils";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
 import { differenceInDays } from "date-fns";
@@ -122,6 +123,19 @@ export function LeadsWorkspace({
     [cohorts, filters.courseId]
   );
 
+  const cohortNums = useMemo(() => cohortNumberMap(cohorts), [cohorts]);
+  const courseNameById = useMemo(
+    () => new Map(courses.map((c) => [c.id, c.name])),
+    [courses]
+  );
+  const activeCounselors = useMemo(
+    () =>
+      [...(counselors ?? [])]
+        .filter((c) => c.active !== false)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [counselors]
+  );
+
   const listTabFiltered = useMemo(() => {
     if (filters.mode !== "list") return leads;
     // List stage tabs are additional client refine when group is broad
@@ -148,7 +162,7 @@ export function LeadsWorkspace({
         l.phone,
         l.stage,
         l.course?.name ?? "",
-        l.cohort?.name ?? "",
+        l.cohort ? cohortNums.get(l.cohort.id) ?? l.cohort.name : "",
         l.allocated?.name ?? "",
         l.intent_score ?? "",
       ]
@@ -199,10 +213,9 @@ export function LeadsWorkspace({
                 pushFilters({ ownership: e.target.value, page: 1 })
               }
             >
-              <option value="all">All owners</option>
               <option value="unassigned">Unassigned</option>
-              <option value="mine">Mine</option>
-              {(counselors ?? []).map((c) => (
+              <option value="all">All owners</option>
+              {activeCounselors.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
@@ -286,11 +299,17 @@ export function LeadsWorkspace({
             }
           >
             <option value="">All cohorts</option>
-            {filteredCohorts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
+            {filteredCohorts.map((c) => {
+              const num = cohortNums.get(c.id) ?? c.name;
+              const label = filters.courseId
+                ? num
+                : `${courseNameById.get(c.course_id) ?? "Course"} · ${num}`;
+              return (
+                <option key={c.id} value={c.id}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
 
           <label className="inline-flex items-center gap-1.5 rounded-pill border border-border px-3 py-1.5 text-xs font-medium text-navy">
@@ -369,6 +388,7 @@ export function LeadsWorkspace({
           leads={leads}
           isAdmin={isAdmin}
           showClaim={showClaim}
+          cohortNums={cohortNums}
           onClaim={(id) =>
             startTransition(async () => {
               await claimLead(id);
@@ -458,7 +478,9 @@ export function LeadsWorkspace({
                           <td className="px-4 py-3 text-muted">
                             {l.course?.name ?? "—"}
                             {l.cohort ? (
-                              <span className="block text-xs">{l.cohort.name}</span>
+                              <span className="block text-xs">
+                                Cohort {cohortNums.get(l.cohort.id) ?? l.cohort.name}
+                              </span>
                             ) : null}
                           </td>
                           <td className="px-4 py-3">
@@ -495,7 +517,7 @@ export function LeadsWorkspace({
                                 >
                                   Claim
                                 </button>
-                              ) : counselors?.length ? (
+                              ) : activeCounselors.length ? (
                                 <select
                                   className="input-field py-1.5 text-xs"
                                   defaultValue={l.lead_allocated_to ?? ""}
@@ -508,7 +530,7 @@ export function LeadsWorkspace({
                                   }
                                 >
                                   <option value="">Unassigned</option>
-                                  {counselors.map((c) => (
+                                  {activeCounselors.map((c) => (
                                     <option key={c.id} value={c.id}>
                                       {c.name}
                                     </option>

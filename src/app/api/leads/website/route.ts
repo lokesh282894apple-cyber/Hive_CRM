@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
         course_id: courseId,
         cohort_id: cohortId,
         lead_allocated_to: allocatedTo,
-        stage: "lead_created",
+        stage: "new_lead",
       };
 
       let { data, error } = await admin.from("leads").insert(insertRow).select("id").single();
