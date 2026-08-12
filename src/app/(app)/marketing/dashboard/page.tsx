@@ -7,6 +7,7 @@ import {
   type RangeKey,
 } from "@/lib/marketing/queries";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
+import { DailyVisitsConversions } from "@/components/charts/SimpleCharts";
 import Link from "next/link";
 import { CheckCircle2, Circle, ArrowRight } from "lucide-react";
 
@@ -101,8 +102,6 @@ export default async function MarketingDashboardPage({
   const { kpis, daily, byChannel, byCampaign, byUtm, devices, recentSessions, recentConversions } =
     overview;
 
-  const maxDaily = Math.max(1, ...daily.map((d) => Math.max(d.sessions, d.conversions)));
-
   // Resolve conversion lead names
   const convLeadIds = recentConversions.map((c) => c.lead_id);
   const { data: convLeads } = convLeadIds.length
@@ -169,33 +168,14 @@ export default async function MarketingDashboardPage({
       </div>
 
       <section className="panel mt-6 p-5">
-        <p className="eyebrow">Trend · Sessions vs form conversions</p>
-        <div className="mt-4 flex h-36 items-end gap-0.5">
-          {daily.map((d) => (
-            <div key={d.date} className="group relative flex flex-1 flex-col items-center justify-end gap-0.5">
-              <div
-                className="w-full rounded-t bg-periwinkle/70"
-                style={{ height: `${(d.sessions / maxDaily) * 100}%`, minHeight: d.sessions ? 2 : 0 }}
-                title={`${d.date}: ${d.sessions} sessions`}
-              />
-              <div
-                className="w-full rounded-t bg-gold"
-                style={{
-                  height: `${(d.conversions / maxDaily) * 100}%`,
-                  minHeight: d.conversions ? 2 : 0,
-                }}
-                title={`${d.date}: ${d.conversions} conversions`}
-              />
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 flex gap-4 text-[11px] text-muted">
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-periwinkle/70" /> Sessions
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-gold" /> Form conversions
-          </span>
+        <p className="eyebrow">Daily traffic</p>
+        <h2 className="mt-1 text-lg font-semibold text-navy">Website visits vs form fills</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted">
+          Visits = people browsing the site. Form fills = those who submitted an admissions form and
+          became a lead. Charts use separate scales so small form-fill numbers stay visible.
+        </p>
+        <div className="mt-5">
+          <DailyVisitsConversions days={daily} />
         </div>
       </section>
 

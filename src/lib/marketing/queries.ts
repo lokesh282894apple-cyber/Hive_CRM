@@ -63,20 +63,21 @@ export type AttributionSource = {
   channel_name: string | null;
 };
 
+/** Calendar day in India (CRM default) — avoids UTC shifting visits onto the wrong day. */
+const MARKETING_TZ = "Asia/Kolkata";
+
 function dayKey(iso: string): string {
-  return iso.slice(0, 10);
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: MARKETING_TZ });
 }
 
 function emptyDays(range: RangeKey): Map<string, DailyPoint> {
   const map = new Map<string, DailyPoint>();
   const n = Number(range);
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - n);
-  for (let i = 0; i <= n; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const key = d.toISOString().slice(0, 10);
+  const todayKey = dayKey(new Date().toISOString());
+  const [y, m, d] = todayKey.split("-").map(Number);
+  for (let i = n; i >= 0; i--) {
+    // Calendar arithmetic on the IST Y-M-D (Date.UTC day overflow is fine)
+    const key = new Date(Date.UTC(y, m - 1, d - i)).toISOString().slice(0, 10);
     map.set(key, { date: key, sessions: 0, conversions: 0 });
   }
   return map;
