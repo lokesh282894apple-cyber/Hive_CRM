@@ -2,6 +2,17 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { fetchFounderCommand } from "@/lib/analytics/founder-command";
+import {
+  currentMonthKey,
+  fetchAdmissionsFunnel,
+  type FunnelAttribution,
+  type FunnelMode,
+} from "@/lib/analytics/admissions-funnel";
+import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/FunnelMatrix";
+import { ConversionTable } from "@/components/admin/funnel/ConversionTable";
+import { AttributionSplit } from "@/components/admin/funnel/AttributionSplit";
+import { DayWiseGrid } from "@/components/admin/funnel/DayWiseGrid";
+import { CohortFunnelBoard } from "@/components/admin/funnel/CohortFunnelBoard";
 import { BarChart, ForecastBadge } from "@/components/charts/SimpleCharts";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import Link from "next/link";
@@ -89,6 +100,20 @@ function buildQuery(params: Record<string, string | undefined>) {
   return s ? `?${s}` : "";
 }
 
+function monthOptions(count = 12) {
+  const out: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    out.push({
+      value,
+      label: d.toLocaleString("en-US", { month: "short", year: "numeric" }),
+    });
+  }
+  return out;
+}
+
 export default async function AdminAnalyticsPage({
   searchParams,
 }: {
@@ -97,6 +122,9 @@ export default async function AdminAnalyticsPage({
     course?: string;
     cohort?: string;
     counselor?: string;
+    month?: string;
+    mode?: string;
+    attribution?: string;
   };
 }) {
   await requireUser(["admin"]);
@@ -107,10 +135,29 @@ export default async function AdminAnalyticsPage({
   const courseId = searchParams.course || null;
   const cohortId = searchParams.cohort || null;
   const counselorId = searchParams.counselor || null;
+  const month =
+    searchParams.month && /^\d{4}-\d{2}$/.test(searchParams.month)
+      ? searchParams.month
+      : currentMonthKey();
+  const mode: FunnelMode =
+    searchParams.mode === "snapshot" ? "snapshot" : "period";
+  const attribution: FunnelAttribution =
+    searchParams.attribution === "organic" ||
+    searchParams.attribution === "inorganic"
+      ? searchParams.attribution
+      : "all";
 
-  const [cmd, coursesRes, cohortsRes, counselorsRes] = await Promise.all([
+  const [cmd, funnel, coursesRes, cohortsRes, counselorsRes] = await Promise.all([
     fetchFounderCommand(supabase, {
       rangeDays,
+      courseId,
+      cohortId,
+      counselorId,
+    }),
+    fetchAdmissionsFunnel(supabase, {
+      month,
+      mode,
+      attribution,
       courseId,
       cohortId,
       counselorId,
@@ -157,7 +204,14 @@ export default async function AdminAnalyticsPage({
     course: courseId ?? undefined,
     cohort: cohortId ?? undefined,
     counselor: counselorId ?? undefined,
+    month,
+    mode,
+    attribution: attribution === "all" ? undefined : attribution,
   };
+  const months = monthOptions(12);
+  const funnelFiltersActive = Boolean(
+    courseId || cohortId || counselorId || attribution !== "all" || mode !== "period"
+  );
 
   const cpeHint = !cmd.cpe.available
     ? "Add ad spend or a monthly spend figure in config to see cost per enrollment."
@@ -166,6 +220,7 @@ export default async function AdminAnalyticsPage({
       : `Spend ÷ enrollments · ~${formatCurrency(cmd.cpe.spend)} from monthly estimate`;
 
   const nav = [
+    { href: "#funnel", label: "Funnel" },
     { href: "#pipeline", label: "Pipeline" },
     { href: "#money", label: "Money" },
     { href: "#team", label: "Team" },
@@ -178,7 +233,7 @@ export default async function AdminAnalyticsPage({
         eyebrow="Admin · Analytics"
         title="Deep"
         accent="Cut"
-        description="Drill into pipeline, cash, and team — filter, then act."
+        description="Admissions funnel depth plus cash and team — filter, then act."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/admin/dashboard" className="btn-primary text-xs">
@@ -215,8 +270,11 @@ export default async function AdminAnalyticsPage({
       <div className="sticky top-0 z-20 -mx-1 border-b border-border bg-[#F7F8FC]/95 px-1 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted">
-            Dig in and act · last <strong className="text-navy">{rangeDays}d</strong>
-            {filtersActive ? (
+            Dig in and act ·{" "}
+            <strong className="text-navy">{funnel.month}</strong>
+            {" · "}
+            last <strong className="text-navy">{rangeDays}d</strong>
+            {filtersActive || funnelFiltersActive ? (
               <span className="text-navy"> · filters on</span>
             ) : null}
           </p>
@@ -239,6 +297,43 @@ export default async function AdminAnalyticsPage({
         className="panel flex flex-wrap items-end gap-3 p-4 sm:p-5"
       >
         <input type="hidden" name="range" value={rangeDays} />
+        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
+          Month
+          <select
+            name="month"
+            defaultValue={month}
+            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
+          >
+            {months.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
+          Funnel mode
+          <select
+            name="mode"
+            defaultValue={mode}
+            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
+          >
+            <option value="period">Period activity</option>
+            <option value="snapshot">Pipeline snapshot</option>
+          </select>
+        </label>
+        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
+          Attribution
+          <select
+            name="attribution"
+            defaultValue={attribution}
+            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
+          >
+            <option value="all">All leads</option>
+            <option value="organic">Organic</option>
+            <option value="inorganic">Inorganic</option>
+          </select>
+        </label>
         <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
           Course
           <select
@@ -287,7 +382,7 @@ export default async function AdminAnalyticsPage({
         <button type="submit" className="btn-primary text-xs">
           Apply
         </button>
-        {filtersActive ? (
+        {filtersActive || funnelFiltersActive ? (
           <Link
             href={`/admin/analytics?range=${rangeDays}`}
             className="rounded-xl border border-border px-3 py-2 text-xs font-semibold text-navy"
@@ -357,6 +452,152 @@ export default async function AdminAnalyticsPage({
           </div>
         </div>
       </section>
+
+      {/* Excel-depth admissions funnel */}
+      <Section
+        id="funnel"
+        title="Admissions funnel"
+        subtitle={`${funnel.month} · ${
+          mode === "period" ? "period activity" : "pipeline snapshot"
+        } · R1 → R2 → R3 → Offer · click counts to open leads`}
+      >
+        <div className="mb-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-border bg-[#F7F8FC] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Total leads
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
+              {funnel.leadTotals.total}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-[#F7F8FC] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Organic
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
+              {funnel.leadTotals.organic}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-[#F7F8FC] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Inorganic
+            </p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
+              {funnel.leadTotals.inorganic}
+            </p>
+          </div>
+        </div>
+
+        {funnel.byMonth.length > 0 ? (
+          <div className="mb-5 -mx-1 overflow-x-auto pb-1">
+            <div className="flex min-w-max gap-2 px-1">
+              {funnel.byMonth.map((m) => (
+                <Link
+                  key={m.month}
+                  href={`/admin/analytics${buildQuery({
+                    ...baseParams,
+                    month: m.month,
+                  })}`}
+                  className={`min-w-[108px] rounded-2xl border px-3 py-2.5 ${
+                    m.month === funnel.month
+                      ? "border-navy bg-navy text-white"
+                      : "border-border bg-white text-navy hover:bg-[#F7F8FC]"
+                  }`}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-eyebrow opacity-80">
+                    {m.label}
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">
+                    {m.r1OnCalendar}
+                  </p>
+                  <p className="text-[11px] opacity-80">
+                    R1 · {m.won} won
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <FunnelMatrix
+            round="R1"
+            metrics={funnel.roundFunnel.R1}
+            courseId={courseId}
+            cohortId={cohortId}
+            counselorId={counselorId}
+          />
+          <FunnelMatrix
+            round="R2"
+            metrics={funnel.roundFunnel.R2}
+            courseId={courseId}
+            cohortId={cohortId}
+            counselorId={counselorId}
+          />
+          <FunnelMatrix
+            round="R3"
+            metrics={funnel.roundFunnel.R3}
+            courseId={courseId}
+            cohortId={cohortId}
+            counselorId={counselorId}
+          />
+          <OfferFunnelMatrix
+            offered={funnel.offerFunnel.offered}
+            won={funnel.offerFunnel.won}
+            lost={funnel.offerFunnel.lost}
+            wonRate={funnel.offerFunnel.rates.won}
+            lostRate={funnel.offerFunnel.rates.lost}
+            courseId={courseId}
+            cohortId={cohortId}
+            counselorId={counselorId}
+          />
+        </div>
+
+        {funnel.pulse.weakestLeak ? (
+          <p className="mt-4 text-sm text-muted">
+            Weakest step:{" "}
+            <strong className="text-navy">{funnel.pulse.weakestLeak.label}</strong>
+            {funnel.pulse.weakestLeak.rate != null
+              ? ` at ${funnel.pulse.weakestLeak.rate.toFixed(0)}%`
+              : ""}
+            .
+          </p>
+        ) : null}
+      </Section>
+
+      <Section
+        title="Funnel conversion percentages"
+        subtitle="Booked → offered / converts · same ratios as the admissions workbook"
+      >
+        <ConversionTable data={funnel.conversionPercents} />
+      </Section>
+
+      <Section
+        title="Day-wise R1 / R2"
+        subtitle={`${funnel.month} · interview activity by day with weekly rollups`}
+      >
+        <DayWiseGrid dayWise={funnel.dayWise} weekRollups={funnel.weekRollups} />
+      </Section>
+
+      <Section
+        title="Cohort rollups"
+        subtitle="Same funnel depth per active cohort in this filter"
+      >
+        <CohortFunnelBoard cohorts={funnel.byCohort} />
+      </Section>
+
+      <Section
+        title="Organic vs inorganic"
+        subtitle="Attribution split · campaign source type when known, else lead source"
+      >
+        <AttributionSplit
+          organic={funnel.organic}
+          inorganic={funnel.inorganic}
+          courseId={courseId}
+          cohortId={cohortId}
+          counselorId={counselorId}
+        />
+      </Section>
 
       <Section
         id="pipeline"

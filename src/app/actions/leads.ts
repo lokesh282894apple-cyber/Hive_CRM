@@ -2,7 +2,7 @@
 
 import { requireUser } from "@/lib/auth";
 import type { Stage } from "@/lib/constants";
-import { STAGES, STAGE_TRANSITIONS } from "@/lib/constants";
+import { isBookingRequiredStage, STAGES, STAGE_TRANSITIONS } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -58,19 +58,11 @@ export async function updateLeadStage(
 
   if (!STAGES.includes(stage)) return { ok: false, error: "Invalid stage" };
 
-  const bookingRequired: Stage[] = [
-    "r1_booked",
-    "r2_booked",
-    "r3_booked",
-    "r1_reschedule",
-    "r2_reschedule",
-    "r3_reschedule",
-  ];
-  if (bookingRequired.includes(stage)) {
+  if (isBookingRequiredStage(stage)) {
     return {
       ok: false,
       error:
-        "Date, time, and panelist are required. Use Book interview (or Manual override) to move into Booked / Reschedule.",
+        "Date, time, and panelist are required. Book the interview from the board dialog or Book interview page.",
     };
   }
 

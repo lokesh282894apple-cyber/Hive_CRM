@@ -232,6 +232,20 @@ export const BOARD_FETCH_MAX = 400;
 export const BOOKING_DEFAULT_DAYS = 7;
 export const BOOKING_SLOT_CAP = 80;
 
+/** Stages that require an interview booking (date + time + panelist) before they can be set. */
+export const BOOKING_REQUIRED_STAGES = [
+  "r1_booked",
+  "r2_booked",
+  "r3_booked",
+  "r1_reschedule",
+  "r2_reschedule",
+  "r3_reschedule",
+] as const satisfies readonly Stage[];
+
+export function isBookingRequiredStage(stage: Stage): boolean {
+  return (BOOKING_REQUIRED_STAGES as readonly string[]).includes(stage);
+}
+
 /**
  * Kanban — Grouped lanes (high-level pipeline scan).
  * Multi-stage columns use dropStage as the default when dragging in.

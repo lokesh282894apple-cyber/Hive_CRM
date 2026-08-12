@@ -1,7 +1,13 @@
 "use server";
 
 import { requireUser } from "@/lib/auth";
-import type { InterviewOutcome, InterviewRound, Stage } from "@/lib/constants";
+import {
+  BOOKING_DEFAULT_DAYS,
+  BOOKING_SLOT_CAP,
+  type InterviewOutcome,
+  type InterviewRound,
+  type Stage,
+} from "@/lib/constants";
 import {
   createInterviewMeetEvent,
   deleteInterviewMeetEvent,
@@ -9,6 +15,7 @@ import {
   slotDateTime,
 } from "@/lib/google-calendar";
 import { createClient } from "@/lib/supabase/server";
+import { addDays, format } from "date-fns";
 import { revalidatePath } from "next/cache";
 
 export type ActionResult =
@@ -223,6 +230,8 @@ export async function bookInterview(input: {
   revalidatePath(`/leads/${input.leadId}/book-interview`);
   revalidatePath("/interviewer/interviews");
   revalidatePath("/dashboard");
+  revalidatePath("/leads");
+  revalidatePath("/admin/leads");
   return { ok: true, meetLink, warning };
 }
 
@@ -388,6 +397,8 @@ export async function bookInterviewManual(input: {
   revalidatePath(`/leads/${input.leadId}/book-interview`);
   revalidatePath("/interviewer/interviews");
   revalidatePath("/dashboard");
+  revalidatePath("/leads");
+  revalidatePath("/admin/leads");
   return { ok: true, meetLink, warning };
 }
 
@@ -469,3 +480,130 @@ export async function markNoShowOrReschedule(input: {
   revalidatePath(`/leads/${input.leadId}`);
   return { ok: true };
 }
+
+export type BookingOptionsPayload = {
+  leadId: string;
+  leadName: string;
+  slots: {
+    id: string;
+    interviewer_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    status: string;
+    interviewer?: { id: string; name: string } | null;
+  }[];
+  panelists: { id: string; name: string }[];
+  existingBookings: {
+    id: string;
+    round: string;
+    scheduled_at: string;
+    outcome: string | null;
+  }[];
+  googleMeetConfigured: boolean;
+};
+
+/** Load free slots + panelists for the board booking dialog. */
+export async function getInterviewBookingOptions(
+  leadId: string
+): Promise<{ ok: true; data: BookingOptionsPayload } | { ok: false; error: string }> {
+  await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, name")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (!lead) return { ok: false, error: "Lead not found" };
+
+  const today = format(new Date(), "yyyy-MM-dd");
+  const endDate = format(addDays(new Date(), BOOKING_DEFAULT_DAYS), "yyyy-MM-dd");
+
+  const [{ data: slots, error: slotsErr }, { data: bookings }, { data: panelists }] =
+    await Promise.all([
+      supabase
+        .from("interviewer_availability")
+        .select(
+          "id, interviewer_id, date, start_time, end_time, status, interviewer:users!interviewer_availability_interviewer_id_fkey(id, name)"
+        )
+        .eq("status", "free")
+        .gte("date", today)
+        .lt("date", endDate)
+        .order("date")
+        .order("start_time")
+        .limit(BOOKING_SLOT_CAP),
+      supabase
+        .from("interview_bookings")
+        .select("id, round, scheduled_at, outcome")
+        .eq("lead_id", leadId)
+        .order("scheduled_at", { ascending: false })
+        .limit(10),
+      supabase
+        .from("users")
+        .select("id, name")
+        .eq("role", "interviewer")
+        .eq("active", true)
+        .order("name"),
+    ]);
+
+  // Fallback without join if relation select fails
+  type SlotRaw = {
+    id: string;
+    interviewer_id: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    status: string;
+    interviewer?: { id: string; name: string } | { id: string; name: string }[] | null;
+  };
+  let slotRows: SlotRaw[] = (slots as SlotRaw[] | null) ?? [];
+  if (slotsErr) {
+    const { data: plainSlots } = await supabase
+      .from("interviewer_availability")
+      .select("id, interviewer_id, date, start_time, end_time, status")
+      .eq("status", "free")
+      .gte("date", today)
+      .lt("date", endDate)
+      .order("date")
+      .order("start_time")
+      .limit(BOOKING_SLOT_CAP);
+    slotRows = (plainSlots as SlotRaw[] | null) ?? [];
+  }
+
+  const panelistMap = new Map(
+    ((panelists ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name])
+  );
+
+  const normalizedSlots = slotRows.map((s) => {
+    const raw = s.interviewer;
+    const interviewerJoin = Array.isArray(raw) ? raw[0] ?? null : raw ?? null;
+    const interviewer =
+      interviewerJoin ??
+      (panelistMap.has(s.interviewer_id)
+        ? { id: s.interviewer_id, name: panelistMap.get(s.interviewer_id)! }
+        : null);
+    return {
+      id: s.id,
+      interviewer_id: s.interviewer_id,
+      date: s.date,
+      start_time: s.start_time,
+      end_time: s.end_time,
+      status: s.status,
+      interviewer,
+    };
+  });
+
+  return {
+    ok: true,
+    data: {
+      leadId: lead.id,
+      leadName: lead.name,
+      slots: normalizedSlots,
+      panelists: (panelists ?? []) as { id: string; name: string }[],
+      existingBookings: (bookings ?? []) as BookingOptionsPayload["existingBookings"],
+      googleMeetConfigured: isGoogleCalendarConfigured(),
+    },
+  };
+}
+

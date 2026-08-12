@@ -1,9 +1,11 @@
 "use client";
 
 import { updateLeadStage } from "@/app/actions/leads";
+import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
 import {
   BOARD_COLUMN_CAP,
   BOARD_WIP_WARN,
+  BOOKING_REQUIRED_STAGES,
   STAGE_LABELS,
   STAGE_TRANSITIONS,
   STALE_LEAD_DAYS,
@@ -25,12 +27,14 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { differenceInDays } from "date-fns";
 import { Layers, LayoutGrid, Phone, Sparkles } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 function isStale(lead: LeadWithRelations) {
@@ -72,6 +76,7 @@ function LeadCard({
   showClaim,
   onClaim,
   cohortLabel,
+  disableDrag,
 }: {
   lead: LeadWithRelations;
   dragging?: boolean;
@@ -79,11 +84,13 @@ function LeadCard({
   showClaim?: boolean;
   onClaim?: (id: string) => void;
   cohortLabel?: string | null;
+  disableDrag?: boolean;
 }) {
   const stale = isStale(lead);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     data: { lead },
+    disabled: Boolean(disableDrag),
   });
 
   const style = transform
@@ -104,10 +111,11 @@ function LeadCard({
       <div className="flex items-start gap-2">
         <button
           type="button"
-          className="mt-0.5 cursor-grab touch-none text-muted opacity-50 hover:opacity-100 active:cursor-grabbing"
+          className="mt-0.5 cursor-grab touch-none text-muted opacity-50 hover:opacity-100 active:cursor-grabbing disabled:cursor-default disabled:opacity-30"
           aria-label="Drag lead"
-          {...listeners}
-          {...attributes}
+          disabled={disableDrag}
+          {...(disableDrag ? {} : listeners)}
+          {...(disableDrag ? {} : attributes)}
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <circle cx="9" cy="7" r="1.5" />
@@ -192,6 +200,7 @@ function BoardColumn({
   showClaim,
   onClaim,
   cohortNums,
+  disableDrag,
 }: {
   column: BoardColumnDef;
   leads: LeadWithRelations[];
@@ -200,14 +209,19 @@ function BoardColumn({
   showClaim?: boolean;
   onClaim?: (id: string) => void;
   cohortNums?: Map<string, string>;
+  disableDrag?: boolean;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    disabled: Boolean(disableDrag),
+  });
   const compact = density === "breakdown";
   const [expanded, setExpanded] = useState(false);
 
   const subCounts = useMemo(() => {
-    if (column.stages.length <= 1) return [];
-    return column.stages.map((stage) => ({
+    const stages = column.stages ?? [];
+    if (stages.length <= 1) return [];
+    return stages.map((stage) => ({
       stage,
       count: leads.filter((l) => l.stage === stage).length,
     }));
@@ -281,6 +295,7 @@ function BoardColumn({
             compact={compact}
             showClaim={showClaim}
             onClaim={onClaim}
+            disableDrag={disableDrag}
             cohortLabel={
               lead.cohort
                 ? cohortNums?.get(lead.cohort.id) ?? lead.cohort.name
@@ -355,12 +370,24 @@ export function PipelineBoard({
   const [focusStage, setFocusStage] = useState<Stage | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [booking, setBooking] = useState<{
+    leadId: string;
+    leadName: string;
+    targetStage: Stage;
+  } | null>(null);
+  const [dndReady, setDndReady] = useState(false);
+  const lastOverId = useRef<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [, startTransition] = useTransition();
+  const router = useRouter();
 
   useEffect(() => {
     setItems(leads);
   }, [leads]);
+
+  useEffect(() => {
+    setDndReady(true);
+  }, []);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("hive-board-density") as BoardDensity | null;
@@ -383,13 +410,13 @@ export function PipelineBoard({
     const map: Record<string, LeadWithRelations[]> = {};
     for (const col of columns) map[col.id] = [];
     for (const lead of items) {
-      const col = columns.find((c) => c.stages.includes(lead.stage));
+      const col = columns.find((c) => (c.stages ?? []).includes(lead.stage));
       if (col) map[col.id].push(lead);
       else map[columns[0]?.id]?.push(lead);
     }
     if (focusStage && density === "grouped") {
       for (const col of columns) {
-        if (col.stages.includes(focusStage)) {
+        if ((col.stages ?? []).includes(focusStage)) {
           map[col.id] = map[col.id].filter((l) => l.stage === focusStage);
         }
       }
@@ -426,49 +453,81 @@ export function PipelineBoard({
   function onDragStart(e: DragStartEvent) {
     setActiveId(String(e.active.id));
     setError(null);
+    lastOverId.current = null;
+  }
+
+  function onDragOver(e: DragOverEvent) {
+    if (e.over?.id) lastOverId.current = String(e.over.id);
+  }
+
+  function resolveTargetColumn(overId: string | null) {
+    if (!overId) return null;
+    return (
+      columns.find((c) => c.id === overId) ??
+      columns.find((c) => byColumn[c.id]?.some((l) => l.id === overId)) ??
+      null
+    );
+  }
+
+  function openBookingDialog(lead: LeadWithRelations, targetStage: Stage) {
+    setError(null);
+    setBooking({
+      leadId: lead.id,
+      leadName: lead.name,
+      targetStage,
+    });
   }
 
   function onDragEnd(e: DragEndEvent) {
     setActiveId(null);
-    const leadId = String(e.active.id);
-    const overId = e.over?.id ? String(e.over.id) : null;
-    if (!overId) return;
+    try {
+      const leadId = String(e.active.id);
+      const overId = e.over?.id ? String(e.over.id) : lastOverId.current;
+      lastOverId.current = null;
+      if (!overId) return;
 
-    const targetCol =
-      columns.find((c) => c.id === overId) ??
-      columns.find((c) => byColumn[c.id]?.some((l) => l.id === overId));
-    if (!targetCol) return;
+      const targetCol = resolveTargetColumn(overId);
+      if (!targetCol?.dropStage) return;
 
-    const lead = items.find((l) => l.id === leadId);
-    if (!lead) return;
+      const lead = items.find((l) => l.id === leadId);
+      if (!lead) return;
 
-    if (targetCol.stages.includes(lead.stage)) return;
+      const stages = targetCol.stages ?? [];
+      if (stages.includes(lead.stage)) return;
 
-    const nextStage = targetCol.dropStage;
+      const nextStage = targetCol.dropStage;
 
-    if (!isAdmin) {
-      const allowed = STAGE_TRANSITIONS[lead.stage] ?? [];
-      if (!allowed.includes(nextStage)) {
-        setError(
-          `Can't move ${STAGE_LABELS[lead.stage]} → ${STAGE_LABELS[nextStage]}. Open the lead to pick a valid stage.`
-        );
+      if (!isAdmin) {
+        const allowed = STAGE_TRANSITIONS[lead.stage] ?? [];
+        if (!allowed.includes(nextStage)) {
+          setError(
+            `Can't move ${STAGE_LABELS[lead.stage]} → ${STAGE_LABELS[nextStage]}. Open the lead to pick a valid stage.`
+          );
+          return;
+        }
+      }
+
+      if ((BOOKING_REQUIRED_STAGES as readonly string[]).includes(nextStage)) {
+        openBookingDialog(lead, nextStage);
         return;
       }
+
+      const prev = items;
+      const next = items.map((l) =>
+        l.id === leadId ? { ...l, stage: nextStage } : l
+      );
+      setItems(next);
+
+      startTransition(async () => {
+        const res = await updateLeadStage(leadId, nextStage);
+        if (!res.ok) {
+          setItems(prev);
+          setError(res.error);
+        }
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not move lead");
     }
-
-    const prev = items;
-    const next = items.map((l) =>
-      l.id === leadId ? { ...l, stage: nextStage } : l
-    );
-    setItems(next);
-
-    startTransition(async () => {
-      const res = await updateLeadStage(leadId, nextStage);
-      if (!res.ok) {
-        setItems(prev);
-        setError(res.error);
-      }
-    });
   }
 
   return (
@@ -541,7 +600,12 @@ export function PipelineBoard({
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={onDragStart}
+        onDragOver={onDragOver}
         onDragEnd={onDragEnd}
+        onDragCancel={() => {
+          setActiveId(null);
+          lastOverId.current = null;
+        }}
       >
         <div ref={scrollerRef} className="flex gap-2 overflow-x-auto pb-4">
           {sectioned.map((group, gi) => (
@@ -562,6 +626,7 @@ export function PipelineBoard({
                   showClaim={showClaim}
                   onClaim={onClaim}
                   cohortNums={cohortNums}
+                  disableDrag={!dndReady}
                   onJumpStage={(stage) =>
                     setFocusStage((prev) => (prev === stage ? null : stage))
                   }
@@ -590,6 +655,25 @@ export function PipelineBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {booking ? (
+        <BookInterviewDialog
+          open
+          leadId={booking.leadId}
+          leadName={booking.leadName}
+          targetStage={booking.targetStage}
+          onClose={() => setBooking(null)}
+          onBooked={(stage) => {
+            setItems((prev) =>
+              prev.map((l) =>
+                l.id === booking.leadId ? { ...l, stage } : l
+              )
+            );
+            setBooking(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

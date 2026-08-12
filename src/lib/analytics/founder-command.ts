@@ -20,6 +20,7 @@ export type ConversionStep = {
 export type CohortFillRow = {
   id: string;
   name: string;
+  courseId: string | null;
   courseName: string | null;
   startDate: string | null;
   daysToStart: number | null;
@@ -220,7 +221,6 @@ export async function fetchFounderCommand(
         .select("id, name, course_id, start_date, active")
         .eq("active", true),
       supabase.from("courses").select("id, name").eq("active", true),
-      supabase.from("stage_history").select("lead_id, to_stage").limit(4000),
       supabase.from("interview_bookings").select("lead_id").limit(2000),
       supabase.from("installments").select(
         "id, deadline, amount_to_realise, amount_realised, status, fee_record_id, fee_records!inner(lead_id, leads!inner(id, name))"
@@ -240,7 +240,6 @@ export async function fetchFounderCommand(
   const [
     cohortsRes,
     coursesRes,
-    historyRes,
     bookingsRes,
     installmentsRes,
     settingsRes,
@@ -249,10 +248,24 @@ export async function fetchFounderCommand(
 
   const allLeads = admissions.leadRows;
   const leadIdSet = new Set(allLeads.map((l) => l.id));
+  const leadIds = allLeads.map((l) => l.id);
   const filtered = Boolean(counselorId || courseId || cohortId);
-  const history = (historyRes.data ?? []).filter(
-    (h) => !filtered || leadIdSet.has(h.lead_id)
-  );
+
+  // Page stage_history by lead ids (no hard 4000 cap)
+  const history: { lead_id: string; to_stage: string }[] = [];
+  const HISTORY_CHUNK = 400;
+  if (leadIds.length === 0) {
+    // nothing
+  } else {
+    for (let i = 0; i < leadIds.length; i += HISTORY_CHUNK) {
+      const chunk = leadIds.slice(i, i + HISTORY_CHUNK);
+      const { data } = await supabase
+        .from("stage_history")
+        .select("lead_id, to_stage")
+        .in("lead_id", chunk);
+      if (data?.length) history.push(...data);
+    }
+  }
   const bookings = (bookingsRes.data ?? []).filter(
     (b) => !filtered || leadIdSet.has(b.lead_id)
   );
@@ -470,6 +483,7 @@ export async function fetchFounderCommand(
     return {
       id: c.id,
       name: c.name,
+      courseId: c.course_id ?? null,
       courseName: c.course_id ? courseMap.get(c.course_id) ?? null : null,
       startDate: c.start_date,
       daysToStart,

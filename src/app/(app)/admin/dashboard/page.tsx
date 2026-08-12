@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { fetchFounderCommand } from "@/lib/analytics/founder-command";
+import { fetchAdmissionsFunnel } from "@/lib/analytics/admissions-funnel";
 import { buildCommandBrief } from "@/lib/analytics/command-brief";
 import {
   ForecastBadge,
@@ -11,6 +12,7 @@ import {
 } from "@/components/charts/SimpleCharts";
 import { SeatTargetInput } from "@/components/admin/SeatTargetInput";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
+import { cohortNumberMap } from "@/lib/cohorts/display";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import type { InsightSeverity } from "@/lib/analytics/founder-brief";
 import Link from "next/link";
@@ -74,21 +76,6 @@ function fmtHours(h: number | null) {
   return `${(h / 24).toFixed(1)}d`;
 }
 
-function deltaPct(curr: number, prev: number) {
-  if (prev === 0) return curr > 0 ? 100 : 0;
-  return ((curr - prev) / prev) * 100;
-}
-
-function halfSplitSum(
-  daily: { leads: number; won: number; calls: number }[],
-  key: "leads" | "won" | "calls"
-) {
-  const mid = Math.floor(daily.length / 2);
-  const prev = daily.slice(0, mid).reduce((s, d) => s + d[key], 0);
-  const curr = daily.slice(mid).reduce((s, d) => s + d[key], 0);
-  return { prev, curr, pct: deltaPct(curr, prev), series: daily.map((d) => d[key]) };
-}
-
 function KpiCard({
   label,
   value,
@@ -141,30 +128,28 @@ export default async function AdminDashboardPage({
     ? Number(searchParams.range)
     : 30;
 
-  const cmd = await fetchFounderCommand(supabase, { rangeDays });
+  const [cmd, funnel] = await Promise.all([
+    fetchFounderCommand(supabase, { rangeDays }),
+    fetchAdmissionsFunnel(supabase, { mode: "period", attribution: "all" }),
+  ]);
   const brief = buildCommandBrief(cmd);
   const { northStar: ns, admissions } = cmd;
   const kpis = admissions.kpis;
   const ranges = [7, 30, 90];
   const dimForecast = cmd.confidence === "low";
 
-  const leadDelta = halfSplitSum(admissions.daily, "leads");
-  const wonDelta = halfSplitSum(admissions.daily, "won");
-  const callDelta = halfSplitSum(admissions.daily, "calls");
-
-  const funnelSteps = [
-    {
-      name: "Leads",
-      count: kpis.newLeads || kpis.totalLeads,
-    },
-    ...cmd.conversions.map((c) => ({
-      name: c.name.split("→").pop()?.trim() ?? c.name,
-      count: c.toCount,
-      rate: c.rate,
-    })),
-  ];
-
   const fillPct = ns.fillPct ?? 0;
+  const pulse = funnel.pulse;
+  const r1 = funnel.roundFunnel.R1;
+  const fmtPct = (n: number | null) => (n == null ? "—" : `${n.toFixed(0)}%`);
+  const cohortNums = cohortNumberMap(
+    cmd.cohorts.map((c) => ({
+      id: c.id,
+      course_id: c.courseId ?? "",
+      name: c.name,
+      start_date: c.startDate,
+    }))
+  );
 
   return (
     <div className="space-y-8">
@@ -172,14 +157,14 @@ export default async function AdminDashboardPage({
         eyebrow="Admin · Overview"
         title="Overview"
         accent=""
-        description={`Admissions pulse · see what moved and what needs you · last ${rangeDays} days`}
+        description={`Admissions health · what needs you today · ${funnel.month}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              href="/admin/analytics"
+              href="/admin/analytics#funnel"
               className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-navy"
             >
-              Deep analytics
+              Deep funnel
             </Link>
             <Link
               href="/attention"
@@ -210,10 +195,10 @@ export default async function AdminDashboardPage({
       <div className="flex flex-wrap gap-2">
         {(
           [
+            ["/admin/analytics#funnel", "Deep funnel →"],
             ["/attention", "Attention →"],
             ["/admin/leads", "All leads →"],
             ["/marketing/dashboard", "Marketing →"],
-            ["/admin/config?tab=fees", "Fee config →"],
           ] as const
         ).map(([href, label]) => (
           <Link
@@ -226,84 +211,163 @@ export default async function AdminDashboardPage({
         ))}
       </div>
 
-      {/* KPI cards */}
+      {/* Admissions KPI strip */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <KpiCard
-          label="New leads"
-          value={String(kpis.newLeads)}
-          pct={leadDelta.pct}
-          series={leadDelta.series}
-          stroke="#4F46E5"
-        />
-        <KpiCard
-          label="Open pipeline"
-          value={String(kpis.openLeads)}
+          label="R1 on-cal"
+          value={String(r1.onCalendar)}
           pct={null}
-          hint={`${kpis.unassigned} unassigned`}
+          hint={`${funnel.month} · booked`}
         />
         <KpiCard
-          label="Closed won"
-          value={String(kpis.won)}
-          pct={wonDelta.pct}
-          series={wonDelta.series}
-          stroke="#C9A227"
-        />
-        <KpiCard
-          label="Win rate"
-          value={`${kpis.winRate.toFixed(0)}%`}
+          label="Conducted %"
+          value={fmtPct(r1.rates.conducted)}
           pct={null}
-          hint={`${kpis.lost} lost in range`}
+          hint={`${r1.conducted} conducted`}
         />
         <KpiCard
-          label="Calls logged"
-          value={String(kpis.callsInRange)}
-          pct={callDelta.pct}
-          series={callDelta.series}
-          stroke="#059669"
-        />
-        <KpiCard
-          label="Fee collected"
-          value={formatCurrency(kpis.feeCollected)}
+          label="No-show %"
+          value={fmtPct(r1.rates.noShow)}
           pct={null}
-          hint={`${formatCurrency(kpis.feeOutstanding)} outstanding`}
+          hint={`${r1.noShow} no-shows`}
+        />
+        <KpiCard
+          label="Offered"
+          value={String(funnel.offerFunnel.offered)}
+          pct={null}
+          hint="Offer pool"
+        />
+        <KpiCard
+          label="Won"
+          value={String(funnel.offerFunnel.won)}
+          pct={null}
+          hint={
+            funnel.offerFunnel.rates.won != null
+              ? `${funnel.offerFunnel.rates.won.toFixed(0)}% yield`
+              : `${kpis.lost} lost`
+          }
+        />
+        <KpiCard
+          label="Organic / Inorg"
+          value={`${funnel.leadTotals.organic} / ${funnel.leadTotals.inorganic}`}
+          pct={null}
+          hint={`${funnel.leadTotals.total} leads total`}
         />
       </div>
 
-      {/* Full funnel */}
+      {/* Admissions pulse */}
       <Section
-        title="Full funnel"
-        subtitle="Lead → interview → offer → won · conversion at every step"
+        title="Admissions pulse"
+        subtitle={`${funnel.month} · R1 on-calendar → conducted → offered → won`}
+        action={
+          <Link
+            href="/admin/analytics#funnel"
+            className="text-xs font-semibold text-periwinkle hover:underline"
+          >
+            Open deep funnel →
+          </Link>
+        }
       >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch lg:gap-2">
-          {funnelSteps.map((step, i) => (
-            <div key={`${step.name}-${i}`} className="flex min-w-0 flex-1 items-stretch gap-2">
+          {[
+            {
+              name: "R1 on-cal",
+              count: pulse.r1OnCalendar,
+              hint: "Booked this month",
+            },
+            {
+              name: "Conducted",
+              count: fmtPct(pulse.conductedPct),
+              hint: "Of R1 on-calendar",
+            },
+            {
+              name: "Offered",
+              count: pulse.offered,
+              hint: "Offer pool",
+            },
+            {
+              name: "Won",
+              count: pulse.won,
+              hint:
+                funnel.offerFunnel.rates.won != null
+                  ? `${funnel.offerFunnel.rates.won.toFixed(0)}% yield`
+                  : "Closed won",
+            },
+          ].map((step, i, arr) => (
+            <div key={step.name} className="flex min-w-0 flex-1 items-stretch gap-2">
               <div className="flex min-w-0 flex-1 flex-col justify-center rounded-2xl border border-border bg-[#F7F8FC] px-4 py-3">
                 <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
                   {step.name}
                 </p>
                 <p className="mt-1 text-2xl font-semibold text-navy">{step.count}</p>
-                {"rate" in step && step.rate != null ? (
-                  <p className="mt-0.5 text-xs text-muted">{step.rate.toFixed(0)}% from prior</p>
-                ) : (
-                  <p className="mt-0.5 text-xs text-muted">In range</p>
-                )}
+                <p className="mt-0.5 text-xs text-muted">{step.hint}</p>
               </div>
-              {i < funnelSteps.length - 1 ? (
+              {i < arr.length - 1 ? (
                 <div className="hidden items-center text-muted lg:flex">→</div>
               ) : null}
             </div>
           ))}
         </div>
-        {cmd.biggestLeak ? (
-          <p className="mt-4 text-sm text-muted">
-            Weakest step:{" "}
-            <strong className="text-navy">{cmd.biggestLeak.name}</strong>
-            {cmd.biggestLeak.rate != null
-              ? ` at ${cmd.biggestLeak.rate.toFixed(0)}%`
-              : ""}
-            . Fixing this usually beats more top-of-funnel spend.
+
+        {/* Compact R1 status row */}
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {(
+            [
+              { label: "On-cal", value: r1.onCalendar },
+              { label: "No-show", value: r1.noShow, hint: fmtPct(r1.rates.noShow) },
+              { label: "Resch", value: r1.reschedule, hint: fmtPct(r1.rates.reschedule) },
+              { label: "Conducted", value: r1.conducted, hint: fmtPct(r1.rates.conducted) },
+              { label: "Moved", value: r1.moved, hint: fmtPct(r1.rates.moved) },
+            ] as const
+          ).map((cell) => (
+            <Link
+              key={cell.label}
+              href="/admin/analytics#funnel"
+              className="rounded-xl border border-border bg-white px-3 py-2.5 hover:bg-[#F7F8FC]"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+                R1 {cell.label}
+              </p>
+              <p className="mt-0.5 text-lg font-semibold tabular-nums text-navy">
+                {cell.value}
+              </p>
+              {"hint" in cell && cell.hint ? (
+                <p className="text-[11px] text-muted">{cell.hint}</p>
+              ) : null}
+            </Link>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted">
+            {pulse.weakestLeak ? (
+              <>
+                Weakest step:{" "}
+                <strong className="text-navy">{pulse.weakestLeak.label}</strong>
+                {pulse.weakestLeak.rate != null
+                  ? ` at ${pulse.weakestLeak.rate.toFixed(0)}%`
+                  : ""}
+                .
+              </>
+            ) : (
+              "No leak signal yet — keep booking and conducting."
+            )}
           </p>
-        ) : null}
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Link
+              href="/admin/analytics?attribution=organic#funnel"
+              className="rounded-full border border-border bg-white px-2.5 py-1 font-semibold text-navy hover:bg-[#F7F8FC]"
+            >
+              {funnel.leadTotals.organic} organic
+            </Link>
+            <Link
+              href="/admin/analytics?attribution=inorganic#funnel"
+              className="rounded-full border border-border bg-white px-2.5 py-1 font-semibold text-navy hover:bg-[#F7F8FC]"
+            >
+              {funnel.leadTotals.inorganic} inorganic
+            </Link>
+          </div>
+        </div>
       </Section>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -475,153 +539,6 @@ export default async function AdminDashboardPage({
         </Section>
       ) : null}
 
-      {/* Forecast fold */}
-      <div className="border-t border-border pt-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="eyebrow">Forecast & deeper</p>
-            <h2 className="mt-1 text-xl font-semibold text-navy">Will we fill?</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted">
-              History vs projection for the next cohort — tweak assumptions in the Forecast lab.
-            </p>
-          </div>
-          <Link href="/admin/forecast" className="btn-primary text-xs">
-            Open Forecast lab →
-          </Link>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Section title="Enrollment pulse" action={<ForecastBadge confidence={cmd.confidence} />}>
-          <LineChart
-            height={150}
-            dimForecast={dimForecast}
-            series={[
-              {
-                id: "leads",
-                label: "Leads",
-                color: "#4F46E5",
-                points: cmd.pulse.historyLeads,
-              },
-              {
-                id: "wins",
-                label: "Wins",
-                color: "#C9A227",
-                points: cmd.pulse.historyWins,
-              },
-              {
-                id: "leads-f",
-                label: "Leads (forecast)",
-                color: "#4F46E5",
-                points: cmd.pulse.forecastLeads,
-                dashed: true,
-              },
-              {
-                id: "wins-f",
-                label: "Wins (forecast)",
-                color: "#C9A227",
-                points: cmd.pulse.forecastWins,
-                dashed: true,
-              },
-            ]}
-          />
-        </Section>
-
-        <Section title="Cohort fill path" action={<ForecastBadge confidence={cmd.confidence} />}>
-          <LineChart
-            height={150}
-            dimForecast={dimForecast}
-            series={[
-              {
-                id: "fill",
-                label: "Cumulative won",
-                color: "#0F2744",
-                points: cmd.cohortFillPath.history,
-              },
-              {
-                id: "fill-f",
-                label: "Projected",
-                color: "#4F46E5",
-                points: cmd.cohortFillPath.forecast,
-                dashed: true,
-              },
-              ...(cmd.cohortFillPath.target
-                ? [
-                    {
-                      id: "target",
-                      label: `Target ${cmd.cohortFillPath.target}`,
-                      color: "#059669",
-                      points: [
-                        ...cmd.cohortFillPath.history,
-                        ...cmd.cohortFillPath.forecast,
-                      ].map((p) => ({
-                        date: p.date,
-                        value: cmd.cohortFillPath.target as number,
-                      })),
-                      dashed: true as const,
-                    },
-                  ]
-                : []),
-            ]}
-          />
-        </Section>
-
-        <Section title="Funnel leak">
-          <HBarList
-            data={cmd.conversions.map((c) => ({
-              name: c.name,
-              value: c.rate != null ? Math.round(c.rate) : 0,
-              color: cmd.biggestLeak?.id === c.id ? "#DC2626" : undefined,
-            }))}
-          />
-        </Section>
-      </div>
-
-      <section className="panel overflow-hidden">
-        <div className="border-b border-border px-5 py-4 sm:px-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="eyebrow">Founder brief</p>
-              <h2 className="mt-1 text-lg font-semibold text-navy">{brief.headline}</h2>
-            </div>
-            <ForecastBadge confidence={brief.confidence} reason={cmd.confidenceReason} />
-          </div>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">{brief.narrative}</p>
-        </div>
-        <ul className="space-y-4 p-5 sm:p-6">
-          {brief.insights.map((ins) => (
-            <li key={ins.id} className="flex gap-3">
-              <span
-                className={`mt-0.5 h-fit shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${severityStyles(
-                  ins.severity
-                )}`}
-              >
-                {severityLabel(ins.severity)}
-              </span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-navy">{ins.title}</p>
-                <p className="mt-0.5 text-xs text-muted">{ins.detail}</p>
-                <p className="mt-1 text-sm text-navy">
-                  <span className="text-muted">Do: </span>
-                  {ins.tweak}
-                  {ins.href ? (
-                    <>
-                      {" "}
-                      <Link
-                        href={ins.href}
-                        className="font-medium text-periwinkle hover:underline"
-                      >
-                        Open →
-                      </Link>
-                    </>
-                  ) : null}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
       <Section title="Cohort board · set seats">
         {cmd.cohorts.length === 0 ? (
           <p className="text-sm text-muted">No active cohorts. Add one in Admin Config.</p>
@@ -641,11 +558,17 @@ export default async function AdminDashboardPage({
                 </tr>
               </thead>
               <tbody>
-                {cmd.cohorts.map((c) => (
+                {cmd.cohorts.map((c) => {
+                  const num = cohortNums.get(c.id);
+                  const title = c.courseName
+                    ? num
+                      ? `${c.courseName} · ${num}`
+                      : c.courseName
+                    : c.name;
+                  return (
                   <tr key={c.id} className="border-b border-border last:border-0">
                     <td className="px-5 py-3">
-                      <p className="font-medium text-navy">{c.name}</p>
-                      <p className="text-xs text-muted">{c.courseName}</p>
+                      <p className="font-medium text-navy">{title}</p>
                     </td>
                     <td className="px-4 py-3">
                       <SeatTargetInput cohortId={c.id} seats={c.seats} />
@@ -663,7 +586,8 @@ export default async function AdminDashboardPage({
                       {c.startDate ?? "—"}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -712,20 +636,202 @@ export default async function AdminDashboardPage({
               </dd>
             </div>
             <div>
+              <dt className="text-xs text-muted">Calls ({rangeDays}d)</dt>
+              <dd className="mt-1 text-lg font-semibold text-navy">
+                {kpis.callsInRange}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Fee collected</dt>
+              <dd className="mt-1 text-lg font-semibold text-navy">
+                {formatCurrency(kpis.feeCollected)}
+              </dd>
+              <dd className="text-xs text-muted">
+                {formatCurrency(kpis.feeOutstanding)} outstanding
+              </dd>
+            </div>
+            <div>
               <dt className="text-xs text-muted">Interviews today</dt>
               <dd className="mt-1 text-lg font-semibold text-navy">
                 {kpis.interviewsToday}
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted">Form conversions</dt>
+              <dt className="text-xs text-muted">Open pipeline</dt>
               <dd className="mt-1 text-lg font-semibold text-navy">
-                {kpis.formConversionsInRange}
+                {kpis.openLeads}
               </dd>
+              <dd className="text-xs text-muted">{kpis.unassigned} unassigned</dd>
             </div>
           </dl>
         </Section>
       </div>
+
+      {/* Forecast + founder brief — collapsed by default */}
+      <details className="group rounded-panel border border-border bg-white open:shadow-sm">
+        <summary className="cursor-pointer list-none px-5 py-4 sm:px-6 [&::-webkit-details-marker]:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="eyebrow">Forecast & brief</p>
+              <h2 className="mt-1 text-lg font-semibold text-navy">
+                Will we fill? · founder notes
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-muted">
+                Expand for enrollment forecast, funnel leak, and the founder brief.
+              </p>
+            </div>
+            <span className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-navy group-open:bg-navy group-open:text-white">
+              <span className="group-open:hidden">Show</span>
+              <span className="hidden group-open:inline">Hide</span>
+            </span>
+          </div>
+        </summary>
+
+        <div className="space-y-6 border-t border-border px-5 py-5 sm:px-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <p className="text-sm text-muted">
+              History vs projection for the next cohort — tweak assumptions in the Forecast lab.
+            </p>
+            <Link href="/admin/forecast" className="btn-primary text-xs">
+              Open Forecast lab →
+            </Link>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <Section title="Enrollment pulse" action={<ForecastBadge confidence={cmd.confidence} />}>
+              <LineChart
+                height={150}
+                dimForecast={dimForecast}
+                series={[
+                  {
+                    id: "leads",
+                    label: "Leads",
+                    color: "#4F46E5",
+                    points: cmd.pulse.historyLeads,
+                  },
+                  {
+                    id: "wins",
+                    label: "Wins",
+                    color: "#C9A227",
+                    points: cmd.pulse.historyWins,
+                  },
+                  {
+                    id: "leads-f",
+                    label: "Leads (forecast)",
+                    color: "#4F46E5",
+                    points: cmd.pulse.forecastLeads,
+                    dashed: true,
+                  },
+                  {
+                    id: "wins-f",
+                    label: "Wins (forecast)",
+                    color: "#C9A227",
+                    points: cmd.pulse.forecastWins,
+                    dashed: true,
+                  },
+                ]}
+              />
+            </Section>
+
+            <Section title="Cohort fill path" action={<ForecastBadge confidence={cmd.confidence} />}>
+              <LineChart
+                height={150}
+                dimForecast={dimForecast}
+                series={[
+                  {
+                    id: "fill",
+                    label: "Cumulative won",
+                    color: "#0F2744",
+                    points: cmd.cohortFillPath.history,
+                  },
+                  {
+                    id: "fill-f",
+                    label: "Projected",
+                    color: "#4F46E5",
+                    points: cmd.cohortFillPath.forecast,
+                    dashed: true,
+                  },
+                  ...(cmd.cohortFillPath.target
+                    ? [
+                        {
+                          id: "target",
+                          label: `Target ${cmd.cohortFillPath.target}`,
+                          color: "#059669",
+                          points: [
+                            ...cmd.cohortFillPath.history,
+                            ...cmd.cohortFillPath.forecast,
+                          ].map((p) => ({
+                            date: p.date,
+                            value: cmd.cohortFillPath.target as number,
+                          })),
+                          dashed: true as const,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            </Section>
+
+            <Section title="Funnel leak">
+              <HBarList
+                data={cmd.conversions.map((c) => ({
+                  name: c.name,
+                  value: c.rate != null ? Math.round(c.rate) : 0,
+                  color: cmd.biggestLeak?.id === c.id ? "#DC2626" : undefined,
+                }))}
+              />
+            </Section>
+          </div>
+
+          <section className="overflow-hidden rounded-2xl border border-border">
+            <div className="border-b border-border px-5 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="eyebrow">Founder brief</p>
+                  <h2 className="mt-1 text-lg font-semibold text-navy">{brief.headline}</h2>
+                </div>
+                <ForecastBadge confidence={brief.confidence} reason={cmd.confidenceReason} />
+              </div>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">
+                {brief.narrative}
+              </p>
+            </div>
+            <ul className="space-y-4 p-5">
+              {brief.insights.map((ins) => (
+                <li key={ins.id} className="flex gap-3">
+                  <span
+                    className={`mt-0.5 h-fit shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${severityStyles(
+                      ins.severity
+                    )}`}
+                  >
+                    {severityLabel(ins.severity)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-navy">{ins.title}</p>
+                    <p className="mt-0.5 text-xs text-muted">{ins.detail}</p>
+                    <p className="mt-1 text-sm text-navy">
+                      <span className="text-muted">Do: </span>
+                      {ins.tweak}
+                      {ins.href ? (
+                        <>
+                          {" "}
+                          <Link
+                            href={ins.href}
+                            className="font-medium text-periwinkle hover:underline"
+                          >
+                            Open →
+                          </Link>
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </details>
+
     </div>
   );
 }
