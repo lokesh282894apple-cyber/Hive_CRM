@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StatusBadge } from "@/components/ui/Primitives";
 import { fetchSessionDetail } from "@/lib/marketing/queries";
+import { humanizeClickLabel } from "@/lib/marketing/click-label";
 import { formatDateTime } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -119,7 +120,11 @@ export default async function MarketingSessionDetailPage({
                   </span>
                 </div>
                 <p className="mt-1 truncate text-xs text-muted">{ev.page_url}</p>
-                {ev.element_selector ? (
+                {ev.event_type === "click" ? (
+                  <p className="mt-0.5 truncate text-xs font-medium text-navy">
+                    {humanizeClickLabel(ev.element_selector, ev.element_label)}
+                  </p>
+                ) : ev.element_selector ? (
                   <p className="mt-0.5 truncate font-mono text-[11px] text-muted">
                     {ev.element_selector}
                   </p>

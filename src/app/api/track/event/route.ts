@@ -146,6 +146,10 @@ export async function POST(request: NextRequest) {
       page_url: pageUrl,
       page_title: truncate(body.page_title, 500),
       element_selector: truncate(body.element_selector, 1000),
+      element_label: truncate(
+        body.element_label ?? body.element_text ?? body.label,
+        200
+      ),
       x: clampInt(body.x, 0, 100000),
       y: clampInt(body.y, 0, 100000),
       viewport_width: clampInt(body.viewport_width, 0, 10000),
