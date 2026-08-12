@@ -229,6 +229,8 @@ export type PageEvent = {
   page_url: string;
   page_title: string | null;
   element_selector: string | null;
+  /** Human-readable click target from tracker (button text, aria-label, etc.) */
+  element_label?: string | null;
   x: number | null;
   y: number | null;
   viewport_width: number | null;

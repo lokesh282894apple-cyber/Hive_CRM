@@ -96,7 +96,9 @@ NEXT_PUBLIC_APP_URL= # e.g. https://crm.hiveschool.co (tracked /go links)
 1. Embed tracking script (session cookie + events → `/api/track/event`).
 2. Hidden `session_id` on admissions form → `/api/leads/website`.
 3. Rewrite `/go/*` to this CRM’s `/go/[slug]`.
+4. For readable Marketing Box presses, send `element_label` (or `element_text`) on click events — e.g. button/link text or `aria-label` — alongside `element_selector`.
 
+Apply migration `supabase/migrations/20260812120000_page_events_element_label.sql` so `element_label` is stored.
 ## Website lead webhook
 
 `POST /api/leads/website` — body JSON with `name`, `phone`, optional `email`, `course_id`, `cohort_id`, `session_id`, etc. Round-robins among counselors scoped to that course/cohort. When `session_id` matches a `visitor_sessions` row, inserts/updates `lead_attribution`.
