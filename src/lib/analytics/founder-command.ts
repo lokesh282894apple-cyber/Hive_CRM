@@ -203,7 +203,7 @@ export async function fetchFounderCommand(
   const counselorId = opts?.counselorId ?? null;
   const courseId = opts?.courseId ?? null;
   const cohortId = opts?.cohortId ?? null;
-  const db = admissionsAggClient(supabase);
+  const db = admissionsAggClient();
 
   type InstNested = {
     id: string;

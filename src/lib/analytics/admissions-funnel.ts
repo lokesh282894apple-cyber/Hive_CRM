@@ -279,11 +279,6 @@ export function currentMonthKey(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function daysInMonth(month: string): string[] {
-  const { start, end } = monthBounds(month);
-  return daysInRange(start, end);
-}
-
 function daysInRange(start: string, end: string): string[] {
   const out: string[] = [];
   const cur = new Date(start + "T12:00:00Z");

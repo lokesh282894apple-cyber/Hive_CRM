@@ -137,7 +137,7 @@ export async function fetchAdmissionsAnalytics(
   const weekAhead = new Date(today);
   weekAhead.setDate(weekAhead.getDate() + 7);
 
-  const db = admissionsAggClient(supabase);
+  const db = admissionsAggClient();
   const base = await getAdmissionsBase(counselorId, courseId, cohortId);
   const all = base.leads;
   const leadIds = all.map((l) => l.id);

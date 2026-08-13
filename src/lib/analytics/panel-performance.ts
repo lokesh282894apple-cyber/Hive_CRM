@@ -62,7 +62,7 @@ export async function fetchPanelPerformance(
   const roundFilter = filters.round ?? "all";
   const courseId = filters.courseId ?? null;
   const cohortId = filters.cohortId ?? null;
-  const db = admissionsAggClient(supabase);
+  const db = admissionsAggClient();
 
   const since = new Date();
   since.setHours(0, 0, 0, 0);

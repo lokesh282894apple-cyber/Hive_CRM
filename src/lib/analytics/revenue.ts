@@ -157,7 +157,7 @@ export async function fetchRevenueReport(
   const toMonth = toDate.slice(0, 7);
   const courseId = filters.courseId || null;
   const cohortId = filters.cohortId || null;
-  const db = admissionsAggClient(supabase);
+  const db = admissionsAggClient();
 
   const [feeRows, courses, cohorts] = await Promise.all([
     fetchAllPages(

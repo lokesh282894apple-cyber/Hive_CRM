@@ -8,7 +8,7 @@ export type RangeKey = "7" | "30" | "90";
  * visitor_sessions / page_events row times out; service role scans indexes only.
  * Call only after requireUser(["admin","marketing"]).
  */
-function marketingAggClient(_userClient: SupabaseClient): SupabaseClient {
+function marketingAggClient(): SupabaseClient {
   return createAdminClient();
 }
 
@@ -166,7 +166,7 @@ export async function fetchMarketingOverview(
 ) {
   const since = rangeStartIso(range);
   const rangeDays = Number(range);
-  const db = marketingAggClient(supabase);
+  const db = marketingAggClient();
 
   // Fast path: DB aggregates via service role (same metrics, no row shipping / no RLS tax)
   const [{ data: rpcData, error: rpcError }, { data: campaigns }, { data: channels }] =
@@ -446,7 +446,7 @@ export async function fetchTopPages(
   limit = 40
 ): Promise<PageRow[]> {
   const since = rangeStartIso(range);
-  const db = marketingAggClient(supabase);
+  const db = marketingAggClient();
 
   const { data: rpcRows, error: rpcError } = await db.rpc("marketing_top_pages", {
     p_since: since,
@@ -528,7 +528,7 @@ export async function fetchCampaignMetrics(
   range: RangeKey
 ): Promise<Map<string, { sessions: number; attributed: number }>> {
   const since = rangeStartIso(range);
-  const db = marketingAggClient(supabase);
+  const db = marketingAggClient();
 
   // Prefer overview RPC campaign slice when available (one round-trip)
   const { data: rpcData, error: rpcError } = await db.rpc("marketing_overview", {

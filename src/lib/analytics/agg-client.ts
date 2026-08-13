@@ -7,6 +7,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * on large stage_history / fee / booking scans. Callers must apply
  * counselor/course/cohort filters in the query for scoped views.
  */
-export function admissionsAggClient(_userClient?: SupabaseClient): SupabaseClient {
+export function admissionsAggClient(): SupabaseClient {
   return createAdminClient();
 }
