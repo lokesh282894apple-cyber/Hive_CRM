@@ -66,6 +66,32 @@ export type AttributionSource = {
 /** Calendar day in India (CRM default) — avoids UTC shifting visits onto the wrong day. */
 const MARKETING_TZ = "Asia/Kolkata";
 
+/** PostgREST/Supabase silently caps a single response at ~1000 rows (project max_rows). */
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 100;
+
+type PageResult<T> = { data: T[] | null; error: { message: string } | null };
+
+/**
+ * Page through a query with .range() so KPI / rollups are not stuck at the
+ * API max_rows ceiling (the Funnel Dashboard "1000 sessions" bug).
+ */
+async function fetchAllPages<T>(
+  page: (from: number, to: number) => PromiseLike<PageResult<T>>
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const from = i * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await page(from, to);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
 function dayKey(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: MARKETING_TZ });
 }
@@ -89,39 +115,35 @@ export async function fetchMarketingOverview(
 ) {
   const since = rangeStartIso(range);
 
-  const [
-    { data: sessions },
-    { count: eventCount },
-    { data: attributions },
-    { data: campaigns },
-    { data: channels },
-  ] = await Promise.all([
-    supabase
-      .from("visitor_sessions")
-      .select(
-        "id, first_seen_at, last_seen_at, entry_page_url, device_type, utm_source, utm_medium, utm_campaign, matched_campaign_id"
-      )
-      .gte("first_seen_at", since)
-      .order("first_seen_at", { ascending: false })
-      .limit(3000),
-    supabase
-      .from("page_events")
-      .select("*", { count: "exact", head: true })
-      .gte("occurred_at", since),
-    supabase
-      .from("lead_attribution")
-      .select(
-        "id, lead_id, session_id, converted_at, first_touch_campaign_id, last_touch_campaign_id"
-      )
-      .gte("converted_at", since)
-      .order("converted_at", { ascending: false })
-      .limit(1500),
-    supabase.from("campaigns").select("id, name, channel_id, source_type, status"),
-    supabase.from("channels").select("id, name"),
-  ]);
-
-  const sessionList = sessions ?? [];
-  const attrList = attributions ?? [];
+  const [sessionList, { count: eventCount }, attrList, { data: campaigns }, { data: channels }] =
+    await Promise.all([
+      fetchAllPages((from, to) =>
+        supabase
+          .from("visitor_sessions")
+          .select(
+            "id, first_seen_at, last_seen_at, entry_page_url, device_type, utm_source, utm_medium, utm_campaign, matched_campaign_id"
+          )
+          .gte("first_seen_at", since)
+          .order("first_seen_at", { ascending: false })
+          .range(from, to)
+      ),
+      supabase
+        .from("page_events")
+        .select("*", { count: "exact", head: true })
+        .gte("occurred_at", since),
+      fetchAllPages((from, to) =>
+        supabase
+          .from("lead_attribution")
+          .select(
+            "id, lead_id, session_id, converted_at, first_touch_campaign_id, last_touch_campaign_id"
+          )
+          .gte("converted_at", since)
+          .order("converted_at", { ascending: false })
+          .range(from, to)
+      ),
+      supabase.from("campaigns").select("id, name, channel_id, source_type, status"),
+      supabase.from("channels").select("id, name"),
+    ]);
   const campaignMap = new Map((campaigns ?? []).map((c) => [c.id, c]));
   const channelMap = new Map((channels ?? []).map((c) => [c.id, c.name]));
 
@@ -288,14 +310,17 @@ export async function fetchTopPages(
   limit = 40
 ): Promise<PageRow[]> {
   const since = rangeStartIso(range);
-  const { data: events } = await supabase
-    .from("page_events")
-    .select("page_url, event_type, element_selector")
-    .gte("occurred_at", since)
-    .limit(6000);
+  const events = await fetchAllPages((from, to) =>
+    supabase
+      .from("page_events")
+      .select("page_url, event_type, element_selector")
+      .gte("occurred_at", since)
+      .order("occurred_at", { ascending: false })
+      .range(from, to)
+  );
 
   const map = new Map<string, PageRow>();
-  for (const ev of events ?? []) {
+  for (const ev of events) {
     const url = ev.page_url || "(unknown)";
     const row = map.get(url) ?? {
       page_url: url,
@@ -328,29 +353,35 @@ export async function fetchCampaignMetrics(
   range: RangeKey
 ): Promise<Map<string, { sessions: number; attributed: number }>> {
   const since = rangeStartIso(range);
-  const [{ data: sessions }, { data: attrs }] = await Promise.all([
-    supabase
-      .from("visitor_sessions")
-      .select("matched_campaign_id")
-      .gte("first_seen_at", since)
-      .not("matched_campaign_id", "is", null)
-      .limit(3000),
-    supabase
-      .from("lead_attribution")
-      .select("first_touch_campaign_id")
-      .gte("converted_at", since)
-      .not("first_touch_campaign_id", "is", null)
-      .limit(1500),
+  const [sessions, attrs] = await Promise.all([
+    fetchAllPages((from, to) =>
+      supabase
+        .from("visitor_sessions")
+        .select("matched_campaign_id")
+        .gte("first_seen_at", since)
+        .not("matched_campaign_id", "is", null)
+        .order("first_seen_at", { ascending: false })
+        .range(from, to)
+    ),
+    fetchAllPages((from, to) =>
+      supabase
+        .from("lead_attribution")
+        .select("first_touch_campaign_id")
+        .gte("converted_at", since)
+        .not("first_touch_campaign_id", "is", null)
+        .order("converted_at", { ascending: false })
+        .range(from, to)
+    ),
   ]);
 
   const map = new Map<string, { sessions: number; attributed: number }>();
-  for (const s of sessions ?? []) {
+  for (const s of sessions) {
     const id = s.matched_campaign_id as string;
     const row = map.get(id) ?? { sessions: 0, attributed: 0 };
     row.sessions += 1;
     map.set(id, row);
   }
-  for (const a of attrs ?? []) {
+  for (const a of attrs) {
     const id = a.first_touch_campaign_id as string;
     const row = map.get(id) ?? { sessions: 0, attributed: 0 };
     row.attributed += 1;
