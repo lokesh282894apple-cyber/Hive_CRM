@@ -286,9 +286,19 @@ export async function recordInstallmentPayment(
   if (!inst) return { ok: false, error: "Installment not found" };
 
   const status = installmentStatus(inst.amount_to_realise, amountRealised, inst.deadline);
+  const prevRealised = Number(inst.amount_realised) || 0;
+  const patch: Record<string, unknown> = {
+    amount_realised: amountRealised,
+    status,
+  };
+  if (amountRealised > prevRealised) {
+    patch.paid_at = new Date().toISOString();
+  } else if (amountRealised <= 0) {
+    patch.paid_at = null;
+  }
   const { error } = await supabase
     .from("installments")
-    .update({ amount_realised: amountRealised, status })
+    .update(patch)
     .eq("id", installmentId);
   if (error) return { ok: false, error: error.message };
 

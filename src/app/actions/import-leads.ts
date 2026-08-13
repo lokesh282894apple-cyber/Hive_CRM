@@ -128,6 +128,7 @@ export async function importLeadsFromCsv(input: {
       years_experience: d.years_experience,
       preferred_industry: d.preferred_industry,
       intent_score: d.intent_score,
+      score_auto: d.intent_score,
       course_id,
       cohort_id,
       lead_allocated_to,

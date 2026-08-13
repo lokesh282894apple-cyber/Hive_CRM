@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { admissionsAggClient } from "@/lib/analytics/agg-client";
+import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import {
   OPEN_STAGES,
   STAGE_GROUPS,
@@ -6,12 +8,18 @@ import {
   type Stage,
 } from "@/lib/constants";
 import { labelForLeadSource } from "@/lib/leads/form-origin";
+import {
+  eachDateKey,
+  resolveAnalyticsRange,
+} from "@/lib/analytics/date-range";
 
 export type NamedCount = { name: string; count: number; id?: string };
 export type DailyCount = { date: string; leads: number; won: number; calls: number };
 
 export type AdmissionsAnalytics = {
   rangeDays: number;
+  fromDate: string;
+  toDate: string;
   kpis: {
     totalLeads: number;
     openLeads: number;
@@ -92,16 +100,13 @@ function dayKey(iso: string) {
   return iso.slice(0, 10);
 }
 
-function emptyDaily(days: number): DailyCount[] {
-  const out: DailyCount[] = [];
-  const d = new Date();
-  d.setHours(12, 0, 0, 0);
-  for (let i = days - 1; i >= 0; i--) {
-    const x = new Date(d);
-    x.setDate(d.getDate() - i);
-    out.push({ date: x.toISOString().slice(0, 10), leads: 0, won: 0, calls: 0 });
-  }
-  return out;
+function emptyDailyBetween(fromDate: string, toDate: string): DailyCount[] {
+  return eachDateKey(fromDate, toDate).map((date) => ({
+    date,
+    leads: 0,
+    won: 0,
+    calls: 0,
+  }));
 }
 
 export async function fetchAdmissionsAnalytics(
@@ -111,15 +116,19 @@ export async function fetchAdmissionsAnalytics(
     courseId?: string | null;
     cohortId?: string | null;
     rangeDays?: number;
+    fromDate?: string | null;
+    toDate?: string | null;
   }
 ): Promise<AdmissionsAnalytics> {
-  const rangeDays = opts?.rangeDays ?? 30;
+  const range = resolveAnalyticsRange({
+    from: opts?.fromDate,
+    to: opts?.toDate,
+    rangeDays: opts?.rangeDays,
+  });
+  const { fromDate, toDate, rangeDays, sinceIso, untilExclusiveIso } = range;
   const counselorId = opts?.counselorId ?? null;
   const courseId = opts?.courseId ?? null;
   const cohortId = opts?.cohortId ?? null;
-  const since = new Date();
-  since.setDate(since.getDate() - rangeDays);
-  const sinceIso = since.toISOString();
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -128,129 +137,134 @@ export async function fetchAdmissionsAnalytics(
   const weekAhead = new Date(today);
   weekAhead.setDate(weekAhead.getDate() + 7);
 
-  let leadsQ = supabase
-    .from("leads")
-    .select(
-      "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at"
-    );
-  if (counselorId) leadsQ = leadsQ.eq("lead_allocated_to", counselorId);
-  if (courseId) leadsQ = leadsQ.eq("course_id", courseId);
-  if (cohortId) leadsQ = leadsQ.eq("cohort_id", cohortId);
+  const db = admissionsAggClient(supabase);
+  const base = await getAdmissionsBase(counselorId, courseId, cohortId);
+  const all = base.leads;
+  const leadIds = all.map((l) => l.id);
+  const filtered = base.filtered;
+  const courses = base.courses;
+  const counselors = base.counselors;
 
-  let callsQ = supabase
+  let callsQ = db
     .from("call_logs")
     .select("id, lead_id, logged_at, counselor_id")
-    .gte("logged_at", sinceIso);
+    .gte("logged_at", sinceIso)
+    .lt("logged_at", untilExclusiveIso);
   if (counselorId) callsQ = callsQ.eq("counselor_id", counselorId);
 
-  let interviewsTodayQ = supabase
-    .from("interview_bookings")
-    .select(
-      "id, scheduled_at, round, meet_link, lead_id, leads!inner(id, name, lead_allocated_to, course_id, cohort_id)"
-    )
-    .gte("scheduled_at", today.toISOString())
-    .lt("scheduled_at", tomorrow.toISOString())
-    .order("scheduled_at", { ascending: true });
-  if (counselorId) {
-    interviewsTodayQ = interviewsTodayQ.eq("leads.lead_allocated_to", counselorId);
-  }
-  if (courseId) interviewsTodayQ = interviewsTodayQ.eq("leads.course_id", courseId);
-  if (cohortId) interviewsTodayQ = interviewsTodayQ.eq("leads.cohort_id", cohortId);
-
-  let interviewsUpcomingQ = supabase
-    .from("interview_bookings")
-    .select("id, leads!inner(lead_allocated_to, course_id, cohort_id)", {
-      count: "exact",
-      head: true,
-    })
-    .gte("scheduled_at", today.toISOString())
-    .lt("scheduled_at", weekAhead.toISOString());
-  if (counselorId) {
-    interviewsUpcomingQ = interviewsUpcomingQ.eq("leads.lead_allocated_to", counselorId);
-  }
-  if (courseId) interviewsUpcomingQ = interviewsUpcomingQ.eq("leads.course_id", courseId);
-  if (cohortId) interviewsUpcomingQ = interviewsUpcomingQ.eq("leads.cohort_id", cohortId);
-
   const [
-    { data: leads },
-    { data: courses },
-    { data: counselors },
     { data: calls },
-    { data: interviewsTodayRows },
     { count: interviewsUpcoming },
     { count: sessionsInRange },
     { count: formConversionsInRange },
     { count: attributedCount },
+    feesBundle,
   ] = await Promise.all([
-    leadsQ.limit(5000),
-    supabase.from("courses").select("id, name").eq("active", true),
-    supabase.from("users").select("id, name").eq("role", "counselor").eq("active", true),
     callsQ.limit(2500),
-    interviewsTodayQ.limit(50),
-    interviewsUpcomingQ,
-    supabase
+    (async () => {
+      const inWeek = base.bookings.filter((b) => {
+        const at = b.scheduled_at;
+        return at >= today.toISOString() && at < weekAhead.toISOString();
+      });
+      return { count: inWeek.length };
+    })(),
+    db
       .from("visitor_sessions")
       .select("id", { count: "exact", head: true })
-      .gte("first_seen_at", sinceIso),
-    supabase
+      .gte("first_seen_at", sinceIso)
+      .lt("first_seen_at", untilExclusiveIso),
+    db
       .from("lead_attribution")
       .select("id", { count: "exact", head: true })
-      .gte("converted_at", sinceIso),
-    supabase.from("lead_attribution").select("id", { count: "exact", head: true }),
+      .gte("converted_at", sinceIso)
+      .lt("converted_at", untilExclusiveIso),
+    db.from("lead_attribution").select("id", { count: "exact", head: true }),
+    (async () => {
+      if (filtered && leadIds.length === 0) {
+        return {
+          feeRecords: [] as {
+            lead_id?: string;
+            total_fee: number;
+            remaining_fee: number;
+            payment_mode: string | null;
+          }[],
+          loans: [] as {
+            stage: string;
+            loan_vendor_id: string | null;
+            amount_realised?: number;
+            total_fee?: number;
+          }[],
+          vendors: [] as { id: string; name: string }[],
+        };
+      }
+      if (filtered) {
+        const { data: fees } = await db
+          .from("fee_records")
+          .select("id, lead_id, total_fee, remaining_fee, payment_mode")
+          .in("lead_id", leadIds);
+        const feeRecords = fees ?? [];
+        const feeIds = feeRecords.map((f) => f.id).filter(Boolean);
+        let loans: {
+          stage: string;
+          loan_vendor_id: string | null;
+          amount_realised?: number;
+          total_fee?: number;
+        }[] = [];
+        if (feeIds.length) {
+          const { data: loanRows } = await db
+            .from("loans")
+            .select("stage, loan_vendor_id, amount_realised, total_fee, fee_record_id")
+            .in("fee_record_id", feeIds);
+          loans = loanRows ?? [];
+        }
+        const { data: vendorRows } = await db.from("loan_vendors").select("id, name");
+        return { feeRecords, loans, vendors: vendorRows ?? [] };
+      }
+      const [feesRes, loansRes, vendorsRes] = await Promise.all([
+        db.from("fee_records").select("total_fee, remaining_fee, payment_mode"),
+        db.from("loans").select("stage, loan_vendor_id, amount_realised, total_fee"),
+        db.from("loan_vendors").select("id, name"),
+      ]);
+      return {
+        feeRecords: feesRes.data ?? [],
+        loans: loansRes.data ?? [],
+        vendors: vendorsRes.data ?? [],
+      };
+    })(),
   ]);
 
-  const all = leads ?? [];
-  const leadIds = all.map((l) => l.id);
-  const filtered = Boolean(counselorId || courseId || cohortId);
+  const feeRecords = feesBundle.feeRecords;
+  const loans = feesBundle.loans;
+  const vendors = feesBundle.vendors;
 
-  let feeRecords: {
-    lead_id?: string;
-    total_fee: number;
-    remaining_fee: number;
-    payment_mode: string | null;
-  }[] = [];
-  let loans: {
-    stage: string;
-    loan_vendor_id: string | null;
-    amount_realised?: number;
-    total_fee?: number;
-  }[] = [];
-  let vendors: { id: string; name: string }[] = [];
+  const interviewsTodayRows = base.bookings
+    .filter((b) => {
+      const at = b.scheduled_at;
+      return at >= today.toISOString() && at < tomorrow.toISOString();
+    })
+    .slice(0, 50)
+    .map((b) => {
+      const lead = base.leads.find((l) => l.id === b.lead_id);
+      return {
+        id: b.id,
+        scheduled_at: b.scheduled_at,
+        round: b.round,
+        meet_link: b.meet_link,
+        lead_id: b.lead_id,
+        leads: lead
+          ? {
+              id: lead.id,
+              name: lead.name,
+              lead_allocated_to: lead.lead_allocated_to,
+              course_id: lead.course_id,
+              cohort_id: lead.cohort_id,
+            }
+          : null,
+      };
+    });
 
-  if (filtered && leadIds.length === 0) {
-    feeRecords = [];
-    loans = [];
-    vendors = [];
-  } else if (filtered) {
-    const { data: fees } = await supabase
-      .from("fee_records")
-      .select("id, lead_id, total_fee, remaining_fee, payment_mode")
-      .in("lead_id", leadIds.slice(0, 1000));
-    feeRecords = fees ?? [];
-    const feeIds = (fees ?? []).map((f) => f.id);
-    if (feeIds.length) {
-      const { data: loanRows } = await supabase
-        .from("loans")
-        .select("stage, loan_vendor_id, amount_realised, total_fee, fee_record_id")
-        .in("fee_record_id", feeIds);
-      loans = loanRows ?? [];
-    }
-    const { data: vendorRows } = await supabase
-      .from("loan_vendors")
-      .select("id, name");
-    vendors = vendorRows ?? [];
-  } else {
-    const [feesRes, loansRes, vendorsRes] = await Promise.all([
-      supabase.from("fee_records").select("total_fee, remaining_fee, payment_mode"),
-      supabase.from("loans").select("stage, loan_vendor_id, amount_realised, total_fee"),
-      supabase.from("loan_vendors").select("id, name"),
-    ]);
-    feeRecords = feesRes.data ?? [];
-    loans = loansRes.data ?? [];
-    vendors = vendorsRes.data ?? [];
-  }
-  const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
-  const counselorMap = new Map((counselors ?? []).map((c) => [c.id, c.name]));
+  const courseMap = new Map(courses.map((c) => [c.id, c.name]));
+  const counselorMap = new Map(counselors.map((c) => [c.id, c.name]));
   // attributedCount is total attributed leads in CRM (unique lead_id)
 
   const openLeads = all.filter((l) => OPEN_STAGES.includes(l.stage as Stage)).length;
@@ -307,8 +321,8 @@ export async function fetchAdmissionsAnalytics(
     .sort((a, b) => b.count - a.count);
 
   const boardCounselors = counselorId
-    ? (counselors ?? []).filter((c) => c.id === counselorId)
-    : counselors ?? [];
+    ? counselors.filter((c) => c.id === counselorId)
+    : counselors;
 
   const callsByCounselor = new Map<string, number>();
   for (const c of calls ?? []) {
@@ -341,17 +355,21 @@ export async function fetchAdmissionsAnalytics(
     })
     .sort((a, b) => b.total - a.total);
 
-  const daily = emptyDaily(rangeDays);
+  const daily = emptyDailyBetween(fromDate, toDate);
   const dailyMap = new Map(daily.map((d) => [d.date, d]));
   for (const l of all) {
-    if (l.created_at < sinceIso) continue;
+    if (l.created_at < sinceIso || l.created_at >= untilExclusiveIso) continue;
     const row = dailyMap.get(dayKey(l.created_at));
     if (row) row.leads += 1;
   }
   for (const l of all) {
     if (l.stage !== "closed_won") continue;
     // approximate won timing with updated_at in range
-    if (l.updated_at && l.updated_at >= sinceIso) {
+    if (
+      l.updated_at &&
+      l.updated_at >= sinceIso &&
+      l.updated_at < untilExclusiveIso
+    ) {
       const row = dailyMap.get(dayKey(l.updated_at));
       if (row) row.won += 1;
     }
@@ -429,6 +447,8 @@ export async function fetchAdmissionsAnalytics(
 
   return {
     rangeDays,
+    fromDate,
+    toDate,
     kpis: {
       totalLeads: all.length,
       openLeads,

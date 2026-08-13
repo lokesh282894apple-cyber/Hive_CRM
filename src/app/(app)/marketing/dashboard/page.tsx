@@ -88,25 +88,33 @@ export default async function MarketingDashboardPage({
 
   const range = parseRange(searchParams.range) as RangeKey;
   const supabase = createClient();
-  const [overview, topPages, { count: creativeCount }, { count: connectionCount }] =
+
+  const overviewP = fetchMarketingOverview(supabase, range);
+  const topPagesP = fetchTopPages(supabase, range, 12);
+  const creativesP = supabase
+    .from("ad_creatives")
+    .select("*", { count: "exact", head: true });
+  const connectionsP = supabase
+    .from("ad_platform_connection_status")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "connected");
+
+  const overview = await overviewP;
+  const convLeadIds = overview.recentConversions.map((c) => c.lead_id);
+
+  // Overlap lead-name lookup with the other in-flight fetches
+  const [{ data: convLeads }, topPages, { count: creativeCount }, { count: connectionCount }] =
     await Promise.all([
-      fetchMarketingOverview(supabase, range),
-      fetchTopPages(supabase, range, 12),
-      supabase.from("ad_creatives").select("*", { count: "exact", head: true }),
-      supabase
-        .from("ad_platform_connection_status")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "connected"),
+      convLeadIds.length
+        ? supabase.from("leads").select("id, name, stage").in("id", convLeadIds)
+        : Promise.resolve({ data: [] as { id: string; name: string; stage: string }[] }),
+      topPagesP,
+      creativesP,
+      connectionsP,
     ]);
 
   const { kpis, daily, byChannel, byCampaign, byUtm, devices, recentSessions, recentConversions } =
     overview;
-
-  // Resolve conversion lead names
-  const convLeadIds = recentConversions.map((c) => c.lead_id);
-  const { data: convLeads } = convLeadIds.length
-    ? await supabase.from("leads").select("id, name, stage").in("id", convLeadIds)
-    : { data: [] as { id: string; name: string; stage: string }[] };
   const leadMap = new Map((convLeads ?? []).map((l) => [l.id, l]));
 
   const ranges: RangeKey[] = ["7", "30", "90"];

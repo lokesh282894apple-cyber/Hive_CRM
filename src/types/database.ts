@@ -58,6 +58,13 @@ export type Lead = {
   years_experience: number | null;
   preferred_industry: string | null;
   intent_score: number | null;
+  /** System-computed score (rules engine) */
+  score_auto?: number | null;
+  /** Counselor override; when set, becomes effective intent_score */
+  score_override?: number | null;
+  score_override_reason?: string | null;
+  score_override_by?: string | null;
+  score_override_at?: string | null;
   lead_allocated_to: string | null;
   stage: Stage;
   created_at: string;
@@ -145,6 +152,8 @@ export type Installment = {
   amount_to_realise: number;
   amount_realised: number;
   status: InstallmentStatus;
+  /** Set when amount_realised increases — used for monthly revenue realised */
+  paid_at?: string | null;
 };
 
 export type LoanVendor = {

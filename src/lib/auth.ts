@@ -14,7 +14,7 @@ export const getSessionUser = cache(async (): Promise<AppUser | null> => {
 
   const { data } = await supabase
     .from("users")
-    .select("*")
+    .select("id, name, email, role, active, created_at")
     .eq("id", user.id)
     .eq("active", true)
     .maybeSingle();

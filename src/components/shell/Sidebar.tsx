@@ -43,6 +43,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/admin/panel", label: "Panel", icon: GraduationCap },
   { href: "/admin/forecast", label: "Forecast", icon: TrendingUp },
   { href: "/admin/users", label: "Users & Roles", icon: Users },
   { href: "/admin/config", label: "System Config", icon: Cog },

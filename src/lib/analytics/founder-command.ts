@@ -3,6 +3,9 @@ import {
   fetchAdmissionsAnalytics,
   type AdmissionsAnalytics,
 } from "@/lib/analytics/admissions";
+import { admissionsAggClient } from "@/lib/analytics/agg-client";
+import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 import { OPEN_STAGES, type Stage } from "@/lib/constants";
 
 export type Confidence = "low" | "medium" | "high";
@@ -190,98 +193,87 @@ export async function fetchFounderCommand(
   supabase: SupabaseClient,
   opts?: {
     rangeDays?: number;
+    fromDate?: string | null;
+    toDate?: string | null;
     counselorId?: string | null;
     courseId?: string | null;
     cohortId?: string | null;
   }
 ): Promise<FounderCommand> {
-  const rangeDays = opts?.rangeDays ?? 30;
   const counselorId = opts?.counselorId ?? null;
   const courseId = opts?.courseId ?? null;
   const cohortId = opts?.cohortId ?? null;
-  const since = new Date();
-  since.setDate(since.getDate() - rangeDays);
-  const sinceIso = since.toISOString();
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  const todayKey = today.toISOString().slice(0, 10);
-  const in14 = addDays(todayKey, 14);
-  const in30 = addDays(todayKey, 30);
+  const db = admissionsAggClient(supabase);
 
-  const [admissions, extras] = await Promise.all([
-    fetchAdmissionsAnalytics(supabase, {
-      rangeDays,
-      counselorId,
-      courseId,
-      cohortId,
-    }),
-    Promise.all([
-      supabase
-        .from("cohorts")
-        .select("id, name, course_id, start_date, active")
-        .eq("active", true),
-      supabase.from("courses").select("id, name").eq("active", true),
-      supabase.from("interview_bookings").select("lead_id").limit(2000),
-      supabase.from("installments").select(
-        "id, deadline, amount_to_realise, amount_realised, status, fee_record_id, fee_records!inner(lead_id, leads!inner(id, name))"
-      ),
-      supabase
-        .from("app_settings")
-        .select("key, value")
-        .in("key", ["enrollment_targets", "manual_monthly_ad_spend"]),
-      supabase
-        .from("ad_spend_daily")
-        .select("spend")
-        .gte("date", sinceIso.slice(0, 10))
-        .limit(2000),
-    ]),
-  ]);
-
-  const [
-    cohortsRes,
-    coursesRes,
-    bookingsRes,
-    installmentsRes,
-    settingsRes,
-    spendRes,
-  ] = extras;
-
-  const allLeads = admissions.leadRows;
-  const leadIdSet = new Set(allLeads.map((l) => l.id));
-  const leadIds = allLeads.map((l) => l.id);
-  const filtered = Boolean(counselorId || courseId || cohortId);
-
-  // Page stage_history by lead ids (no hard 4000 cap)
-  const history: { lead_id: string; to_stage: string }[] = [];
-  const HISTORY_CHUNK = 400;
-  if (leadIds.length === 0) {
-    // nothing
-  } else {
-    for (let i = 0; i < leadIds.length; i += HISTORY_CHUNK) {
-      const chunk = leadIds.slice(i, i + HISTORY_CHUNK);
-      const { data } = await supabase
-        .from("stage_history")
-        .select("lead_id, to_stage")
-        .in("lead_id", chunk);
-      if (data?.length) history.push(...data);
-    }
-  }
-  const bookings = (bookingsRes.data ?? []).filter(
-    (b) => !filtered || leadIdSet.has(b.lead_id)
-  );
-  type InstRow = {
+  type InstNested = {
     id: string;
     deadline: string;
     amount_to_realise: number;
     amount_realised: number;
     status: string;
     fee_record_id: string;
-    fee_records:
+    fee_records?:
       | { lead_id: string; leads: { id: string; name: string } | null }
       | { lead_id: string; leads: { id: string; name: string } | null }[]
       | null;
   };
-  const installmentsRaw = (installmentsRes.data ?? []) as unknown as InstRow[];
+
+  const [admissions, base, extras] = await Promise.all([
+    fetchAdmissionsAnalytics(supabase, {
+      rangeDays: opts?.rangeDays,
+      fromDate: opts?.fromDate,
+      toDate: opts?.toDate,
+      counselorId,
+      courseId,
+      cohortId,
+    }),
+    getAdmissionsBase(counselorId, courseId, cohortId),
+    Promise.all([
+      db.from("app_settings").select("key, value").in("key", [
+        "enrollment_targets",
+        "manual_monthly_ad_spend",
+      ]),
+      db.from("ad_spend_daily").select("spend, date").limit(2000),
+      fetchAllPages(
+        (from, to) =>
+          db
+            .from("installments")
+            .select(
+              "id, deadline, amount_to_realise, amount_realised, status, fee_record_id, fee_records(lead_id, leads(id, name))"
+            )
+            .order("deadline", { ascending: true })
+            .range(from, to) as unknown as PromiseLike<{
+            data: InstNested[] | null;
+            error: { message: string } | null;
+          }>,
+        "installments"
+      ),
+    ]),
+  ]);
+
+  const rangeDays = admissions.rangeDays;
+  const sinceIso = `${admissions.fromDate}T00:00:00.000Z`;
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const todayKey = today.toISOString().slice(0, 10);
+  const in14 = addDays(todayKey, 14);
+  const in30 = addDays(todayKey, 30);
+
+  const [settingsRes, spendRes, installmentsPaged] = extras;
+
+  const allLeads = admissions.leadRows;
+  const leadIdSet = base.leadIdSet;
+  const filtered = base.filtered;
+
+  const history = base.history.map((h) => ({
+    lead_id: h.lead_id,
+    to_stage: h.to_stage,
+  }));
+  const bookings = base.bookings
+    .map((b) => ({ lead_id: b.lead_id }))
+    .filter((b) => !filtered || leadIdSet.has(b.lead_id));
+
+  const installmentsRaw = installmentsPaged;
   const installments = filtered
     ? installmentsRaw.filter((i) => {
         const fr = Array.isArray(i.fee_records) ? i.fee_records[0] : i.fee_records;
@@ -289,9 +281,14 @@ export async function fetchFounderCommand(
       })
     : installmentsRaw;
   const settingsRows = settingsRes.data ?? [];
-  const spendRows = spendRes.error ? [] : spendRes.data ?? [];
-  const cohorts = cohortsRes.data ?? [];
-  const courses = coursesRes.data ?? [];
+  const spendRowsRaw = spendRes.error ? [] : spendRes.data ?? [];
+  const spendRows = spendRowsRaw.filter((r) => {
+    const d = (r as { date?: string }).date;
+    if (!d) return false;
+    return d >= admissions.fromDate && d <= admissions.toDate;
+  });
+  const cohorts = base.cohorts;
+  const courses = base.courses;
   const callsForCounselor = admissions.callRows;
 
   const courseMap = new Map(courses.map((c) => [c.id, c.name]));
@@ -412,6 +409,7 @@ export async function fetchFounderCommand(
   const latencies: number[] = [];
   for (const l of allLeads) {
     if (l.created_at < sinceIso) continue;
+    if (l.created_at >= `${admissions.toDate}T23:59:59.999Z`) continue;
     const first = firstCallByLead.get(l.id) ?? l.last_contacted_at;
     if (!first) continue;
     const hours =

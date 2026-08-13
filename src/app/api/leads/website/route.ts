@@ -262,7 +262,9 @@ export async function POST(request: NextRequest) {
       sharedFields.preferred_industry = String(body.preferred_industry).trim();
     }
     if (body.intent_score != null && body.intent_score !== "") {
-      sharedFields.intent_score = Number(body.intent_score);
+      const prior = Number(body.intent_score);
+      sharedFields.intent_score = prior;
+      sharedFields.score_auto = prior;
     }
     if (programme) sharedFields.programme = programme;
     if (sessionId) sharedFields.website_session_id = sessionId;
@@ -353,6 +355,13 @@ export async function POST(request: NextRequest) {
     }
 
     const attributionLinked = await linkAttribution(admin, leadId!, sessionId);
+
+    try {
+      const { recomputeLeadScore } = await import("@/lib/leads/score");
+      await recomputeLeadScore(admin, leadId!);
+    } catch (scoreErr) {
+      console.warn("[leads/website] score recompute skipped", scoreErr);
+    }
 
     return NextResponse.json({
       ok: true,

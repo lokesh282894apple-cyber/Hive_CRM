@@ -448,6 +448,9 @@ export async function submitInterviewOutcome(input: {
     }
   }
 
+  const { recomputeLeadScore } = await import("@/lib/leads/score");
+  await recomputeLeadScore(supabase, booking.lead_id);
+
   revalidatePath(`/leads/${booking.lead_id}`);
   revalidatePath("/interviewer/interviews");
   return { ok: true };
@@ -477,6 +480,8 @@ export async function markNoShowOrReschedule(input: {
     .update({ stage: stageMap[input.round] })
     .eq("id", input.leadId);
   if (error) return { ok: false, error: error.message };
+  const { recomputeLeadScore } = await import("@/lib/leads/score");
+  await recomputeLeadScore(supabase, input.leadId);
   revalidatePath(`/leads/${input.leadId}`);
   return { ok: true };
 }

@@ -3,6 +3,7 @@
 import { requireUser } from "@/lib/auth";
 import type { Stage } from "@/lib/constants";
 import { isBookingRequiredStage, STAGES, STAGE_TRANSITIONS } from "@/lib/constants";
+import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -13,6 +14,10 @@ export async function createLead(
 ): Promise<ActionResult & { id?: string }> {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
+
+  const intentPrior = formData.get("intent_score")
+    ? Number(formData.get("intent_score"))
+    : null;
 
   const payload = {
     name: String(formData.get("name") || "").trim(),
@@ -26,9 +31,8 @@ export async function createLead(
       ? Number(formData.get("years_experience"))
       : null,
     preferred_industry: String(formData.get("preferred_industry") || "").trim() || null,
-    intent_score: formData.get("intent_score")
-      ? Number(formData.get("intent_score"))
-      : null,
+    intent_score: intentPrior,
+    score_auto: intentPrior,
     lead_allocated_to:
       user.role === "admin"
         ? String(formData.get("lead_allocated_to") || "") || user.id
@@ -42,6 +46,8 @@ export async function createLead(
 
   const { data, error } = await supabase.from("leads").insert(payload).select("id").single();
   if (error) return { ok: false, error: error.message };
+
+  await recomputeLeadScore(supabase, data.id);
 
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
@@ -94,6 +100,8 @@ export async function updateLeadStage(
     });
   }
 
+  await recomputeLeadScore(supabase, leadId);
+
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
@@ -119,15 +127,74 @@ export async function updateLeadInfo(
       ? Number(formData.get("years_experience"))
       : null,
     preferred_industry: String(formData.get("preferred_industry") || "").trim() || null,
-    intent_score: formData.get("intent_score")
-      ? Number(formData.get("intent_score"))
-      : null,
   };
 
   const { error } = await supabase.from("leads").update(payload).eq("id", leadId);
   if (error) return { ok: false, error: error.message };
 
+  await recomputeLeadScore(supabase, leadId);
+
   revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function setLeadScoreOverride(
+  leadId: string,
+  score: number,
+  reason: string
+): Promise<ActionResult> {
+  const user = await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+
+  const value = Math.min(100, Math.max(0, Math.round(score)));
+  const why = reason.trim();
+  if (!why) return { ok: false, error: "Reason is required when adjusting score" };
+
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      score_override: value,
+      score_override_reason: why,
+      score_override_by: user.id,
+      score_override_at: new Date().toISOString(),
+      intent_score: value,
+    })
+    .eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+export async function clearLeadScoreOverride(leadId: string): Promise<ActionResult> {
+  await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      score_override: null,
+      score_override_reason: null,
+      score_override_by: null,
+      score_override_at: null,
+    })
+    .eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+
+  await recomputeLeadScore(supabase, leadId);
+
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+export async function recomputeLeadScoreAction(leadId: string): Promise<ActionResult> {
+  await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+  await recomputeLeadScore(supabase, leadId);
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
   return { ok: true };
 }
 
@@ -181,6 +248,13 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
   const { error } = await supabase.from("call_logs").insert(payload);
   if (error) return { ok: false, error: error.message };
 
+  await supabase
+    .from("leads")
+    .update({ last_contacted_at: new Date().toISOString() })
+    .eq("id", leadId);
+
+  await recomputeLeadScore(supabase, leadId);
+
   revalidatePath(`/leads/${leadId}`);
   return { ok: true };
 }
@@ -190,6 +264,7 @@ export async function deleteCallLog(id: string, leadId: string): Promise<ActionR
   const supabase = createClient();
   const { error } = await supabase.from("call_logs").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
+  await recomputeLeadScore(supabase, leadId);
   revalidatePath(`/leads/${leadId}`);
   return { ok: true };
 }

@@ -25,6 +25,7 @@ import {
 } from "@/components/leads/LeadMarketingTab";
 import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
 import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
+import { LeadScoreCard } from "@/components/leads/LeadScoreCard";
 import type {
   AppUser,
   CallLog,
@@ -411,7 +412,8 @@ export function LeadDetailClient({
 
       {tab === "info" ? (
         <div className="grid gap-6 lg:grid-cols-3">
-          <form onSubmit={onSaveInfo} className="panel space-y-3 p-5 lg:col-span-2">
+          <div className="space-y-4 lg:col-span-2">
+          <form onSubmit={onSaveInfo} className="panel space-y-3 p-5">
             <p className="eyebrow">Profile</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -500,22 +502,21 @@ export function LeadDetailClient({
                   defaultValue={lead.preferred_industry ?? ""}
                 />
               </div>
-              <div>
-                <label className="label-field">Intent score</label>
-                <input
-                  name="intent_score"
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="input-field"
-                  defaultValue={lead.intent_score ?? ""}
-                />
-              </div>
             </div>
             <button type="submit" className="btn-primary" disabled={pending}>
               Save
             </button>
           </form>
+
+          <LeadScoreCard
+            leadId={lead.id}
+            intentScore={lead.intent_score}
+            scoreAuto={lead.score_auto ?? null}
+            scoreOverride={lead.score_override ?? null}
+            scoreOverrideReason={lead.score_override_reason ?? null}
+            scoreOverrideAt={lead.score_override_at ?? null}
+          />
+          </div>
 
           <div className="space-y-4">
             <div className="panel p-5">

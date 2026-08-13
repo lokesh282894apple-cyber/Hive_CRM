@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 
 export type FunnelAttribution = "all" | "organic" | "inorganic";
 export type FunnelMode = "period" | "snapshot";
@@ -280,6 +281,10 @@ export function currentMonthKey(d = new Date()): string {
 
 function daysInMonth(month: string): string[] {
   const { start, end } = monthBounds(month);
+  return daysInRange(start, end);
+}
+
+function daysInRange(start: string, end: string): string[] {
   const out: string[] = [];
   const cur = new Date(start + "T12:00:00Z");
   const last = new Date(end + "T12:00:00Z");
@@ -302,20 +307,6 @@ function classifySource(
     return "inorganic";
   }
   return "organic";
-}
-
-async function fetchInChunks<T>(
-  ids: string[],
-  chunkSize: number,
-  fetchChunk: (chunk: string[]) => Promise<T[]>
-): Promise<T[]> {
-  if (ids.length === 0) return [];
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const chunk = ids.slice(i, i + chunkSize);
-    out.push(...(await fetchChunk(chunk)));
-  }
-  return out;
 }
 
 type LeadFacts = {
@@ -688,6 +679,8 @@ export async function fetchAdmissionsFunnel(
   supabase: SupabaseClient,
   opts?: {
     month?: string | null;
+    fromDate?: string | null;
+    toDate?: string | null;
     mode?: FunnelMode;
     attribution?: FunnelAttribution;
     counselorId?: string | null;
@@ -695,9 +688,6 @@ export async function fetchAdmissionsFunnel(
     cohortId?: string | null;
   }
 ): Promise<AdmissionsFunnel> {
-  const month = opts?.month && /^\d{4}-\d{2}$/.test(opts.month)
-    ? opts.month
-    : currentMonthKey();
   const mode: FunnelMode = opts?.mode === "snapshot" ? "snapshot" : "period";
   const attribution: FunnelAttribution =
     opts?.attribution === "organic" || opts?.attribution === "inorganic"
@@ -707,73 +697,53 @@ export async function fetchAdmissionsFunnel(
   const courseId = opts?.courseId ?? null;
   const cohortId = opts?.cohortId ?? null;
 
-  const { start: periodStart, endExclusive } = monthBounds(month);
+  const fromOk =
+    opts?.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.fromDate)
+      ? opts.fromDate
+      : null;
+  const toOk =
+    opts?.toDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.toDate) ? opts.toDate : null;
 
-  let leadsQ = supabase
-    .from("leads")
-    .select(
-      "id, stage, source, course_id, cohort_id, lead_allocated_to, created_at"
-    );
-  if (counselorId) leadsQ = leadsQ.eq("lead_allocated_to", counselorId);
-  if (courseId) leadsQ = leadsQ.eq("course_id", courseId);
-  if (cohortId) leadsQ = leadsQ.eq("cohort_id", cohortId);
+  let periodStart: string;
+  let periodEnd: string;
+  let endExclusive: string;
+  let month: string;
 
-  const [{ data: leadsRaw }, { data: cohortsRaw }] = await Promise.all([
-    leadsQ.limit(8000),
-    supabase.from("cohorts").select("id, name").eq("active", true).order("name"),
-  ]);
+  if (fromOk && toOk) {
+    periodStart = fromOk <= toOk ? fromOk : toOk;
+    periodEnd = fromOk <= toOk ? toOk : fromOk;
+    const next = new Date(periodEnd + "T12:00:00Z");
+    next.setUTCDate(next.getUTCDate() + 1);
+    endExclusive = next.toISOString().slice(0, 10);
+    month = periodEnd.slice(0, 7);
+  } else {
+    month =
+      opts?.month && /^\d{4}-\d{2}$/.test(opts.month)
+        ? opts.month
+        : currentMonthKey();
+    const b = monthBounds(month);
+    periodStart = b.start;
+    periodEnd = b.end;
+    endExclusive = b.endExclusive;
+  }
 
-  const leads = (leadsRaw ?? []) as LeadRow[];
-  const leadIds = leads.map((l) => l.id);
+  const base = await getAdmissionsBase(counselorId, courseId, cohortId);
+  // supabase retained for API compat — aggregates use service-role base
+  void supabase;
 
-  const [history, bookings, attrSimple] = await Promise.all([
-    fetchInChunks(leadIds, 400, async (chunk) => {
-      const { data } = await supabase
-        .from("stage_history")
-        .select("lead_id, to_stage, changed_at")
-        .in("lead_id", chunk);
-      return (data ?? []) as HistoryRow[];
-    }),
-    fetchInChunks(leadIds, 400, async (chunk) => {
-      const { data } = await supabase
-        .from("interview_bookings")
-        .select("lead_id, round, scheduled_at, outcome")
-        .in("lead_id", chunk);
-      return (data ?? []) as BookingRow[];
-    }),
-    fetchInChunks(leadIds, 400, async (chunk) => {
-      const { data } = await supabase
-        .from("lead_attribution")
-        .select("lead_id, last_touch_campaign_id, first_touch_campaign_id")
-        .in("lead_id", chunk);
-      return (data ?? []) as {
-        lead_id: string;
-        last_touch_campaign_id: string | null;
-        first_touch_campaign_id: string | null;
-      }[];
-    }),
-  ]);
+  const leads = base.leads as LeadRow[];
+  const history = base.history as HistoryRow[];
+  const bookings = base.bookings.map((b) => ({
+    lead_id: b.lead_id,
+    round: b.round,
+    scheduled_at: b.scheduled_at,
+    outcome: b.outcome,
+  })) as BookingRow[];
 
   const attrMap = new Map<string, string | null>();
-  const campaignIds = new Set<string>();
-  for (const r of attrSimple) {
+  for (const r of base.attrs) {
     const cid = r.last_touch_campaign_id ?? r.first_touch_campaign_id;
-    if (cid) campaignIds.add(cid);
-    attrMap.set(r.lead_id, null);
-  }
-  if (campaignIds.size) {
-    const camps = await fetchInChunks(Array.from(campaignIds), 400, async (chunk) => {
-      const { data } = await supabase
-        .from("campaigns")
-        .select("id, source_type")
-        .in("id", chunk);
-      return (data ?? []) as { id: string; source_type: string }[];
-    });
-    const campType = new Map(camps.map((c) => [c.id, c.source_type]));
-    for (const r of attrSimple) {
-      const cid = r.last_touch_campaign_id ?? r.first_touch_campaign_id;
-      attrMap.set(r.lead_id, cid ? campType.get(cid) ?? null : null);
-    }
+    attrMap.set(r.lead_id, cid ? base.campaignTypeById.get(cid) ?? null : null);
   }
 
   const allFactsMap = buildLeadFacts(
@@ -795,7 +765,7 @@ export async function fetchAdmissionsFunnel(
   const organicFacts = allFacts.filter((f) => f.attr === "organic");
   const inorganicFacts = allFacts.filter((f) => f.attr === "inorganic");
 
-  const days = daysInMonth(month);
+  const days = daysInRange(periodStart, periodEnd);
   const dayWise: DayWiseRow[] = days.map((date) => ({
     date,
     r1: dayCountsFor(facts, date, "R1"),
@@ -839,7 +809,7 @@ export async function fetchAdmissionsFunnel(
     }
   }
 
-  const cohorts = (cohortsRaw ?? []) as { id: string; name: string }[];
+  const cohorts = base.cohorts.map((c) => ({ id: c.id, name: c.name }));
   const byCohort: CohortFunnelSummary[] = cohorts
     .map((c) => {
       const cf = facts.filter((f) => f.lead.cohort_id === c.id);

@@ -3,18 +3,25 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { fetchFounderCommand } from "@/lib/analytics/founder-command";
 import {
-  currentMonthKey,
   fetchAdmissionsFunnel,
   type FunnelAttribution,
   type FunnelMode,
 } from "@/lib/analytics/admissions-funnel";
+import {
+  addDaysKey,
+  resolveAnalyticsRange,
+  todayKey,
+} from "@/lib/analytics/date-range";
 import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/FunnelMatrix";
 import { ConversionTable } from "@/components/admin/funnel/ConversionTable";
 import { AttributionSplit } from "@/components/admin/funnel/AttributionSplit";
 import { DayWiseGrid } from "@/components/admin/funnel/DayWiseGrid";
 import { CohortFunnelBoard } from "@/components/admin/funnel/CohortFunnelBoard";
+import { RevenueAnalyticsPanel } from "@/components/admin/RevenueAnalyticsPanel";
 import { BarChart, ForecastBadge } from "@/components/charts/SimpleCharts";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { fetchRevenueReport } from "@/lib/analytics/revenue";
+import { cohortNumberMap } from "@/lib/cohorts/display";
+import { formatCurrency, formatDate, cn } from "@/lib/utils";
 import Link from "next/link";
 
 function Section({
@@ -100,45 +107,46 @@ function buildQuery(params: Record<string, string | undefined>) {
   return s ? `?${s}` : "";
 }
 
-function monthOptions(count = 12) {
-  const out: { value: string; label: string }[] = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    out.push({
-      value,
-      label: d.toLocaleString("en-US", { month: "short", year: "numeric" }),
-    });
-  }
-  return out;
-}
-
 export default async function AdminAnalyticsPage({
   searchParams,
 }: {
   searchParams: {
     range?: string;
+    from?: string;
+    to?: string;
     course?: string;
     cohort?: string;
     counselor?: string;
     month?: string;
     mode?: string;
     attribution?: string;
+    rev_from?: string;
+    rev_to?: string;
+    payers?: string;
+    tab?: string;
   };
 }) {
   await requireUser(["admin"]);
   const supabase = createClient();
-  const rangeDays = ["7", "30", "90"].includes(searchParams.range ?? "")
+  const tab = searchParams.tab === "revenue" ? "revenue" : "admissions";
+
+  const presetRange = ["7", "30", "90"].includes(searchParams.range ?? "")
     ? Number(searchParams.range)
-    : 30;
+    : undefined;
+  const dateRange = resolveAnalyticsRange({
+    from: searchParams.from,
+    to: searchParams.to,
+    rangeDays: presetRange ?? (searchParams.from || searchParams.to ? undefined : 30),
+  });
+  const { fromDate, toDate, rangeDays } = dateRange;
+
   const courseId = searchParams.course || null;
   const cohortId = searchParams.cohort || null;
   const counselorId = searchParams.counselor || null;
   const month =
     searchParams.month && /^\d{4}-\d{2}$/.test(searchParams.month)
       ? searchParams.month
-      : currentMonthKey();
+      : toDate.slice(0, 7);
   const mode: FunnelMode =
     searchParams.mode === "snapshot" ? "snapshot" : "period";
   const attribution: FunnelAttribution =
@@ -146,16 +154,168 @@ export default async function AdminAnalyticsPage({
     searchParams.attribution === "inorganic"
       ? searchParams.attribution
       : "all";
+  const revFrom =
+    searchParams.rev_from && /^\d{4}-\d{2}$/.test(searchParams.rev_from)
+      ? searchParams.rev_from
+      : null;
+  const revTo =
+    searchParams.rev_to && /^\d{4}-\d{2}$/.test(searchParams.rev_to)
+      ? searchParams.rev_to
+      : null;
+  const payerFilter =
+    searchParams.payers === "complete" || searchParams.payers === "partial"
+      ? searchParams.payers
+      : "all";
 
+  const usingPreset = Boolean(presetRange) && !searchParams.from && !searchParams.to;
+  const filtersActive = Boolean(courseId || cohortId || counselorId);
+
+  const sharedParams = {
+    range: usingPreset ? String(rangeDays) : undefined,
+    from: fromDate,
+    to: toDate,
+    course: courseId ?? undefined,
+    cohort: cohortId ?? undefined,
+  };
+
+  const tabs = [
+    { id: "admissions" as const, label: "Admissions" },
+    { id: "revenue" as const, label: "Revenue" },
+  ];
+
+  function AnalyticsTabs({ active }: { active: "admissions" | "revenue" }) {
+    return (
+      <div className="flex gap-1 rounded-xl border border-border bg-white p-1">
+        {tabs.map((t) => (
+          <Link
+            key={t.id}
+            href={`/admin/analytics${buildQuery({
+              ...sharedParams,
+              ...(active === "admissions" && t.id === "admissions"
+                ? {
+                    counselor: counselorId ?? undefined,
+                    month,
+                    mode,
+                    attribution: attribution === "all" ? undefined : attribution,
+                  }
+                : {}),
+              ...(t.id === "revenue"
+                ? {
+                    tab: "revenue",
+                    payers: payerFilter === "all" ? undefined : payerFilter,
+                  }
+                : { tab: undefined }),
+            })}`}
+            className={cn(
+              "rounded-lg px-4 py-1.5 text-sm font-semibold transition",
+              active === t.id
+                ? "bg-navy text-white"
+                : "text-muted hover:text-navy"
+            )}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Revenue tab ──────────────────────────────────────────────
+  if (tab === "revenue") {
+    const [revenue, coursesRes, cohortsRes] = await Promise.all([
+      fetchRevenueReport(supabase, {
+        courseId,
+        cohortId,
+        fromDate,
+        toDate,
+        fromMonth: revFrom,
+        toMonth: revTo,
+      }),
+      supabase.from("courses").select("id, name").eq("active", true).order("name"),
+      supabase
+        .from("cohorts")
+        .select("id, name, course_id, start_date")
+        .eq("active", true)
+        .order("name"),
+    ]);
+
+    const courses = coursesRes.data ?? [];
+    const allCohorts = cohortsRes.data ?? [];
+    const courseMap = new Map(courses.map((c) => [c.id, c.name]));
+    const cohortNums = cohortNumberMap(allCohorts);
+    const revenueCohortOptions = allCohorts.map((c) => ({
+      id: c.id,
+      name: c.name,
+      course_id: c.course_id,
+      label: `${courseMap.get(c.course_id) ?? "Course"} · ${cohortNums.get(c.id) ?? c.name}`,
+    }));
+
+    const revBaseParams = {
+      ...sharedParams,
+      tab: "revenue",
+      payers: payerFilter === "all" ? undefined : payerFilter,
+    };
+
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Admin · Analytics"
+          title="Revenue"
+          accent="P&L"
+          description="Booked offer fees vs cash realised, by month and cohort."
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <Link href="/admin/dashboard" className="btn-primary text-xs">
+                Overview
+              </Link>
+              <Link
+                href="/admin/forecast"
+                className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-navy"
+              >
+                Forecast
+              </Link>
+            </div>
+          }
+        />
+
+        <div className="sticky top-0 z-20 -mx-1 border-b border-border bg-[#F7F8FC]/95 px-1 py-3 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <AnalyticsTabs active="revenue" />
+            <p className="text-sm text-muted">
+              {revenue.filters.fromDate} → {revenue.filters.toDate}
+              {filtersActive ? <span className="text-navy"> · filters on</span> : null}
+            </p>
+          </div>
+        </div>
+
+        <RevenueAnalyticsPanel
+          report={revenue}
+          basePath="/admin/analytics"
+          baseParams={revBaseParams}
+          payerFilter={payerFilter}
+          courses={courses}
+          cohorts={revenueCohortOptions}
+          courseId={courseId}
+          cohortId={cohortId}
+        />
+      </div>
+    );
+  }
+
+  // ── Admissions tab ───────────────────────────────────────────
   const [cmd, funnel, coursesRes, cohortsRes, counselorsRes] = await Promise.all([
     fetchFounderCommand(supabase, {
       rangeDays,
+      fromDate,
+      toDate,
       courseId,
       cohortId,
       counselorId,
     }),
     fetchAdmissionsFunnel(supabase, {
       month,
+      fromDate,
+      toDate,
       mode,
       attribution,
       courseId,
@@ -165,7 +325,7 @@ export default async function AdminAnalyticsPage({
     supabase.from("courses").select("id, name").eq("active", true).order("name"),
     supabase
       .from("cohorts")
-      .select("id, name, course_id")
+      .select("id, name, course_id, start_date")
       .eq("active", true)
       .order("name"),
     supabase
@@ -177,15 +337,39 @@ export default async function AdminAnalyticsPage({
   ]);
 
   const courses = coursesRes.data ?? [];
-  const cohorts = (cohortsRes.data ?? []).filter((c) =>
+  const allCohorts = cohortsRes.data ?? [];
+  const cohorts = allCohorts.filter((c) =>
     courseId ? c.course_id === courseId : true
   );
   const counselors = counselorsRes.data ?? [];
 
+  const baseParams = {
+    ...sharedParams,
+    counselor: counselorId ?? undefined,
+    month,
+    mode,
+    attribution: attribution === "all" ? undefined : attribution,
+  };
+  const funnelFiltersActive = Boolean(
+    courseId ||
+      cohortId ||
+      counselorId ||
+      attribution !== "all" ||
+      mode !== "period" ||
+      Boolean(searchParams.from || searchParams.to)
+  );
+
+  const overviewNav = [
+    { href: "#funnel", label: "Funnel" },
+    { href: "#pipeline", label: "Pipeline" },
+    { href: "#money", label: "Money" },
+    { href: "#team", label: "Team" },
+    { href: "#loans", label: "Loans" },
+  ] as const;
+
   const { admissions: data, northStar: ns } = cmd;
   const { kpis } = data;
   const totalLeads = kpis.totalLeads || 1;
-  const filtersActive = Boolean(courseId || cohortId || counselorId);
 
   const funnelSteps = [
     {
@@ -199,41 +383,19 @@ export default async function AdminAnalyticsPage({
     })),
   ];
 
-  const baseParams = {
-    range: String(rangeDays),
-    course: courseId ?? undefined,
-    cohort: cohortId ?? undefined,
-    counselor: counselorId ?? undefined,
-    month,
-    mode,
-    attribution: attribution === "all" ? undefined : attribution,
-  };
-  const months = monthOptions(12);
-  const funnelFiltersActive = Boolean(
-    courseId || cohortId || counselorId || attribution !== "all" || mode !== "period"
-  );
-
   const cpeHint = !cmd.cpe.available
     ? "Add ad spend or a monthly spend figure in config to see cost per enrollment."
     : cmd.cpe.source === "ad_spend"
       ? `Spend ÷ enrollments · ${formatCurrency(cmd.cpe.spend)} ad spend in range`
       : `Spend ÷ enrollments · ~${formatCurrency(cmd.cpe.spend)} from monthly estimate`;
 
-  const nav = [
-    { href: "#funnel", label: "Funnel" },
-    { href: "#pipeline", label: "Pipeline" },
-    { href: "#money", label: "Money" },
-    { href: "#team", label: "Team" },
-    { href: "#loans", label: "Loans" },
-  ] as const;
-
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Admin · Analytics"
-        title="Deep"
+        title="Admissions"
         accent="Cut"
-        description="Admissions funnel depth plus cash and team — filter, then act."
+        description="Admissions funnel, cash calendar, and team — filter, then act."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/admin/dashboard" className="btn-primary text-xs">
@@ -246,22 +408,32 @@ export default async function AdminAnalyticsPage({
               Forecast
             </Link>
             <div className="flex gap-1 rounded-xl border border-border p-1">
-              {[7, 30, 90].map((r) => (
-                <Link
-                  key={r}
-                  href={`/admin/analytics${buildQuery({
-                    ...baseParams,
-                    range: String(r),
-                  })}`}
-                  className={
-                    r === rangeDays
-                      ? "btn-primary px-3 py-1 text-xs"
-                      : "rounded-lg px-3 py-1 text-xs font-semibold text-navy"
-                  }
-                >
-                  {r}d
-                </Link>
-              ))}
+              {[7, 30, 90].map((r) => {
+                const presetFrom = addDaysKey(todayKey(), -(r - 1));
+                const presetTo = todayKey();
+                const active =
+                  usingPreset && rangeDays === r
+                    ? true
+                    : fromDate === presetFrom && toDate === presetTo;
+                return (
+                  <Link
+                    key={r}
+                    href={`/admin/analytics${buildQuery({
+                      ...baseParams,
+                      range: String(r),
+                      from: undefined,
+                      to: undefined,
+                    })}`}
+                    className={
+                      active
+                        ? "btn-primary px-3 py-1 text-xs"
+                        : "rounded-lg px-3 py-1 text-xs font-semibold text-navy"
+                    }
+                  >
+                    {r}d
+                  </Link>
+                );
+              })}
             </div>
           </div>
         }
@@ -269,26 +441,30 @@ export default async function AdminAnalyticsPage({
 
       <div className="sticky top-0 z-20 -mx-1 border-b border-border bg-[#F7F8FC]/95 px-1 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-muted">
-            Dig in and act ·{" "}
-            <strong className="text-navy">{funnel.month}</strong>
-            {" · "}
-            last <strong className="text-navy">{rangeDays}d</strong>
-            {filtersActive || funnelFiltersActive ? (
-              <span className="text-navy"> · filters on</span>
-            ) : null}
-          </p>
-          <nav className="flex flex-wrap gap-1.5">
-            {nav.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="rounded-full border border-border bg-white px-3 py-1 text-xs font-semibold text-navy hover:bg-white"
-              >
-                {item.label}
-              </a>
-            ))}
-          </nav>
+          <AnalyticsTabs active="admissions" />
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-muted">
+              <strong className="text-navy">
+                {fromDate} → {toDate}
+              </strong>
+              {" · "}
+              {rangeDays} day{rangeDays === 1 ? "" : "s"}
+              {filtersActive || funnelFiltersActive ? (
+                <span className="text-navy"> · filters on</span>
+              ) : null}
+            </p>
+            <nav className="flex flex-wrap gap-1.5">
+              {overviewNav.map((item) => (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-full border border-border bg-white px-3 py-1 text-xs font-semibold text-navy hover:bg-white"
+                >
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          </div>
         </div>
       </div>
 
@@ -296,20 +472,23 @@ export default async function AdminAnalyticsPage({
         method="get"
         className="panel flex flex-wrap items-end gap-3 p-4 sm:p-5"
       >
-        <input type="hidden" name="range" value={rangeDays} />
         <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
-          Month
-          <select
-            name="month"
-            defaultValue={month}
+          From date
+          <input
+            type="date"
+            name="from"
+            defaultValue={fromDate}
             className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
-          >
-            {months.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          />
+        </label>
+        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
+          To date
+          <input
+            type="date"
+            name="to"
+            defaultValue={toDate}
+            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
+          />
         </label>
         <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
           Funnel mode
@@ -384,7 +563,7 @@ export default async function AdminAnalyticsPage({
         </button>
         {filtersActive || funnelFiltersActive ? (
           <Link
-            href={`/admin/analytics?range=${rangeDays}`}
+            href="/admin/analytics?range=30"
             className="rounded-xl border border-border px-3 py-2 text-xs font-semibold text-navy"
           >
             Clear
@@ -457,7 +636,7 @@ export default async function AdminAnalyticsPage({
       <Section
         id="funnel"
         title="Admissions funnel"
-        subtitle={`${funnel.month} · ${
+        subtitle={`${fromDate} → ${toDate} · ${
           mode === "period" ? "period activity" : "pipeline snapshot"
         } · R1 → R2 → R3 → Offer · click counts to open leads`}
       >
@@ -574,7 +753,7 @@ export default async function AdminAnalyticsPage({
 
       <Section
         title="Day-wise R1 / R2"
-        subtitle={`${funnel.month} · interview activity by day with weekly rollups`}
+        subtitle={`${fromDate} → ${toDate} · interview activity by day with weekly rollups`}
       >
         <DayWiseGrid dayWise={funnel.dayWise} weekRollups={funnel.weekRollups} />
       </Section>
@@ -720,6 +899,14 @@ export default async function AdminAnalyticsPage({
         id="money"
         title="Money calendar"
         subtitle="Expected collections + overdue installments to chase"
+        action={
+          <Link
+            href={`/admin/analytics${buildQuery({ ...baseParams, tab: "revenue" })}`}
+            className="text-xs font-semibold text-periwinkle hover:underline"
+          >
+            Open Revenue tab →
+          </Link>
+        }
       >
         <div className="grid gap-6 lg:grid-cols-2">
           <div>
