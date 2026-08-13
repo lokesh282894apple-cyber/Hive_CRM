@@ -25,7 +25,8 @@ import {
 } from "@/components/leads/LeadMarketingTab";
 import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
 import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
-import { LeadScoreCard } from "@/components/leads/LeadScoreCard";
+import { LeadScoreCard, LeadScoreSummary } from "@/components/leads/LeadScoreCard";
+import type { ScoreBreakdown } from "@/lib/leads/score";
 import type {
   AppUser,
   CallLog,
@@ -69,6 +70,7 @@ export function LeadDetailClient({
   counselors = [],
   allocatedToId = null,
   interviewBookings = [],
+  scoreBreakdown = null,
   marketing = null,
   feeSummary = null,
   twilioConfigured = false,
@@ -83,6 +85,7 @@ export function LeadDetailClient({
   counselors?: AppUser[];
   allocatedToId?: string | null;
   interviewBookings?: LeadInterviewSummary[];
+  scoreBreakdown?: ScoreBreakdown | null;
   marketing?: LeadMarketingData | null;
   feeSummary?: LeadFeeSummary;
   twilioConfigured?: boolean;
@@ -212,6 +215,28 @@ export function LeadDetailClient({
           <h1 className="mt-1 text-3xl font-semibold text-navy">{lead.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StageBadge stage={lead.stage} />
+            {(lead.score_override ?? lead.score_auto ?? lead.intent_score) != null ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-navy"
+                title={
+                  lead.score_override != null
+                    ? "Counselor-adjusted conversion likelihood"
+                    : "Estimated chance this lead becomes a student"
+                }
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+                  Convert
+                </span>
+                <span className="tabular-nums text-sm">
+                  {lead.score_override ?? lead.score_auto ?? lead.intent_score}%
+                </span>
+                {lead.score_override != null ? (
+                  <span className="rounded bg-gold/20 px-1 text-[10px] font-semibold text-navy">
+                    adj
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
             {activeCounselors.length > 0 ? (
               <label className="inline-flex items-center gap-2 text-sm text-muted">
                 <span className="whitespace-nowrap">Allocated to</span>
@@ -303,7 +328,20 @@ export function LeadDetailClient({
       ) : null}
 
       {/* Standard lead cells — summary strip */}
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+        <div className="rounded-xl border border-border bg-white px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+            Conversion chance
+          </p>
+          <p className="mt-1 text-sm font-medium tabular-nums text-navy">
+            {(lead.score_override ?? lead.score_auto ?? lead.intent_score) != null
+              ? `${lead.score_override ?? lead.score_auto ?? lead.intent_score}%`
+              : "—"}
+            {lead.score_override != null ? (
+              <span className="ml-1 text-[10px] font-semibold uppercase text-muted">adj</span>
+            ) : null}
+          </p>
+        </div>
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
             Form / source
@@ -411,7 +449,15 @@ export function LeadDetailClient({
       {error ? <p className="mb-4 text-sm text-danger">{error}</p> : null}
 
       {tab === "info" ? (
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6">
+          <LeadScoreSummary
+            intentScore={lead.intent_score}
+            scoreAuto={lead.score_auto ?? scoreBreakdown?.score ?? null}
+            scoreOverride={lead.score_override ?? null}
+            breakdown={scoreBreakdown}
+          />
+
+          <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
           <form onSubmit={onSaveInfo} className="panel space-y-3 p-5">
             <p className="eyebrow">Profile</p>
@@ -507,15 +553,6 @@ export function LeadDetailClient({
               Save
             </button>
           </form>
-
-          <LeadScoreCard
-            leadId={lead.id}
-            intentScore={lead.intent_score}
-            scoreAuto={lead.score_auto ?? null}
-            scoreOverride={lead.score_override ?? null}
-            scoreOverrideReason={lead.score_override_reason ?? null}
-            scoreOverrideAt={lead.score_override_at ?? null}
-          />
           </div>
 
           <div className="space-y-4">
@@ -653,6 +690,17 @@ export function LeadDetailClient({
               </ul>
             </div>
           </div>
+          </div>
+
+          <LeadScoreCard
+            leadId={lead.id}
+            intentScore={lead.intent_score}
+            scoreAuto={lead.score_auto ?? scoreBreakdown?.score ?? null}
+            scoreOverride={lead.score_override ?? null}
+            scoreOverrideReason={lead.score_override_reason ?? null}
+            scoreOverrideAt={lead.score_override_at ?? null}
+            breakdown={scoreBreakdown}
+          />
         </div>
       ) : null}
 

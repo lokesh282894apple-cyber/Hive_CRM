@@ -103,8 +103,15 @@ export function AddLeadForm({
           <input name="preferred_industry" className="input-field" />
         </div>
         <div>
-          <label className="label-field">Intent score (0–100)</label>
-          <input name="intent_score" type="number" min={0} max={100} className="input-field" />
+          <label className="label-field">Interest prior (0–100%)</label>
+          <input
+            name="intent_score"
+            type="number"
+            min={0}
+            max={100}
+            className="input-field"
+            placeholder="How keen are they to join?"
+          />
         </div>
       </div>
       {error ? <p className="text-sm text-danger">{error}</p> : null}

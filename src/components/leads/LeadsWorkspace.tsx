@@ -407,7 +407,7 @@ export function LeadsWorkspace({
                     <th className="eyebrow px-4 py-3">Source</th>
                     <th className="eyebrow px-4 py-3">Course</th>
                     <th className="eyebrow px-4 py-3">Stage</th>
-                    <th className="eyebrow px-4 py-3">Intent</th>
+                    <th className="eyebrow px-4 py-3">Convert %</th>
                     <th className="eyebrow px-4 py-3">Last touch</th>
                     {isAdmin || showClaim ? (
                       <th className="eyebrow px-4 py-3">Owner</th>
@@ -487,7 +487,7 @@ export function LeadsWorkspace({
                             <StageBadge stage={l.stage} />
                           </td>
                           <td className="px-4 py-3 text-muted">
-                            {l.intent_score != null ? l.intent_score : "—"}
+                            {l.intent_score != null ? `${l.intent_score}%` : "—"}
                           </td>
                           <td className="px-4 py-3">
                             <span

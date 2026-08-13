@@ -4,6 +4,7 @@ import { LeadDetailClient } from "@/components/leads/LeadDetailClient";
 import type { LeadMarketingData } from "@/components/leads/LeadMarketingTab";
 import type { PageEvent, VisitorSession } from "@/types/database";
 import { buildFormOrigin } from "@/lib/leads/form-origin";
+import { explainLeadScore } from "@/lib/leads/score";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { isTwilioConfigured } from "@/lib/twilio";
 import { notFound } from "next/navigation";
@@ -195,6 +196,9 @@ export default async function LeadDetailPage({
     };
   });
 
+  // Full evidence model (web + calls + velocity + interviews + offer)
+  const scoreBreakdown = await explainLeadScore(supabase, params.id);
+
   return (
     <LeadDetailClient
       lead={lead}
@@ -207,6 +211,7 @@ export default async function LeadDetailPage({
       counselors={counselors ?? []}
       allocatedToId={lead.lead_allocated_to}
       interviewBookings={interviewBookings}
+      scoreBreakdown={scoreBreakdown}
       marketing={marketing}
       feeSummary={
         feeRow

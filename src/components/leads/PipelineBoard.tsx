@@ -155,9 +155,9 @@ function LeadCard({
                   {lead.phone}
                 </span>
                 {lead.intent_score != null ? (
-                  <span className="inline-flex items-center gap-1 text-periwinkle">
+                  <span className="inline-flex items-center gap-1 text-periwinkle" title="Conversion likelihood">
                     <Sparkles className="h-3 w-3" />
-                    {lead.intent_score}
+                    {lead.intent_score}%
                   </span>
                 ) : null}
                 {stale ? (
