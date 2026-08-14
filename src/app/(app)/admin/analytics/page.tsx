@@ -278,7 +278,7 @@ export default async function AdminAnalyticsPage({
           }
         />
 
-        <div className="sticky top-0 z-20 -mx-1 border-b border-border bg-[#F7F8FC]/95 px-1 py-3 backdrop-blur">
+        <div className="sticky top-0 z-20 -mx-6 border-b border-border bg-[#F7F8FC] px-6 py-3 before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-[#F7F8FC] before:content-['']">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <AnalyticsTabs active="revenue" />
             <p className="text-sm text-muted">
@@ -439,7 +439,7 @@ export default async function AdminAnalyticsPage({
         }
       />
 
-      <div className="sticky top-0 z-20 -mx-1 border-b border-border bg-[#F7F8FC]/95 px-1 py-3 backdrop-blur">
+      <div className="sticky top-0 z-20 -mx-6 border-b border-border bg-[#F7F8FC] px-6 py-3 before:absolute before:inset-x-0 before:bottom-full before:h-6 before:bg-[#F7F8FC] before:content-['']">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <AnalyticsTabs active="admissions" />
           <div className="flex flex-wrap items-center gap-3">
