@@ -21,8 +21,9 @@ function looksLikeAdAccountId(id: string): boolean {
 
 /**
  * Resolve Meta ad account IDs from a connection.
- * - If account_id is already an ad account → use it
- * - Else discover via me/adaccounts (user / system user token)
+ * - act_… → use directly
+ * - else me/adaccounts (user / system user)
+ * - else Page → Business → owned_ad_accounts
  */
 export async function resolveMetaAdAccountIds(
   accessToken: string,
@@ -30,35 +31,89 @@ export async function resolveMetaAdAccountIds(
 ): Promise<{ accounts: string[]; errors: string[] }> {
   const errors: string[] = [];
   const accounts = new Set<string>();
+  const trimmed = accountId.trim();
 
-  if (looksLikeAdAccountId(accountId)) {
-    accounts.add(accountId.replace(/^act_/, ""));
+  if (looksLikeAdAccountId(trimmed)) {
+    accounts.add(trimmed.replace(/^act_/i, ""));
   }
 
-  const url =
-    "https://graph.facebook.com/v21.0/me/adaccounts?fields=account_id,name,account_status&limit=50";
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (res.ok) {
-    const body = (await res.json()) as {
-      data?: { account_id: string; name?: string }[];
-      error?: { message: string };
-    };
-    if (body.error) errors.push(body.error.message);
-    for (const a of body.data ?? []) {
+  // 1) User / System User token
+  const mine = await graphGet<{
+    data?: { account_id: string }[];
+    error?: { message: string };
+  }>(accessToken, "me/adaccounts?fields=account_id,name&limit=50");
+  if (mine.ok && mine.body.data) {
+    for (const a of mine.body.data) {
       if (a.account_id) accounts.add(String(a.account_id).replace(/^act_/, ""));
     }
-  } else {
-    const text = await res.text();
-    if (!accounts.size) {
-      errors.push(
-        `Could not list ad accounts (${res.status}). Save Meta Ad Account ID (act_…) in Connections, or use a System User token with ads_read. ${text.slice(0, 200)}`
+  }
+
+  // 2) Page → business → owned ad accounts (works for many BM setups)
+  if (!accounts.size && /^\d+$/.test(trimmed)) {
+    const page = await graphGet<{
+      business?: { id: string };
+      error?: { message: string };
+    }>(accessToken, `${trimmed}?fields=business`);
+    const businessId = page.body?.business?.id;
+    if (businessId) {
+      const owned = await graphGet<{
+        data?: { account_id: string; id?: string }[];
+        error?: { message: string };
+      }>(
+        accessToken,
+        `${businessId}/owned_ad_accounts?fields=account_id,name&limit=50`
       );
+      if (owned.ok && owned.body.data) {
+        for (const a of owned.body.data) {
+          const id = a.account_id || a.id;
+          if (id) accounts.add(String(id).replace(/^act_/, ""));
+        }
+      } else if (owned.body?.error) {
+        errors.push(owned.body.error.message);
+      }
+
+      const client = await graphGet<{
+        data?: { account_id: string; id?: string }[];
+      }>(
+        accessToken,
+        `${businessId}/client_ad_accounts?fields=account_id,name&limit=50`
+      );
+      if (client.ok && client.body.data) {
+        for (const a of client.body.data) {
+          const id = a.account_id || a.id;
+          if (id) accounts.add(String(id).replace(/^act_/, ""));
+        }
+      }
     }
+  }
+
+  // 3) Last resort: try bare numeric id as ad account (insights will error if it's a Page)
+  if (!accounts.size && /^\d{5,}$/.test(trimmed) && !looksLikeAdAccountId(trimmed)) {
+    accounts.add(trimmed);
+  }
+
+  if (!accounts.size) {
+    errors.push(
+      mine.body?.error?.message ||
+        "No Meta ad accounts found. Save Account ID as act_… (Ads Manager) or use a System User token with ads_read."
+    );
   }
 
   return { accounts: Array.from(accounts), errors };
+}
+
+async function graphGet<T>(
+  accessToken: string,
+  path: string
+): Promise<{ ok: boolean; body: T }> {
+  const url = path.startsWith("http")
+    ? path
+    : `https://graph.facebook.com/v21.0/${path}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const body = (await res.json()) as T;
+  return { ok: res.ok, body };
 }
 
 /**
