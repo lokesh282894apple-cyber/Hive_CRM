@@ -232,6 +232,24 @@ export async function bookInterview(input: {
   revalidatePath("/dashboard");
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
+
+  try {
+    const stageKey =
+      input.round === "R1"
+        ? "r1_booked"
+        : input.round === "R2"
+          ? "r2_booked"
+          : "r3_booked";
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { dispatchStageTriggers } = await import("@/lib/integrations/dispatch");
+    await dispatchStageTriggers(createAdminClient(), {
+      leadId: input.leadId,
+      triggerKey: stageKey,
+    });
+  } catch (err) {
+    console.error("[bookInterview dispatch]", err);
+  }
+
   return { ok: true, meetLink, warning };
 }
 
@@ -399,6 +417,31 @@ export async function bookInterviewManual(input: {
   revalidatePath("/dashboard");
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
+
+  try {
+    const isReschedule = Boolean(input.rescheduleBookingId);
+    const stageKey =
+      input.round === "R1"
+        ? isReschedule
+          ? "r1_reschedule"
+          : "r1_booked"
+        : input.round === "R2"
+          ? isReschedule
+            ? "r2_reschedule"
+            : "r2_booked"
+          : isReschedule
+            ? "r3_reschedule"
+            : "r3_booked";
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { dispatchStageTriggers } = await import("@/lib/integrations/dispatch");
+    await dispatchStageTriggers(createAdminClient(), {
+      leadId: input.leadId,
+      triggerKey: stageKey,
+    });
+  } catch (err) {
+    console.error("[bookInterviewManual dispatch]", err);
+  }
+
   return { ok: true, meetLink, warning };
 }
 

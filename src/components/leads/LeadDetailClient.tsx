@@ -26,6 +26,7 @@ import {
 import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
 import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
 import { LeadScoreCard, LeadScoreSummary } from "@/components/leads/LeadScoreCard";
+import { LeadQualificationPanel } from "@/components/leads/LeadQualificationPanel";
 import type { ScoreBreakdown } from "@/lib/leads/score";
 import type {
   AppUser,
@@ -50,6 +51,8 @@ export type LeadInterviewSummary = {
   outcome: string | null;
   meet_link: string | null;
   interviewerName: string | null;
+  readAiReportUrl?: string | null;
+  readAiSummary?: string | null;
 };
 
 export type LeadFeeSummary = {
@@ -71,6 +74,8 @@ export function LeadDetailClient({
   allocatedToId = null,
   interviewBookings = [],
   scoreBreakdown = null,
+  messageLogs = [],
+  touchpoints = [],
   marketing = null,
   feeSummary = null,
   twilioConfigured = false,
@@ -86,6 +91,8 @@ export function LeadDetailClient({
   allocatedToId?: string | null;
   interviewBookings?: LeadInterviewSummary[];
   scoreBreakdown?: ScoreBreakdown | null;
+  messageLogs?: import("@/components/leads/LeadActivityTimeline").MessageLogItem[];
+  touchpoints?: import("@/components/leads/LeadActivityTimeline").TouchpointItem[];
   marketing?: LeadMarketingData | null;
   feeSummary?: LeadFeeSummary;
   twilioConfigured?: boolean;
@@ -457,6 +464,14 @@ export function LeadDetailClient({
             breakdown={scoreBreakdown}
           />
 
+          <LeadQualificationPanel
+            leadId={lead.id}
+            intent={lead.qualification_intent ?? null}
+            financialCheck={lead.financial_check ?? null}
+            dqReason={lead.dq_reason ?? null}
+            aqlAt={lead.aql_at ?? null}
+          />
+
           <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
           <form onSubmit={onSaveInfo} className="panel space-y-3 p-5">
@@ -649,6 +664,21 @@ export function LeadDetailClient({
                           </a>
                         ) : null}
                       </div>
+                      {b.readAiReportUrl ? (
+                        <a
+                          href={b.readAiReportUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-block text-xs font-semibold text-periwinkle hover:underline"
+                        >
+                          Read AI report →
+                        </a>
+                      ) : null}
+                      {b.readAiSummary ? (
+                        <p className="mt-1 line-clamp-3 text-xs text-muted">
+                          {b.readAiSummary}
+                        </p>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
@@ -821,16 +851,18 @@ export function LeadDetailClient({
           <div className="mb-4">
             <p className="eyebrow">Activity timeline</p>
             <h2 className="mt-1 text-sm font-semibold text-navy">
-              Calls · stage changes · interviews
+              Calls · stages · interviews · messages · intake
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              Newest first — same pattern as a CRM activity feed.
+              Newest first — failed sends are flagged in red.
             </p>
           </div>
           <LeadActivityTimeline
             callLogs={callLogs}
             history={history}
             interviews={interviewBookings}
+            messageLogs={messageLogs}
+            touchpoints={touchpoints}
           />
         </div>
       ) : null}

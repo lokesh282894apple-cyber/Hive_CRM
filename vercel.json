@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/conversion-model-refit",
       "schedule": "0 5 * * 0"
+    },
+    {
+      "path": "/api/cron/integration-triggers",
+      "schedule": "0 6 * * *"
     }
   ]
 }

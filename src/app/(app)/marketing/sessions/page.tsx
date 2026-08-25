@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
+import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchSessionList, parseRange, type RangeKey } from "@/lib/marketing/queries";
 import Link from "next/link";
@@ -51,7 +52,7 @@ export default async function MarketingSessionsPage({
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing · Traffic"
         title="Visitor"
@@ -59,8 +60,9 @@ export default async function MarketingSessionsPage({
         description="Explore raw website sessions. Open a row for full journey; converted sessions link into Admissions lead Marketing Box."
         actions={<RangeTabs basePath="/marketing/sessions" range={range} />}
       />
+      <MarketingSubNav section="website" />
 
-      <form className="panel mb-4 flex flex-wrap items-end gap-3 p-4" method="get">
+      <form className="panel flex flex-wrap items-end gap-3 p-4" method="get">
         <input type="hidden" name="range" value={range} />
         <div>
           <label className="label-field">Search</label>

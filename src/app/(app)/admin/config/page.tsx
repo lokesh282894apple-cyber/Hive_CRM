@@ -3,17 +3,24 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { SettingsClient } from "@/components/admin/SettingsClient";
 import { isGoogleCalendarConfigured } from "@/lib/google-calendar";
+import { listStageTriggerRules } from "@/app/actions/triggers";
 
 export default async function AdminConfigPage() {
   await requireUser(["admin"]);
   const supabase = createClient();
-  const [{ data: courses }, { data: cohorts }, { data: vendors }, { data: settings }] =
-    await Promise.all([
-      supabase.from("courses").select("*").order("name"),
-      supabase.from("cohorts").select("*").order("name"),
-      supabase.from("loan_vendors").select("*").order("name"),
-      supabase.from("app_settings").select("*"),
-    ]);
+  const [
+    { data: courses },
+    { data: cohorts },
+    { data: vendors },
+    { data: settings },
+    triggerRules,
+  ] = await Promise.all([
+    supabase.from("courses").select("*").order("name"),
+    supabase.from("cohorts").select("*").order("name"),
+    supabase.from("loan_vendors").select("*").order("name"),
+    supabase.from("app_settings").select("*"),
+    listStageTriggerRules().catch(() => []),
+  ]);
 
   const map = Object.fromEntries((settings ?? []).map((s) => [s.key, s.value]));
   const daysBetween = Number(map.days_between_installments ?? 30);
@@ -34,7 +41,7 @@ export default async function AdminConfigPage() {
         eyebrow="Admin · Config"
         title="System"
         accent="Config"
-        description="Courses, cohorts, loan vendors, fee templates, and Google Meet status."
+        description="Courses, cohorts, loan vendors, fee templates, WA/email triggers, and Google Meet."
       />
       <SettingsClient
         courses={courses ?? []}
@@ -44,6 +51,7 @@ export default async function AdminConfigPage() {
         defaultInstallmentCount={defaultInstallmentCount}
         manualMonthlyAdSpend={manualMonthlyAdSpend}
         googleMeetConfigured={isGoogleCalendarConfigured()}
+        triggerRules={triggerRules}
       />
     </div>
   );

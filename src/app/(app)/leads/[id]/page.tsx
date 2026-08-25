@@ -49,7 +49,7 @@ export default async function LeadDetailPage({
     supabase
       .from("interview_bookings")
       .select(
-        "id, round, scheduled_at, outcome, meet_link, interviewer:users!interview_bookings_interviewer_id_fkey(id, name)"
+        "id, round, scheduled_at, outcome, meet_link, read_ai_report_url, read_ai_summary, interviewer:users!interview_bookings_interviewer_id_fkey(id, name)"
       )
       .eq("lead_id", params.id)
       .order("scheduled_at", { ascending: false }),
@@ -71,6 +71,23 @@ export default async function LeadDetailPage({
       .eq("role", "counselor")
       .eq("active", true)
       .order("name"),
+  ]);
+
+  const [{ data: messageLogs }, { data: touchpoints }] = await Promise.all([
+    supabase
+      .from("message_logs")
+      .select(
+        "id, channel, trigger_key, status, to_address, template_name, error, created_at"
+      )
+      .eq("lead_id", params.id)
+      .order("created_at", { ascending: false })
+      .limit(100),
+    supabase
+      .from("lead_touchpoints")
+      .select("id, source, channel, campaign_name, created_at")
+      .eq("lead_id", params.id)
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   let marketing: LeadMarketingData = {
@@ -193,6 +210,8 @@ export default async function LeadDetailPage({
       outcome: (b.outcome as string | null) ?? null,
       meet_link: (b.meet_link as string | null) ?? null,
       interviewerName: interviewer?.name ?? null,
+      readAiReportUrl: (b.read_ai_report_url as string | null) ?? null,
+      readAiSummary: (b.read_ai_summary as string | null) ?? null,
     };
   });
 
@@ -212,6 +231,8 @@ export default async function LeadDetailPage({
       allocatedToId={lead.lead_allocated_to}
       interviewBookings={interviewBookings}
       scoreBreakdown={scoreBreakdown}
+      messageLogs={(messageLogs as never) ?? []}
+      touchpoints={(touchpoints as never) ?? []}
       marketing={marketing}
       feeSummary={
         feeRow

@@ -153,3 +153,63 @@ export async function disconnectAdPlatform(id: string): Promise<ActionResult> {
   revalidatePath("/admin/marketing/connections");
   return { ok: true };
 }
+
+/** Pull last 30 days Meta spend + ad insights into CRM (no CSV). */
+export async function syncMetaSpendNow(): Promise<
+  ActionResult & { synced?: number; message?: string; adAccounts?: string[] }
+> {
+  await requireUser(["admin"]);
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const { syncMetaAdSpend } = await import("@/lib/marketing/meta-sync");
+  const admin = createAdminClient();
+
+  const { data: connections } = await admin
+    .from("ad_platform_connections")
+    .select("id, account_id, access_token")
+    .eq("status", "connected")
+    .eq("platform", "meta");
+
+  if (!connections?.length) {
+    return { ok: false, error: "No connected Meta account — save Page/Ad token first." };
+  }
+
+  let synced = 0;
+  const errors: string[] = [];
+  const accounts: string[] = [];
+
+  for (const conn of connections) {
+    if (!conn.access_token || !conn.account_id) continue;
+    const result = await syncMetaAdSpend(admin, conn.access_token, conn.account_id, {
+      days: 30,
+    });
+    synced += result.synced;
+    errors.push(...result.errors);
+    accounts.push(...result.accounts);
+  }
+
+  revalidatePath("/marketing/ads");
+  revalidatePath("/marketing/funnel");
+  revalidatePath("/marketing/monthly");
+  revalidatePath("/marketing/pnl");
+  revalidatePath("/admin/marketing/connections");
+
+  if (synced === 0 && errors.length) {
+    return {
+      ok: false,
+      error: errors[0] ?? "Sync failed",
+      synced: 0,
+      adAccounts: accounts,
+      message: errors.join(" · "),
+    };
+  }
+
+  return {
+    ok: true,
+    synced,
+    adAccounts: Array.from(new Set(accounts)),
+    message:
+      synced > 0
+        ? `Synced ${synced} spend rows from Meta`
+        : "No spend rows returned — check ads_read permission / Ad Account access",
+  };
+}

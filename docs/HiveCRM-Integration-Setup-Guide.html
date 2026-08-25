@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>HiveSchool CRM — Credentials & Setup Guide (Ops / Marketing)</title>
+  <style>
+    :root {
+      --navy: #060f32;
+      --muted: #5a6480;
+      --border: #e4e7f0;
+      --bg: #f7f8fc;
+      --gold: #ffcf00;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      color: var(--navy);
+      line-height: 1.5;
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 40px 28px 80px;
+      font-size: 14px;
+    }
+    h1 { font-size: 26px; margin: 0 0 8px; }
+    h2 {
+      font-size: 18px;
+      margin: 36px 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--navy);
+      page-break-after: avoid;
+    }
+    h3 { font-size: 15px; margin: 22px 0 8px; page-break-after: avoid; }
+    p, li { color: var(--navy); }
+    .muted { color: var(--muted); }
+    .meta {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin: 16px 0 28px;
+    }
+    .callout {
+      border-left: 4px solid var(--gold);
+      background: #fffbeb;
+      padding: 12px 14px;
+      margin: 14px 0;
+      border-radius: 0 8px 8px 0;
+    }
+    .ok {
+      border-left-color: #16a34a;
+      background: #f0fdf4;
+    }
+    .warn {
+      border-left-color: #ca8a04;
+      background: #fefce8;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: var(--bg); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    code, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    ol.steps > li { margin-bottom: 8px; }
+    .checklist td:first-child { width: 28px; text-align: center; }
+    .footer {
+      margin-top: 48px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    @media print {
+      body { padding: 12px; font-size: 11.5px; }
+      h2 { page-break-before: auto; }
+      .noprint { display: none; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <p class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin:0">
+    HiveSchool Admissions CRM · Integration Layer
+  </p>
+  <h1>Credentials &amp; setup guide for Ops / Marketing</h1>
+  <p class="muted">
+    Send this to whoever owns Meta Business, email DNS, website forms, dialer, and Read AI.
+    CRM engineering wiring is ready — these items unblock go-live.
+  </p>
+
+  <div class="meta">
+    <strong>CRM production URL:</strong> <code>https://hive-crm-sigma.vercel.app</code><br />
+    <strong>Where to paste Meta tokens in CRM:</strong> Admin → Marketing → Connections<br />
+    <strong>Where to toggle WA/email stages:</strong> Admin → Config → WA + Email triggers<br />
+    <strong>Document date:</strong> 25 Aug 2026 · Steps checked against Meta WhatsApp Cloud API, Meta leadgen webhooks, Resend Domains, Read AI Webhooks (Help Center)
+  </div>
+
+  <div class="callout ok">
+    <strong>WhatsApp:</strong> Use <strong>Meta WhatsApp Cloud API directly</strong>.
+    AiSensy / WATI / Interakt are <strong>not required</strong> (Option B only if leadership insists on a BSP inbox).
+  </div>
+
+  <h2>0. Owner checklist (who does what)</h2>
+  <table>
+    <thead>
+      <tr><th>Block</th><th>Owner</th><th>Deliverable to tech</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1. WhatsApp Cloud API + templates</td><td>Marketing / Meta admin</td><td>Phone Number ID, permanent System User token, approved templates</td></tr>
+      <tr><td>2. Email (Resend) + DNS</td><td>IT / domain admin</td><td>Verified domain + Resend API key + From address</td></tr>
+      <tr><td>3. Meta Lead Ads webhook</td><td>Ads / Meta admin</td><td>Page ID, Page token in CRM Connections, webhook subscribed + Page installed</td></tr>
+      <tr><td>4. Website forms</td><td>Website / marketing eng</td><td>Form URL list + test submits with UTMs</td></tr>
+      <tr><td>5. Dialer decision</td><td>Admissions ops</td><td>Route A (Twilio) or Route B (SIM app) + vendor</td></tr>
+      <tr><td>6. Read AI</td><td>Admissions ops</td><td>Pro/Enterprise + workspace webhook + signing key</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ========== 1 WA ========== -->
+  <h2>1. WhatsApp via Meta Cloud API</h2>
+  <p class="muted">Docs: developers.facebook.com/docs/whatsapp/cloud-api/get-started · Access tokens guide under WhatsApp Business Platform</p>
+
+  <h3>Option A — Meta Cloud API (recommended — use this)</h3>
+  <ol class="steps">
+    <li>Go to <strong>Meta for Developers</strong> → create or open an app → add product <strong>WhatsApp</strong>.</li>
+    <li>On <strong>WhatsApp → API setup</strong>, connect a <strong>WhatsApp Business Account (WABA)</strong> and add / verify a business phone number.</li>
+    <li>From API setup, copy and keep:
+      <ul>
+        <li><strong>Phone number ID</strong> → CRM env <code>META_WA_PHONE_NUMBER_ID</code></li>
+        <li><strong>WhatsApp Business Account ID</strong> (for templates)</li>
+      </ul>
+    </li>
+    <li><strong>Temporary tokens from “Generate access token” expire quickly</strong> — fine for <code>hello_world</code> test only, not production.</li>
+    <li>Create a <strong>permanent System User token</strong> (Meta’s recommended path for direct developers):
+      <ol>
+        <li><strong>Meta Business Suite</strong> → <strong>Business settings</strong> → <strong>Users</strong> → <strong>System users</strong> → Add</li>
+        <li>Assign assets: your <strong>App</strong> + <strong>WhatsApp account</strong> (full / manage WhatsApp Business accounts)</li>
+        <li>Generate token with at least:
+          <code>whatsapp_business_messaging</code>,
+          <code>whatsapp_business_management</code>
+          (add <code>business_management</code> if the UI offers it)</li>
+        <li>Copy once → send securely to tech as <code>META_WA_TOKEN</code> (Vercel env)</li>
+      </ol>
+    </li>
+    <li>Send a test <code>hello_world</code> template from API setup to confirm the number works.</li>
+    <li class="muted"><strong>Production number note:</strong> After adding + verifying a real business number in WhatsApp Manager, Meta may require an API <code>POST /{PHONE_NUMBER_ID}/register</code> with a 6-digit PIN before Cloud API sends. If test works but production number fails, ask tech to run registration with your token.</li>
+  </ol>
+
+  <h3>Option B — BSP (AiSensy / WATI / Interakt)</h3>
+  <p><strong>Not required.</strong> Only if leadership wants a BSP shared inbox. CRM already sends via Meta Cloud API without a BSP.</p>
+
+  <h3>1b. Message templates (start day 1 — longest lead time)</h3>
+  <p>Path: <strong>WhatsApp Manager</strong> → Message templates → Create (or Graph API <code>/{WABA_ID}/message_templates</code>).</p>
+  <div class="callout warn">
+    Outside the ~24-hour customer-care window, only <strong>approved templates</strong> can be sent.
+    Approval can take hours to days — submit early. Category (Utility / Marketing / Authentication) affects pricing and approval.
+  </div>
+  <p>Suggested template <strong>names</strong> (must match CRM Admin → Config → WA + Email triggers after approval):</p>
+  <table>
+    <thead>
+      <tr><th>CRM trigger key</th><th>Suggested WA template name</th><th>Body variables (order)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>new_lead</td><td><code>hs_new_lead</code></td><td>{{1}} name · {{2}} counsellor</td></tr>
+      <tr><td>counsellor_allocated</td><td><code>hs_counsellor_allocated</code></td><td>name · counsellor</td></tr>
+      <tr><td>call_logged_nurturing</td><td><code>hs_call_nurturing</code></td><td>name · counsellor</td></tr>
+      <tr><td>dnp</td><td><code>hs_dnp</code></td><td>name · counsellor</td></tr>
+      <tr><td>r1_booked / r2_booked / r3_booked</td><td><code>hs_r1_booked</code> etc.</td><td>name · datetime · Meet link (+ consent line in fixed text)</td></tr>
+      <tr><td>*_reschedule / *_no_show</td><td><code>hs_r1_reschedule</code> …</td><td>name · new datetime / rebook CTA</td></tr>
+      <tr><td>offered</td><td><code>hs_offered</code></td><td>name · offer deadline</td></tr>
+      <tr><td>fee_deadline_approaching</td><td><code>hs_fee_deadline</code></td><td>name · payment deadline · amount</td></tr>
+      <tr><td>closed_won</td><td><code>hs_closed_won</code></td><td>name</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Approve final copy</strong> before Meta submission. Include this fixed sentence on interview templates:</p>
+  <p><em>“This interview may be recorded for the admissions committee.”</em></p>
+  <p><strong>Hand to tech:</strong> Phone Number ID · permanent token · approved template names + languages (e.g. <code>en</code>).</p>
+
+  <!-- ========== 2 EMAIL ========== -->
+  <h2>2. Email via Resend (transactional)</h2>
+  <p class="muted">Docs: resend.com/docs/add-a-domain</p>
+  <ol class="steps">
+    <li>Create a Resend account → <strong>Domains</strong> → <strong>Add Domain</strong>.</li>
+    <li>Prefer a <strong>sending subdomain</strong> (Resend best practice), e.g. <code>mail.hiveschool.in</code> or <code>send.hiveschool.in</code>.</li>
+    <li>Open the domain’s <strong>Records</strong> tab. Add <strong>exactly</strong> what Resend shows to DNS (typically all three):
+      <ul>
+        <li><strong>DKIM</strong> — TXT (often <code>resend._domainkey…</code>)</li>
+        <li><strong>SPF</strong> — TXT on the send subdomain</li>
+        <li><strong>MX</strong> — for bounce/return-path on that subdomain</li>
+      </ul>
+      Do <strong>not</strong> invent SPF values or add Resend to your apex SPF unless Resend’s UI tells you to.
+    </li>
+    <li>Click <strong>Verify</strong> in Resend (often &lt;15 minutes; DNS can take up to 72h). Use Resend’s dns.email checker if stuck.</li>
+    <li>Optional: after verify, add DMARC at <code>_dmarc.hiveschool.in</code> starting with <code>p=none</code>.</li>
+    <li>Create an API key → send to tech as <code>RESEND_API_KEY</code>.</li>
+    <li>Agree From address on the verified domain, e.g. <code>HiveSchool Admissions &lt;admissions@mail.hiveschool.in&gt;</code> → tech sets <code>EMAIL_FROM</code>.</li>
+  </ol>
+
+  <!-- ========== 3 META LEADS ========== -->
+  <h2>3. Meta Lead Ads → CRM (real-time)</h2>
+  <p class="muted">Docs: developers.facebook.com/docs/marketing-api/guides/lead-ads/quickstart/webhooks-integration</p>
+
+  <h3>3a. What CRM already expects</h3>
+  <ul>
+    <li>Webhook URL: <code>https://hive-crm-sigma.vercel.app/api/leads/meta</code></li>
+    <li>Page access token → CRM <strong>Admin → Marketing → Connections</strong> (platform: meta)</li>
+    <li>Webhook verify token → same Connections page (keep identical in Meta + CRM)</li>
+  </ul>
+
+  <h3>3b. Steps (current Meta flow — do not skip Page install)</h3>
+  <ol class="steps">
+    <li>Meta for Developers → your app → add <strong>Webhooks</strong>.</li>
+    <li>Subscribe object <strong>Page</strong>, field <strong>leadgen</strong>.</li>
+    <li>Callback URL: <code>https://hive-crm-sigma.vercel.app/api/leads/meta</code></li>
+    <li>Verify Token: invent a long random string → save the <strong>same</strong> string in CRM Connections → Meta webhook verify token.</li>
+    <li>Click <strong>Verify and Save</strong> (Meta GET-challenges the CRM URL — must succeed).</li>
+    <li>Generate a <strong>Page access token</strong> with permissions typically including:
+      <code>leads_retrieval</code>, <code>pages_manage_metadata</code>, <code>pages_show_list</code>, <code>pages_read_engagement</code>
+      (and ads-related scopes if App Review requires them for your setup).
+    </li>
+    <li><strong>Install the app on the Facebook Page</strong> (dashboard subscribe alone is not enough — Meta docs require this or webhooks won’t fire):
+      <p class="mono" style="word-break:break-all;margin:8px 0">
+        POST https://graph.facebook.com/v25.0/{PAGE_ID}/subscribed_apps<br />
+        subscribed_fields=leadgen&amp;access_token={PAGE_ACCESS_TOKEN}
+      </p>
+      Use Graph API Explorer (POST) or ask tech to run the curl. Prefer current Graph version (v25.x as of early 2026); older tutorials saying v17/v21 still work until that version is deprecated.
+    </li>
+    <li>In CRM → <strong>Admin → Marketing → Connections</strong>:
+      <ul>
+        <li>Platform: <strong>meta</strong></li>
+        <li>Account / Page ID</li>
+        <li>Access token: Page token</li>
+        <li>Save</li>
+      </ul>
+    </li>
+    <li><strong>App Review:</strong> testing on Pages you admin works in development; production lead retrieval for live ads usually needs <code>leads_retrieval</code> approved. Start App Review early if ads run under other admins.</li>
+    <li>Publish a test Lead Ad form → submit → lead in CRM within ~1 minute with campaign attribution.</li>
+    <li>Submit the <strong>same phone twice</strong> → one lead, two touchpoints (dedup).</li>
+  </ol>
+
+  <!-- ========== 4 WEBSITE ========== -->
+  <h2>4. Website / landing page forms</h2>
+  <ol class="steps">
+    <li>Send tech a spreadsheet of <strong>every live form URL</strong> (main site + LPs).</li>
+    <li>Each form must <code>POST</code> JSON to:<br />
+      <code>https://hive-crm-sigma.vercel.app/api/leads/website</code><br />
+      Header: <code>Authorization: Bearer {CRM_TRACK_API_KEY}</code> (tech provides the key).
+    </li>
+    <li>Minimum fields: <code>name</code>, <code>phone</code>. Recommended: <code>email</code>, <code>source</code>, <code>programme</code>, <code>session_id</code>,
+      <code>utm_source</code>, <code>utm_medium</code>, <code>utm_campaign</code>, <code>utm_content</code>.</li>
+    <li>From a UTM-tagged link, submit one test lead per form. Confirm on the lead profile + Marketing tab.</li>
+  </ol>
+  <p>Field map for developers: <code>docs/website-forms-audit.md</code> in the CRM repo.</p>
+
+  <!-- ========== 5 DIALER ========== -->
+  <h2>5. Dialer — choose one path</h2>
+  <table>
+    <thead>
+      <tr><th></th><th>Route A — Cloud click-to-call</th><th>Route B — SIM tracking (recommended first)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Behaviour</td>
+        <td>Counsellor clicks Call in CRM; Twilio rings them then bridges to lead</td>
+        <td>Counsellor dials from personal SIM; phone app syncs call log to CRM</td>
+      </tr>
+      <tr>
+        <td>Fits today?</td>
+        <td>Changes dial habit</td>
+        <td>Matches current personal-SIM reality</td>
+      </tr>
+      <tr>
+        <td>CRM endpoint</td>
+        <td>Already built (Twilio env)</td>
+        <td><code>POST /api/leads/sim-calls</code></td>
+      </tr>
+      <tr>
+        <td>What you decide</td>
+        <td>Twilio account + numbers + consent for recording</td>
+        <td>Vendor (e.g. Runo) + webhook auth + consent</td>
+      </tr>
+    </tbody>
+  </table>
+  <p><strong>Recommendation:</strong> start Route B for adoption; keep Twilio as optional click-to-call later.</p>
+  <p>Unknown numbers: CRM can park them in <code>unmatched_calls</code> (default on).</p>
+
+  <!-- ========== 6 READ AI ========== -->
+  <h2>6. Read AI on interview Meets</h2>
+  <p class="muted">Docs: support.read.ai → Getting Started with Webhooks. Plans: <strong>Pro / Enterprise / Enterprise+</strong> only.</p>
+  <ol class="steps">
+    <li>Upgrade Read AI to Pro (or higher) and create / use an admissions <strong>Workspace</strong>.</li>
+    <li>Connect <strong>Google Calendar</strong> for the same account(s) that receive CRM Meet invites (shared admissions calendar / interviewers).</li>
+    <li>Enable auto-join for Google Meet (Account / Workspace settings → Meeting recording → Auto-join). Prefer joining meetings where the account is invited/host.</li>
+    <li>Create a <strong>Workspace webhook</strong> (not only a personal user webhook — so all interviewers’ meetings flow):
+      <ul>
+        <li>Path: <strong>Integrations → Workspace → Webhooks</strong> (admins/owners only)</li>
+        <li>URL: <code>https://hive-crm-sigma.vercel.app/api/read-ai/webhook</code> (HTTPS only)</li>
+        <li>Trigger: <strong>meeting_end</strong> (required for report attach)</li>
+        <li>Name: ASCII only (no emoji)</li>
+        <li>Email on the Read account must be verified</li>
+      </ul>
+    </li>
+    <li>Copy the webhook <strong>signing key</strong> from Read’s webhook settings → send to tech as <code>READ_AI_WEBHOOK_SECRET</code>.
+      <br /><span class="muted">Read signs deliveries with header <code>X-Read-Signature</code> (HMAC-SHA256). Tech stores the key in Vercel — you do not invent a Bearer token in the Read UI.</span>
+    </li>
+    <li>Acceptance test: book R1 in CRM → conduct Meet → Read joins → report link appears on that round within minutes.</li>
+  </ol>
+  <div class="callout warn">
+    CRM already creates Calendar + Meet + <code>calendar_event_id</code>. Matching depends on calendar/Meet identity in the webhook payload — keep using the shared admissions calendar.
+  </div>
+
+  <!-- ========== 7 HAND BACK ========== -->
+  <h2>7. What to send back to tech (copy-paste pack)</h2>
+  <table>
+    <thead><tr><th>Item</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>META_WA_PHONE_NUMBER_ID</td><td></td></tr>
+      <tr><td>META_WA_TOKEN (System User, permanent)</td><td></td></tr>
+      <tr><td>WA templates approved (names + language)</td><td></td></tr>
+      <tr><td>RESEND_API_KEY</td><td></td></tr>
+      <tr><td>EMAIL_FROM</td><td></td></tr>
+      <tr><td>Meta Page ID</td><td></td></tr>
+      <tr><td>Meta Page access token (or pasted in CRM Connections)</td><td>☐ Saved in CRM</td></tr>
+      <tr><td>Webhook verify token (same in Meta + CRM)</td><td></td></tr>
+      <tr><td>Form URL list + test date</td><td></td></tr>
+      <tr><td>Dialer choice</td><td>☐ A Twilio · ☐ B SIM vendor: ____</td></tr>
+      <tr><td>Read AI plan + workspace webhook</td><td>☐ Yes</td></tr>
+      <tr><td>READ_AI_WEBHOOK_SECRET (signing key)</td><td></td></tr>
+    </tbody>
+  </table>
+
+  <h2>8. Acceptance tests (Nikhil’s bar)</h2>
+  <table class="checklist">
+    <thead><tr><th>☐</th><th>Check</th></tr></thead>
+    <tbody>
+      <tr><td>☐</td><td>Change any stage → WA + email fire within seconds and appear on Activity timeline</td></tr>
+      <tr><td>☐</td><td>DNP call outcome fires “we tried reaching you”</td></tr>
+      <tr><td>☐</td><td>Interview booking message has correct datetime + Meet link</td></tr>
+      <tr><td>☐</td><td>Toggle a stage off in Config → that stage stops messaging</td></tr>
+      <tr><td>☐</td><td>Test Lead Ad → CRM &lt; 1 min with attribution</td></tr>
+      <tr><td>☐</td><td>Same phone twice → one lead, two touchpoints</td></tr>
+      <tr><td>☐</td><td>Every website form → fields + UTMs intact</td></tr>
+      <tr><td>☐</td><td>SIM/Twilio call appears on timeline with duration</td></tr>
+      <tr><td>☐</td><td>R1 Meet → Read AI report on that exact round; R2 mentor can open it</td></tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    HiveSchool Admissions CRM · Integration setup pack · Aug 2026<br />
+    Sources: Meta WhatsApp Cloud API get-started + access tokens; Meta Lead Ads webhooks integration;
+    Resend add-a-domain; Read AI Getting Started with Webhooks (workspace vs user, X-Read-Signature).
+    UI labels in Meta/Resend/Read may shift slightly — follow in-product names if they differ.
+  </div>
+
+  <p class="noprint muted" style="margin-top:24px">
+    Files: <code>HiveCRM-Integration-Setup-Guide.pdf</code> · <code>HiveCRM-Integration-Setup-Guide.doc</code> (Word-openable HTML).
+    To re-print PDF: open this HTML in Chrome → Print → Save as PDF → A4 → Background graphics on.
+  </p>
+</body>
+</html>

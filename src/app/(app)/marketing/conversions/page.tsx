@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
+import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchConversionsList, parseRange, type RangeKey } from "@/lib/marketing/queries";
 import Link from "next/link";
@@ -16,7 +17,7 @@ export default async function MarketingConversionsPage({
   const rows = await fetchConversionsList(supabase, range, 100);
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing · Handoff"
         title="Form"
@@ -24,6 +25,7 @@ export default async function MarketingConversionsPage({
         description={`Website form fills that entered the Admissions funnel — last ${range} days. Open Marketing Box on the lead for journey detail.`}
         actions={<RangeTabs basePath="/marketing/conversions" range={range} />}
       />
+      <MarketingSubNav section="website" />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <StatCard label="Attributed leads" value={rows.length} />
@@ -33,7 +35,7 @@ export default async function MarketingConversionsPage({
         />
       </div>
 
-      <section className="panel mt-6 overflow-hidden">
+      <section className="panel overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-left text-sm">
             <thead className="border-b border-border bg-navy/[0.02]">

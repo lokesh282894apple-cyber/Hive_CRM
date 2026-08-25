@@ -6,11 +6,12 @@ import {
   upsertCourse,
   upsertLoanVendor,
 } from "@/app/actions/settings";
+import { TriggerRulesPanel } from "@/components/admin/TriggerRulesPanel";
 import type { Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
-type Tab = "courses" | "vendors" | "fees";
+type Tab = "courses" | "vendors" | "fees" | "triggers";
 
 export function SettingsClient({
   courses,
@@ -20,6 +21,7 @@ export function SettingsClient({
   defaultInstallmentCount,
   manualMonthlyAdSpend = 0,
   googleMeetConfigured = false,
+  triggerRules = [],
 }: {
   courses: Course[];
   cohorts: Cohort[];
@@ -28,6 +30,7 @@ export function SettingsClient({
   defaultInstallmentCount: number;
   manualMonthlyAdSpend?: number;
   googleMeetConfigured?: boolean;
+  triggerRules?: import("@/app/actions/triggers").StageTriggerRule[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -72,6 +75,7 @@ export function SettingsClient({
             ["courses", "Courses & Cohorts"],
             ["vendors", "Loan Vendors"],
             ["fees", "Fee Templates"],
+            ["triggers", "WA + Email triggers"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -272,6 +276,8 @@ export function SettingsClient({
           </button>
         </form>
       ) : null}
+
+      {tab === "triggers" ? <TriggerRulesPanel rules={triggerRules} /> : null}
     </div>
   );
 }

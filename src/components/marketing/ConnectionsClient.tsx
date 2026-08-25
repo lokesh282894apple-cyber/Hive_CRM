@@ -2,6 +2,7 @@
 
 import {
   disconnectAdPlatform,
+  syncMetaSpendNow,
   updateAdPlatformConnection,
   upsertAdPlatformConnection,
 } from "@/app/actions/marketing";
@@ -119,13 +120,42 @@ export function ConnectionsClient({
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-periwinkle/30 bg-periwinkle/5 px-4 py-3 text-sm text-navy">
-        <p className="font-semibold">Meta Lead Ads</p>
+        <p className="font-semibold">Meta Lead Ads + spend sync</p>
         <p className="mt-1 text-muted">
-          Save a Meta Page access token below. The CRM webhook{" "}
-          <code className="text-xs">/api/leads/meta</code> uses it to pull form
-          fields when a Lead Ad submits — no Vercel env required for the token
-          (env still works as fallback).
+          Save a Meta token below. Lead Ads webhook uses it for form fields.
+          Nightly cron + <strong>Sync Meta spend now</strong> pull ad spend
+          automatically (needs <code className="text-xs">ads_read</code> + Ad
+          Account access — System User recommended). Prefer Account ID{" "}
+          <code className="text-xs">act_…</code> for spend, or keep Page ID for
+          leads and let sync discover ad accounts from the token.
         </p>
+        <button
+          type="button"
+          className="btn-secondary mt-3"
+          disabled={pending}
+          onClick={() => {
+            startTransition(async () => {
+              const res = await syncMetaSpendNow();
+              if (!res.ok) {
+                setError(res.error ?? res.message ?? "Sync failed");
+                setMsg(null);
+              } else {
+                setError(null);
+                setMsg(
+                  res.message ??
+                    `Synced ${res.synced ?? 0} rows${
+                      res.adAccounts?.length
+                        ? ` · accounts: ${res.adAccounts.map((a) => `act_${a}`).join(", ")}`
+                        : ""
+                    }`
+                );
+                router.refresh();
+              }
+            });
+          }}
+        >
+          Sync Meta spend now
+        </button>
       </div>
 
       {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}

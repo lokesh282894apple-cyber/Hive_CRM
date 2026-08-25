@@ -73,6 +73,20 @@ export type Lead = {
   updated_at: string;
   last_contacted_at: string | null;
   hubspot_id: string | null;
+  /** AQL — Acceptance Quality Limit */
+  qualification_intent?: string | null;
+  financial_check?: string | null;
+  dq_reason?: string | null;
+  aql_at?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+  meta_campaign_name?: string | null;
+  meta_ad_set?: string | null;
+  meta_ad_name?: string | null;
+  clarity_session_url?: string | null;
 };
 
 export type LeadWithRelations = Lead & {
@@ -92,6 +106,9 @@ export type CallLog = {
   logged_at: string;
   twilio_call_sid?: string | null;
   call_status?: string | null;
+  call_source?: string | null;
+  external_call_id?: string | null;
+  unmatched?: boolean;
 };
 
 export type StageHistory = {

@@ -52,14 +52,19 @@ export async function startClickToCall(input: {
     .maybeSingle();
   if (!lead?.phone) return { ok: false, error: "Lead has no phone number." };
 
+  const { toE164India } = await import("@/lib/integrations/phone");
+  const agentE164 = toE164India(agentPhone) || agentPhone;
+  const leadE164 = toE164India(lead.phone) || lead.phone;
+
   const { data: callLog, error: insertErr } = await supabase
     .from("call_logs")
     .insert({
       lead_id: lead.id,
       counselor_id: user.id,
       outcome: "dialing",
-      notes: `Click-to-call started · agent ${agentPhone}`,
+      notes: `Click-to-call started · agent ${agentE164}`,
       call_status: "initiated",
+      call_source: "twilio",
     })
     .select("id")
     .single();
@@ -71,12 +76,12 @@ export async function startClickToCall(input: {
   const client = getTwilioClient()!;
   const statusUrl = `${base}/api/twilio/voice/status?callLogId=${callLog.id}`;
   const connectUrl = `${base}/api/twilio/voice/connect?leadPhone=${encodeURIComponent(
-    lead.phone
+    leadE164
   )}&callLogId=${callLog.id}`;
 
   try {
     const call = await client.calls.create({
-      to: agentPhone,
+      to: agentE164,
       from: twilioFromNumber(),
       url: connectUrl,
       method: "POST",

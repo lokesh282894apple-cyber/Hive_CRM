@@ -154,9 +154,18 @@ async function pickCounselor(
  */
 export async function POST(request: NextRequest) {
   try {
+    const requireKey =
+      process.env.NODE_ENV === "production" ||
+      process.env.CRM_TRACK_REQUIRE_KEY === "true";
     if (!process.env.CRM_TRACK_API_KEY) {
+      if (requireKey) {
+        return NextResponse.json(
+          { error: "CRM_TRACK_API_KEY not configured on server" },
+          { status: 503 }
+        );
+      }
       console.warn(
-        "[leads/website] CRM_TRACK_API_KEY unset — allowing request (set the key in production)"
+        "[leads/website] CRM_TRACK_API_KEY unset — allowing request (dev only)"
       );
     } else if (!validateTrackApiKey(request)) {
       return NextResponse.json(
@@ -172,6 +181,18 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "").trim();
     const phone = normalizePhone(String(body.phone || ""));
     const email = normalizeEmail(body.email ? String(body.email) : null);
+
+    // Optional UTMs from form / landing page
+    const utm_source =
+      body.utm_source != null ? String(body.utm_source).trim().slice(0, 200) : null;
+    const utm_medium =
+      body.utm_medium != null ? String(body.utm_medium).trim().slice(0, 200) : null;
+    const utm_campaign =
+      body.utm_campaign != null
+        ? String(body.utm_campaign).trim().slice(0, 200)
+        : null;
+    const utm_content =
+      body.utm_content != null ? String(body.utm_content).trim().slice(0, 200) : null;
 
     // Only persist real UUIDs — website may send null or programme slugs
     let courseId =
@@ -254,6 +275,10 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
     if (email) sharedFields.email = email;
+    if (utm_source) sharedFields.utm_source = utm_source;
+    if (utm_medium) sharedFields.utm_medium = utm_medium;
+    if (utm_campaign) sharedFields.utm_campaign = utm_campaign;
+    if (utm_content) sharedFields.utm_content = utm_content;
     if (body.linkedin) sharedFields.linkedin = String(body.linkedin).trim();
     if (body.years_experience != null && body.years_experience !== "") {
       sharedFields.years_experience = Number(body.years_experience);
@@ -291,9 +316,13 @@ export async function POST(request: NextRequest) {
 
       const { error: updErr } = await admin.from("leads").update(patch).eq("id", leadId);
       if (updErr) {
-        if (/programme|website_session_id/i.test(updErr.message)) {
+        if (/programme|website_session_id|utm_/i.test(updErr.message)) {
           delete patch.programme;
           delete patch.website_session_id;
+          delete patch.utm_source;
+          delete patch.utm_medium;
+          delete patch.utm_campaign;
+          delete patch.utm_content;
           const { error: retryErr } = await admin.from("leads").update(patch).eq("id", leadId);
           if (retryErr) {
             return NextResponse.json({ error: retryErr.message }, { status: 400 });
@@ -302,6 +331,20 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: updErr.message }, { status: 400 });
         }
       }
+
+      await admin.from("lead_touchpoints").insert({
+        lead_id: leadId,
+        source: "website_form",
+        channel: source,
+        campaign_name: utm_campaign,
+        payload: {
+          utm_source,
+          utm_medium,
+          utm_campaign,
+          utm_content,
+          session_id: sessionId,
+        },
+      });
     } else {
       const insertRow: Record<string, unknown> = {
         ...sharedFields,
@@ -361,6 +404,20 @@ export async function POST(request: NextRequest) {
       await recomputeLeadScore(admin, leadId!);
     } catch (scoreErr) {
       console.warn("[leads/website] score recompute skipped", scoreErr);
+    }
+
+    if (created) {
+      try {
+        const { dispatchStageTriggers, dispatchCounsellorAllocated } = await import(
+          "@/lib/integrations/dispatch"
+        );
+        await dispatchStageTriggers(admin, { leadId: leadId!, triggerKey: "new_lead" });
+        if (allocatedTo) {
+          await dispatchCounsellorAllocated(admin, leadId!);
+        }
+      } catch (dispatchErr) {
+        console.warn("[leads/website] trigger dispatch skipped", dispatchErr);
+      }
     }
 
     return NextResponse.json({

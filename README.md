@@ -135,10 +135,25 @@ Replace-only (no live sync):
 
 ## Provisional / deferred
 
-- WhatsApp: `/messages` placeholder only
 - Attention rules: provisional thresholds in `app_settings`
 - Installment cadence: `days_between_installments` (default 30)
 - Ad platform spend sync: cron stub until Meta/Google/LinkedIn credentials are provided
+
+## Integrations (Nikhil concept note)
+
+Apply migration `supabase/migrations/20260825120000_integration_layer.sql`.
+
+| Integration | Endpoints / UI | Env |
+|---|---|---|
+| Stage → WA + email | `dispatchStageTriggers` on stage/call/book; Admin → Config → WA + Email triggers; `/messages` | `AISENSY_API_KEY` or `META_WA_*`, `RESEND_API_KEY`, `EMAIL_FROM` |
+| Meta Lead Ads | `GET/POST /api/leads/meta` | `META_WEBHOOK_VERIFY_TOKEN`, `META_PAGE_ACCESS_TOKEN` |
+| Website intake | `POST /api/leads/website` (+ UTMs, touchpoints) | `CRM_TRACK_API_KEY` |
+| SIM dialer | `POST /api/leads/sim-calls` | Same API key; parks unknown numbers |
+| Twilio click-to-call | Lead Calling tab | `TWILIO_*`, `NEXT_PUBLIC_APP_URL` |
+| Read AI | `POST /api/read-ai/webhook` | `READ_AI_WEBHOOK_SECRET` |
+| Fee deadline cron | `/api/cron/integration-triggers` | `CRON_SECRET` |
+
+Form mapping checklist: `docs/website-forms-audit.md`.
 
 ## Scripts
 

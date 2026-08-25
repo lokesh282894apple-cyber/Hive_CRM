@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, EmptyState } from "@/components/ui/Primitives";
 import { HeatmapsClient } from "@/components/marketing/HeatmapsClient";
+import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { fetchTopPages } from "@/lib/marketing/queries";
 import {
   aggregateClicksForPage,
@@ -63,13 +64,14 @@ export default async function MarketingHeatmapsPage({
   const hasHeatPoints = points.length > 0;
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing · Behaviour"
         title="Click"
         accent="Heatmaps"
         description="Click density from tracked page events. Prefers hiveschool.co pages; builds live if the nightly rollup hasn’t run yet."
       />
+      <MarketingSubNav section="website" />
 
       {uniquePages.length === 0 ? (
         <EmptyState
@@ -79,20 +81,20 @@ export default async function MarketingHeatmapsPage({
       ) : (
         <>
           {!hasHeatPoints && selectedPage ? (
-            <div className="panel mb-4 px-5 py-3 text-sm text-muted">
+            <div className="panel px-5 py-3 text-sm text-muted">
               No click coordinates for this page + breakpoint yet. Try{" "}
               <strong className="text-navy">mobile</strong> (most phone traffic) or another top
               page. Clicks need x/y from the website tracker.
             </div>
           ) : source === "live" ? (
-            <div className="panel mb-4 px-5 py-3 text-sm text-muted">
+            <div className="panel px-5 py-3 text-sm text-muted">
               Showing <strong className="text-navy">live</strong> rollup from click events (cron
               table empty or stale for this view).
             </div>
           ) : null}
 
           {topPages.length > 0 ? (
-            <div className="panel mb-4 p-4">
+            <div className="panel p-4">
               <p className="eyebrow mb-2">Top pages (30d)</p>
               <div className="flex flex-wrap gap-2">
                 {sortHeatmapPages(topPages.map((p) => p.page_url))

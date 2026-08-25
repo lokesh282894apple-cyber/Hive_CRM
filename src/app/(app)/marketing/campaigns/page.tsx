@@ -5,6 +5,7 @@ import { ensureDefaultCampaigns } from "@/lib/marketing/attribution";
 import { fetchCampaignMetrics } from "@/lib/marketing/queries";
 import { PageHeader } from "@/components/ui/Primitives";
 import { CampaignsClient } from "@/components/marketing/CampaignsClient";
+import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import type { AdCreative, Campaign, MarketingChannel } from "@/types/database";
 
 export default async function MarketingCampaignsPage() {
@@ -36,13 +37,14 @@ export default async function MarketingCampaignsPage() {
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://hiveschool.co";
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing · Attribution"
         title="Campaigns"
         accent="& Creatives"
         description="Campaigns auto-create from UTM/referrer. Add creatives for /go/{slug} influencer links (served via hiveschool.co rewrite)."
       />
+      <MarketingSubNav section="data" />
       <CampaignsClient
         channels={(channels ?? []) as MarketingChannel[]}
         campaigns={(campaigns ?? []) as Campaign[]}

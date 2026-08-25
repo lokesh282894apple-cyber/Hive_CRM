@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
+import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchMarketingOverview, parseRange, type RangeKey } from "@/lib/marketing/queries";
 
@@ -80,7 +81,7 @@ export default async function MarketingPerformancePage({
   const overview = await fetchMarketingOverview(supabase, range);
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing · Analytics"
         title="Channel"
@@ -88,6 +89,7 @@ export default async function MarketingPerformancePage({
         description={`Sessions and form conversions by channel, campaign, and UTM — last ${range} days.`}
         actions={<RangeTabs basePath="/marketing/performance" range={range} />}
       />
+      <MarketingSubNav section="performance" />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Sessions" value={overview.kpis.sessions} />
@@ -98,7 +100,7 @@ export default async function MarketingPerformancePage({
         />
       </div>
 
-      <div className="mt-6 space-y-6">
+      <div className="space-y-6">
         <Table title="By channel" rows={overview.byChannel} />
         <Table title="By campaign" rows={overview.byCampaign} />
         <Table

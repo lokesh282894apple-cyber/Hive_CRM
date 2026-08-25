@@ -5,10 +5,9 @@ import type { Role } from "@/lib/constants";
 import {
   BarChart3,
   Calendar,
+  CalendarDays,
   ClipboardList,
   Cog,
-  Flame,
-  FileText,
   LayoutDashboard,
   Link2,
   Megaphone,
@@ -19,8 +18,10 @@ import {
   UserCircle2,
   AlertTriangle,
   GraduationCap,
-  Activity,
-  UserCheck,
+  LineChart,
+  Upload,
+  Share2,
+  Globe,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -29,6 +30,8 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Highlight when pathname matches any of these (for grouped sections). */
+  matchPaths?: string[];
 };
 
 const counselorNav: NavItem[] = [
@@ -52,18 +55,80 @@ const adminNav: NavItem[] = [
 
 const marketingNav: NavItem[] = [
   { href: "/marketing/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/marketing/performance", label: "Performance", icon: BarChart3 },
-  { href: "/marketing/sessions", label: "Sessions", icon: Activity },
-  { href: "/marketing/pages", label: "Pages", icon: FileText },
-  { href: "/marketing/conversions", label: "Conversions", icon: UserCheck },
-  { href: "/marketing/campaigns", label: "Campaigns", icon: Megaphone },
-  { href: "/marketing/heatmaps", label: "Heatmaps", icon: Flame },
+  {
+    href: "/marketing/funnel",
+    label: "Leads",
+    icon: TrendingUp,
+    matchPaths: [
+      "/marketing/funnel",
+      "/marketing/qualification",
+      "/marketing/calls",
+      "/marketing/attribution",
+      "/marketing/roi",
+    ],
+  },
+  {
+    href: "/marketing/ads",
+    label: "Performance",
+    icon: Megaphone,
+    matchPaths: ["/marketing/ads", "/marketing/performance"],
+  },
+  {
+    href: "/marketing/pnl",
+    label: "P&L",
+    icon: LineChart,
+    matchPaths: ["/marketing/pnl", "/marketing/monthly"],
+  },
+  {
+    href: "/marketing/forecast",
+    label: "Planning",
+    icon: CalendarDays,
+    matchPaths: [
+      "/marketing/forecast",
+      "/marketing/calendar",
+      "/marketing/tasks",
+    ],
+  },
+  { href: "/marketing/social", label: "Socials", icon: Share2 },
+  {
+    href: "/marketing/sessions",
+    label: "Website",
+    icon: Globe,
+    matchPaths: [
+      "/marketing/sessions",
+      "/marketing/pages",
+      "/marketing/website-leads",
+      "/marketing/conversions",
+      "/marketing/heatmaps",
+    ],
+  },
+  {
+    href: "/marketing/imports",
+    label: "Data",
+    icon: Upload,
+    matchPaths: ["/marketing/imports", "/marketing/campaigns"],
+  },
 ];
 
 const interviewerNav: NavItem[] = [
   { href: "/interviewer/interviews", label: "Interviews", icon: GraduationCap },
   { href: "/interviewer/availability", label: "Availability", icon: Calendar },
 ];
+
+function navItemActive(pathname: string, item: NavItem): boolean {
+  if (item.matchPaths?.length) {
+    return item.matchPaths.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`)
+    );
+  }
+  return (
+    pathname === item.href ||
+    (item.href !== "/dashboard" &&
+      item.href !== "/admin/dashboard" &&
+      item.href !== "/marketing/dashboard" &&
+      pathname.startsWith(item.href))
+  );
+}
 
 function navForRole(role: Role): NavItem[] {
   if (role === "admin") return adminNav;
@@ -95,12 +160,7 @@ export function Sidebar({
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {items.map((item) => {
-          const active =
-            pathname === item.href ||
-            (item.href !== "/dashboard" &&
-              item.href !== "/admin/dashboard" &&
-              item.href !== "/marketing/dashboard" &&
-              pathname.startsWith(item.href));
+          const active = navItemActive(pathname, item);
           const Icon = item.icon;
           return (
             <Link
@@ -127,8 +187,7 @@ export function Sidebar({
               </p>
               {marketingNav.map((item) => {
                 const Icon = item.icon;
-                const active =
-                  pathname === item.href || pathname.startsWith(item.href + "/");
+                const active = navItemActive(pathname, item);
                 return (
                   <Link
                     key={item.href}

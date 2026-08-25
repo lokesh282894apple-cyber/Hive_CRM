@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
+import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchTopPages, parseRange, type RangeKey } from "@/lib/marketing/queries";
 import Link from "next/link";
@@ -19,7 +20,7 @@ export default async function MarketingPagesPage({
   const totalClicks = pages.reduce((s, p) => s + p.clicks, 0);
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Marketing · Behaviour"
         title="Top"
@@ -27,6 +28,7 @@ export default async function MarketingPagesPage({
         description={`Pageviews, clicks, and scroll-depth reach across the site — last ${range} days.`}
         actions={<RangeTabs basePath="/marketing/pages" range={range} />}
       />
+      <MarketingSubNav section="website" />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Pages tracked" value={pages.length} />
@@ -34,7 +36,7 @@ export default async function MarketingPagesPage({
         <StatCard label="Clicks" value={totalClicks} />
       </div>
 
-      <section className="panel mt-6 overflow-hidden">
+      <section className="panel overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[800px] text-left text-sm">
             <thead className="border-b border-border bg-navy/[0.02]">

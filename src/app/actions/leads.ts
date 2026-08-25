@@ -102,6 +102,18 @@ export async function updateLeadStage(
 
   await recomputeLeadScore(supabase, leadId);
 
+  // Event-driven outbound (WA + email) — never screen-hardcoded
+  try {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { dispatchStageTriggers } = await import("@/lib/integrations/dispatch");
+    await dispatchStageTriggers(createAdminClient(), {
+      leadId,
+      stage,
+    });
+  } catch (err) {
+    console.error("[dispatchStageTriggers]", err);
+  }
+
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
@@ -204,11 +216,27 @@ export async function reassignLead(
 ): Promise<ActionResult> {
   await requireUser(["admin", "counselor"]);
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("leads")
+    .select("lead_allocated_to")
+    .eq("id", leadId)
+    .maybeSingle();
   const { error } = await supabase
     .from("leads")
     .update({ lead_allocated_to: counselorId || null })
     .eq("id", leadId);
   if (error) return { ok: false, error: error.message };
+  if (counselorId && counselorId !== before?.lead_allocated_to) {
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const { dispatchCounsellorAllocated } = await import(
+        "@/lib/integrations/dispatch"
+      );
+      await dispatchCounsellorAllocated(createAdminClient(), leadId);
+    } catch (err) {
+      console.error("[dispatchCounsellorAllocated]", err);
+    }
+  }
   revalidatePath("/admin/leads");
   revalidatePath("/leads");
   revalidatePath(`/leads/${leadId}`);
@@ -218,12 +246,25 @@ export async function reassignLead(
 export async function claimLead(leadId: string): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("leads")
     .update({ lead_allocated_to: user.id })
     .eq("id", leadId)
-    .is("lead_allocated_to", null);
+    .is("lead_allocated_to", null)
+    .select("id")
+    .maybeSingle();
   if (error) return { ok: false, error: error.message };
+  if (data?.id) {
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const { dispatchCounsellorAllocated } = await import(
+        "@/lib/integrations/dispatch"
+      );
+      await dispatchCounsellorAllocated(createAdminClient(), leadId);
+    } catch (err) {
+      console.error("[dispatchCounsellorAllocated]", err);
+    }
+  }
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/leads");
   return { ok: true };
@@ -245,8 +286,24 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
 
   if (!payload.lead_id) return { ok: false, error: "Missing lead" };
 
-  const { error } = await supabase.from("call_logs").insert(payload);
+  const { error } = await supabase.from("call_logs").insert({
+    ...payload,
+    call_source: "manual",
+  });
   if (error) return { ok: false, error: error.message };
+
+  if (payload.outcome === "dnp") {
+    try {
+      const { createAdminClient } = await import("@/lib/supabase/admin");
+      const { dispatchStageTriggers } = await import("@/lib/integrations/dispatch");
+      await dispatchStageTriggers(createAdminClient(), {
+        leadId: payload.lead_id,
+        triggerKey: "dnp",
+      });
+    } catch (err) {
+      console.error("[dispatch DNP]", err);
+    }
+  }
 
   await supabase
     .from("leads")
