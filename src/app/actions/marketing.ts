@@ -109,6 +109,39 @@ export async function upsertAdPlatformConnection(input: {
   return { ok: true, id: data.id };
 }
 
+/** Edit an existing connection by id (change Page ID / token without disconnect). */
+export async function updateAdPlatformConnection(input: {
+  id: string;
+  platform: "meta" | "google" | "linkedin";
+  account_id: string;
+  access_token?: string | null;
+  refresh_token?: string | null;
+}): Promise<ActionResult> {
+  const user = await requireUser(["admin"]);
+  const supabase = createClient();
+
+  const patch: Record<string, unknown> = {
+    platform: input.platform,
+    account_id: input.account_id.trim(),
+    connected_by: user.id,
+    connected_at: new Date().toISOString(),
+    status: "connected",
+  };
+  const token = input.access_token?.trim();
+  if (token) patch.access_token = token;
+  if (input.refresh_token !== undefined) {
+    patch.refresh_token = input.refresh_token?.trim() || null;
+  }
+
+  const { error } = await supabase
+    .from("ad_platform_connections")
+    .update(patch)
+    .eq("id", input.id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/admin/marketing/connections");
+  return { ok: true };
+}
+
 export async function disconnectAdPlatform(id: string): Promise<ActionResult> {
   await requireUser(["admin"]);
   const supabase = createClient();

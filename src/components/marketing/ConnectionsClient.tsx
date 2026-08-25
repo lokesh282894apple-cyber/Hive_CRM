@@ -1,6 +1,10 @@
 "use client";
 
-import { disconnectAdPlatform, upsertAdPlatformConnection } from "@/app/actions/marketing";
+import {
+  disconnectAdPlatform,
+  updateAdPlatformConnection,
+  upsertAdPlatformConnection,
+} from "@/app/actions/marketing";
 import { updateAppSetting } from "@/app/actions/settings";
 import { StatusBadge } from "@/components/ui/Primitives";
 import type { AdPlatformConnectionStatus } from "@/types/database";
@@ -21,23 +25,66 @@ export function ConnectionsClient({
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [platform, setPlatform] = useState<(typeof PLATFORMS)[number]>("meta");
+  const [accountId, setAccountId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [verifyToken, setVerifyToken] = useState(metaWebhookVerifyToken);
+
+  function clearForm() {
+    setEditingId(null);
+    setPlatform("meta");
+    setAccountId("");
+    setAccessToken("");
+    setRefreshToken("");
+  }
+
+  function onEdit(c: AdPlatformConnectionStatus) {
+    setError(null);
+    setMsg(null);
+    setEditingId(c.id);
+    setPlatform(c.platform);
+    setAccountId(c.account_id);
+    setAccessToken("");
+    setRefreshToken("");
+  }
 
   function onConnect(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
     startTransition(async () => {
+      if (editingId) {
+        if (!accessToken.trim()) {
+          setError("Paste a new access token to update this connection.");
+          return;
+        }
+        const res = await updateAdPlatformConnection({
+          id: editingId,
+          platform,
+          account_id: accountId,
+          access_token: accessToken,
+          refresh_token: refreshToken || null,
+        });
+        if (!res.ok) setError(res.error);
+        else {
+          setError(null);
+          setMsg("Connection updated.");
+          clearForm();
+          router.refresh();
+        }
+        return;
+      }
+
       const res = await upsertAdPlatformConnection({
         platform,
-        account_id: String(fd.get("account_id")),
-        access_token: String(fd.get("access_token")),
-        refresh_token: String(fd.get("refresh_token") || "") || null,
+        account_id: accountId,
+        access_token: accessToken,
+        refresh_token: refreshToken || null,
       });
       if (!res.ok) setError(res.error);
       else {
         setError(null);
         setMsg("Connection saved — Lead Ads webhook will use this Meta token.");
-        (e.target as HTMLFormElement).reset();
+        clearForm();
         router.refresh();
       }
     });
@@ -47,7 +94,10 @@ export function ConnectionsClient({
     startTransition(async () => {
       const res = await disconnectAdPlatform(id);
       if (!res.ok) setError(res.error);
-      else router.refresh();
+      else {
+        if (editingId === id) clearForm();
+        router.refresh();
+      }
     });
   }
 
@@ -82,7 +132,20 @@ export function ConnectionsClient({
 
       <div className="grid gap-6 lg:grid-cols-5">
         <form onSubmit={onConnect} className="panel space-y-3 p-5 lg:col-span-2">
-          <p className="eyebrow">Connect platform</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="eyebrow">
+              {editingId ? "Edit connection" : "Connect platform"}
+            </p>
+            {editingId ? (
+              <button
+                type="button"
+                className="text-xs text-muted hover:text-navy"
+                onClick={clearForm}
+              >
+                Cancel
+              </button>
+            ) : null}
+          </div>
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <div>
             <label className="label-field">Platform</label>
@@ -103,26 +166,39 @@ export function ConnectionsClient({
           <div>
             <label className="label-field">Account / Page ID</label>
             <input
-              name="account_id"
               className="input-field"
               required
-              placeholder="e.g. Meta Page ID"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              placeholder="e.g. 469156522939481"
             />
           </div>
           <div>
-            <label className="label-field">Access token</label>
+            <label className="label-field">
+              Access token{editingId ? " (paste new token)" : ""}
+            </label>
             <textarea
-              name="access_token"
               className="input-field min-h-[80px]"
-              required
+              required={!editingId}
+              value={accessToken}
+              onChange={(e) => setAccessToken(e.target.value)}
+              placeholder={
+                editingId
+                  ? "Required — paste current Page access token"
+                  : undefined
+              }
             />
           </div>
           <div>
             <label className="label-field">Refresh token (optional)</label>
-            <textarea name="refresh_token" className="input-field min-h-[60px]" />
+            <textarea
+              className="input-field min-h-[60px]"
+              value={refreshToken}
+              onChange={(e) => setRefreshToken(e.target.value)}
+            />
           </div>
           <button type="submit" className="btn-primary" disabled={pending}>
-            Save connection
+            {editingId ? "Update connection" : "Save connection"}
           </button>
           <p className="text-xs text-muted">
             Tokens are admin-only. Used for Lead Ads ingest and (later) spend sync.
@@ -155,6 +231,14 @@ export function ConnectionsClient({
                     label={c.status}
                     tone={c.status === "connected" ? "green" : "gray"}
                   />
+                  <button
+                    type="button"
+                    className="rounded-xl border border-border px-2 py-1 text-xs text-navy hover:bg-navy/5"
+                    disabled={pending}
+                    onClick={() => onEdit(c)}
+                  >
+                    Edit
+                  </button>
                   {c.status === "connected" ? (
                     <button
                       type="button"
