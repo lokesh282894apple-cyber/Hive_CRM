@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import { CsvUploadPanel } from "@/components/marketing/CsvUploadPanel";
+import { SocialEntryPanel } from "@/components/marketing/PlanningSocialForms";
 import { publishRate } from "@/lib/marketing/metrics";
 
 const PLATFORMS = ["instagram", "youtube", "linkedin", "whatsapp"] as const;
@@ -33,7 +34,7 @@ export default async function MarketingSocialPage({
   return (
     <MarketingPageShell
       title="Social dashboards"
-      description="IG · YT · LinkedIn · WhatsApp post logs + monthly rollup"
+      description="Log posts manually or CSV · published posts also appear on the marketing calendar"
       basePath="/marketing/social"
       showOrganic={false}
       extra={
@@ -53,6 +54,8 @@ export default async function MarketingSocialPage({
         </>
       }
     >
+      <SocialEntryPanel platform={platform} />
+
       <div className="panel p-4">
         <p className="eyebrow capitalize">{platform} — this log</p>
         <p className="mt-1 text-lg font-semibold">
@@ -79,7 +82,11 @@ export default async function MarketingSocialPage({
           <tbody>
             {(posts ?? []).map((p) => {
               const eng =
-                (p.likes ?? 0) + (p.comments ?? 0) + (p.saves ?? 0) + (p.shares ?? 0) + (p.reposts ?? 0);
+                (p.likes ?? 0) +
+                (p.comments ?? 0) +
+                (p.saves ?? 0) +
+                (p.shares ?? 0) +
+                (p.reposts ?? 0);
               return (
                 <tr key={p.id} className="border-b border-border">
                   <td className="px-3 py-2">{p.post_date}</td>
@@ -92,11 +99,18 @@ export default async function MarketingSocialPage({
                 </tr>
               );
             })}
+            {!posts?.length && (
+              <tr>
+                <td colSpan={7} className="px-3 py-8 text-muted">
+                  No posts yet — use the form above or CSV upload.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </section>
 
-      {platform === "linkedin" && (mentors ?? []).length > 0 && (
+      {platform === "linkedin" ? (
         <section className="panel overflow-x-auto">
           <p className="eyebrow border-b border-border px-4 py-3">Mentor / partner posting</p>
           <table className="w-full text-left text-sm">
@@ -113,14 +127,23 @@ export default async function MarketingSocialPage({
                 <tr key={m.id} className="border-b border-border">
                   <td className="px-3 py-2 font-medium">{m.name}</td>
                   <td className="px-3 py-2">{m.campaign_context ?? "—"}</td>
-                  <td className="px-3 py-2 capitalize">{m.posting_status?.replace(/_/g, " ")}</td>
+                  <td className="px-3 py-2 capitalize">
+                    {m.posting_status?.replace(/_/g, " ")}
+                  </td>
                   <td className="px-3 py-2 text-muted">{m.remark ?? "—"}</td>
                 </tr>
               ))}
+              {!mentors?.length && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-muted">
+                    No mentors yet — add via the form above.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </section>
-      )}
+      ) : null}
     </MarketingPageShell>
   );
 }

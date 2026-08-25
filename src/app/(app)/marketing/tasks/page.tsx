@@ -2,6 +2,10 @@ import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import { StatCard } from "@/components/ui/Primitives";
+import {
+  TaskEntryPanel,
+  TaskStatusSelect,
+} from "@/components/marketing/PlanningSocialForms";
 
 export default async function MarketingTasksPage() {
   await requireUser(["admin", "marketing"]);
@@ -22,11 +26,13 @@ export default async function MarketingTasksPage() {
   return (
     <MarketingPageShell
       title="Marketing tasks"
-      description="Ops task list linked to posts and metrics"
+      description="Add ops tasks and update status inline"
       basePath="/marketing/tasks"
       section="planning"
       showOrganic={false}
     >
+      <TaskEntryPanel />
+
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Open tasks" value={String(open)} />
         <StatCard label="Overdue" value={String(overdue)} />
@@ -52,7 +58,12 @@ export default async function MarketingTasksPage() {
             {(tasks ?? []).map((t) => {
               const daysOver =
                 t.status !== "done" && t.due_date
-                  ? Math.max(0, Math.floor((Date.now() - new Date(t.due_date).getTime()) / 86400000))
+                  ? Math.max(
+                      0,
+                      Math.floor(
+                        (Date.now() - new Date(t.due_date).getTime()) / 86400000
+                      )
+                    )
                   : 0;
               return (
                 <tr key={t.id} className="border-b border-border">
@@ -65,7 +76,9 @@ export default async function MarketingTasksPage() {
                       <span className="ml-1 text-red-600">({daysOver}d overdue)</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 capitalize">{t.status.replace(/_/g, " ")}</td>
+                  <td className="px-3 py-2">
+                    <TaskStatusSelect id={t.id} status={t.status} />
+                  </td>
                   <td className="px-3 py-2 text-muted">
                     {t.reach_impressions ?? "—"} reach · {t.engagements ?? "—"} eng
                   </td>
@@ -75,7 +88,7 @@ export default async function MarketingTasksPage() {
             {!tasks?.length && (
               <tr>
                 <td colSpan={6} className="px-3 py-8 text-muted">
-                  No marketing tasks yet.
+                  No marketing tasks yet — add one above.
                 </td>
               </tr>
             )}

@@ -160,11 +160,12 @@ export async function upsertMarketingForecast(input: {
 }): Promise<DashResult> {
   await requireUser(["admin", "marketing"]);
   const supabase = createClient();
+  const programme = input.programme?.trim() || "";
   const { error } = await supabase.from("marketing_forecasts").upsert(
     {
       month_key: input.month_key,
-      channel: input.channel,
-      programme: input.programme ?? null,
+      channel: input.channel.trim(),
+      programme,
       owner: input.owner ?? null,
       leads_forecast: input.leads_forecast,
       spend_forecast_inr: input.spend_forecast_inr,
@@ -225,12 +226,68 @@ export async function updateCalendarItemStatus(
   return { ok: true };
 }
 
-export async function createSocialPost(input: Record<string, unknown>): Promise<DashResult & { id?: string }> {
+export async function createSocialPost(input: {
+  platform: string;
+  post_date: string;
+  title: string;
+  status?: string;
+  post_type?: string | null;
+  content_pillar?: string | null;
+  link?: string | null;
+  reach?: number | null;
+  impressions?: number | null;
+  views?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+  leads_generated?: number | null;
+  delivered?: number | null;
+  opened?: number | null;
+  clicked?: number | null;
+}): Promise<DashResult & { id?: string }> {
   await requireUser(["admin", "marketing"]);
   const supabase = createClient();
-  const { data, error } = await supabase.from("social_posts").insert(input).select("id").single();
+  const { data, error } = await supabase
+    .from("social_posts")
+    .insert({
+      platform: input.platform,
+      post_date: input.post_date,
+      title: input.title,
+      status: input.status ?? "published",
+      post_type: input.post_type ?? null,
+      content_pillar: input.content_pillar ?? null,
+      link: input.link ?? null,
+      reach: input.reach ?? null,
+      impressions: input.impressions ?? null,
+      views: input.views ?? null,
+      likes: input.likes ?? null,
+      comments: input.comments ?? null,
+      leads_generated: input.leads_generated ?? null,
+      delivered: input.delivered ?? null,
+      opened: input.opened ?? null,
+      clicked: input.clicked ?? null,
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, error: error.message };
+
+  await supabase.from("marketing_calendar_items").insert({
+    planned_date: input.post_date,
+    channel: input.platform,
+    activity_title: input.title,
+    content_pillar: input.content_pillar ?? null,
+    post_type: input.post_type ?? null,
+    planned_status: "planned",
+    actual_status:
+      input.status === "missed"
+        ? "missed"
+        : input.status === "planned"
+          ? null
+          : "published",
+    actual_date: input.status === "planned" ? null : input.post_date,
+  });
+
   revalidatePath("/marketing/social");
+  revalidatePath("/marketing/calendar");
   return { ok: true, id: data.id };
 }
 
@@ -286,4 +343,95 @@ export async function createActivation(input: Record<string, unknown>): Promise<
   if (error) return { ok: false, error: error.message };
   revalidatePath("/marketing/forecast");
   return { ok: true };
+}
+
+/**
+ * Auto-fill forecast actuals from CRM leads + Meta spend for a month.
+ * Forecast (F) stays manual; Actual (A) updates from live data.
+ */
+export async function syncForecastActuals(
+  monthKey?: string
+): Promise<DashResult & { updated?: number; message?: string }> {
+  await requireUser(["admin", "marketing"]);
+  const admin = createAdminClient();
+  const mk = monthKey ?? new Date().toISOString().slice(0, 7);
+  const from = `${mk}-01T00:00:00.000Z`;
+  const lastDay = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
+  const to = `${mk}-${String(lastDay).padStart(2, "0")}T23:59:59.999Z`;
+  const fromDate = `${mk}-01`;
+  const toDate = `${mk}-${String(lastDay).padStart(2, "0")}`;
+
+  const [{ data: forecasts }, { data: leads }, { data: spendRows }] = await Promise.all([
+    admin.from("marketing_forecasts").select("*").eq("month_key", mk),
+    admin
+      .from("leads")
+      .select("id, source, utm_source, utm_medium, created_at")
+      .gte("created_at", from)
+      .lte("created_at", to),
+    admin
+      .from("ad_spend_daily")
+      .select("spend, date")
+      .gte("date", fromDate)
+      .lte("date", toDate),
+  ]);
+
+  const metaSpend = (spendRows ?? []).reduce((s, r) => s + Number(r.spend || 0), 0);
+
+  const channelLeads = (channel: string) => {
+    const c = channel.toLowerCase();
+    return (leads ?? []).filter((l) => {
+      const src = `${l.source ?? ""} ${l.utm_source ?? ""} ${l.utm_medium ?? ""}`.toLowerCase();
+      if (c.includes("meta") || c.includes("facebook") || c.includes("instagram paid")) {
+        return (
+          src.includes("meta") ||
+          src.includes("facebook") ||
+          src.includes("fb") ||
+          l.utm_medium === "paid"
+        );
+      }
+      if (c.includes("linkedin")) return src.includes("linkedin");
+      if (c.includes("youtube") || c.includes("yt"))
+        return src.includes("youtube") || src.includes("yt");
+      if (c.includes("whatsapp") || c.includes("wa"))
+        return src.includes("whatsapp") || src.includes("wa");
+      if (c.includes("google")) return src.includes("google") || src.includes("gclid");
+      if (c.includes("organic")) {
+        return (
+          !src.includes("paid") &&
+          !src.includes("meta") &&
+          !src.includes("facebook") &&
+          !src.includes("google")
+        );
+      }
+      return src.includes(c.split(/\s+/)[0] ?? c);
+    }).length;
+  };
+
+  let updated = 0;
+  for (const f of forecasts ?? []) {
+    const ch = String(f.channel);
+    const leadsActual = channelLeads(ch);
+    const isMeta =
+      ch.toLowerCase().includes("meta") ||
+      ch.toLowerCase().includes("facebook") ||
+      ch.toLowerCase().includes("instagram paid");
+    const spendActual = isMeta ? metaSpend : Number(f.spend_actual_inr) || 0;
+
+    const { error } = await admin
+      .from("marketing_forecasts")
+      .update({
+        leads_actual: leadsActual,
+        spend_actual_inr: spendActual,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", f.id);
+    if (!error) updated += 1;
+  }
+
+  revalidatePath("/marketing/forecast");
+  return {
+    ok: true,
+    updated,
+    message: `Updated ${updated} forecast row(s) with CRM leads + Meta spend for ${mk}`,
+  };
 }

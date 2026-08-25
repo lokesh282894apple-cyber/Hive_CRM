@@ -1,6 +1,10 @@
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import {
+  CalendarEntryPanel,
+  CalendarStatusButtons,
+} from "@/components/marketing/PlanningSocialForms";
 import { publishRate } from "@/lib/marketing/metrics";
 
 export default async function MarketingCalendarPage({
@@ -33,11 +37,13 @@ export default async function MarketingCalendarPage({
   return (
     <MarketingPageShell
       title="Marketing calendar"
-      description="Planned vs actual activities across all channels"
+      description="Add planned activities · mark published / missed · social posts also land here automatically"
       basePath="/marketing/calendar"
       section="planning"
       showOrganic={false}
     >
+      <CalendarEntryPanel />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from(byChannel.entries()).map(([ch, s]) => (
           <div key={ch} className="panel p-4">
@@ -53,7 +59,7 @@ export default async function MarketingCalendarPage({
       </div>
 
       <section className="panel overflow-x-auto">
-        <table className="w-full text-left text-sm">
+        <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="border-b border-border bg-navy/[0.02]">
             <tr>
               <th className="eyebrow px-3 py-2">Date</th>
@@ -62,6 +68,7 @@ export default async function MarketingCalendarPage({
               <th className="eyebrow px-3 py-2">Pillar</th>
               <th className="eyebrow px-3 py-2">Planned</th>
               <th className="eyebrow px-3 py-2">Actual</th>
+              <th className="eyebrow px-3 py-2">Update</th>
               <th className="eyebrow px-3 py-2">Owner</th>
             </tr>
           </thead>
@@ -86,13 +93,16 @@ export default async function MarketingCalendarPage({
                     {i.actual_status ?? "—"}
                   </span>
                 </td>
+                <td className="px-3 py-2">
+                  <CalendarStatusButtons id={i.id} current={i.actual_status} />
+                </td>
                 <td className="px-3 py-2 text-muted">{i.owner ?? "—"}</td>
               </tr>
             ))}
             {!items?.length && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-muted">
-                  No calendar items this month.
+                <td colSpan={8} className="px-3 py-8 text-muted">
+                  No calendar items this month — add above or log a social post.
                 </td>
               </tr>
             )}

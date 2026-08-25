@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
+import { ForecastEntryPanel } from "@/components/marketing/PlanningSocialForms";
 import { formatInr } from "@/lib/marketing/metrics";
 
 export default async function MarketingForecastPage() {
@@ -16,11 +17,13 @@ export default async function MarketingForecastPage() {
   return (
     <MarketingPageShell
       title="Forecast vs actual"
-      description="Monthly leads & spend plan vs delivered · Non-Meta activations"
+      description="Enter monthly targets manually · refresh actuals from CRM leads + Meta spend"
       basePath="/marketing/forecast"
       section="planning"
       showOrganic={false}
     >
+      <ForecastEntryPanel monthKey={monthKey} />
+
       <section className="panel overflow-x-auto">
         <p className="eyebrow border-b border-border px-4 py-3">Leads & spend — {monthKey}</p>
         <table className="w-full min-w-[800px] text-left text-sm">
@@ -48,7 +51,7 @@ export default async function MarketingForecastPage() {
             {!forecasts?.length && (
               <tr>
                 <td colSpan={6} className="px-3 py-6 text-muted">
-                  No forecasts for this month — add rows via marketing ops or import.
+                  No forecasts yet — use the form above to add channel targets.
                 </td>
               </tr>
             )}
@@ -80,6 +83,13 @@ export default async function MarketingForecastPage() {
                 <td className="px-3 py-2 capitalize">{a.status}</td>
               </tr>
             ))}
+            {!activations?.length && (
+              <tr>
+                <td colSpan={5} className="px-3 py-6 text-muted">
+                  No activations yet — add webinars / organic pushes above.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </section>
