@@ -19,6 +19,7 @@ export type ExistingLead = {
   phone: string;
   email: string | null;
   name: string;
+  source?: string | null;
 };
 
 export type MatchResult = {
@@ -80,7 +81,7 @@ export async function findExistingLead(
   const phone = normalizePhone(phoneRaw);
   const email = normalizeEmail(emailRaw);
   const select =
-    "id, stage, lead_allocated_to, course_id, cohort_id, phone, email, name";
+    "id, stage, lead_allocated_to, course_id, cohort_id, phone, email, name, source";
 
   if (phone) {
     const variants = phoneLookupVariants(phone);
