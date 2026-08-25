@@ -8,7 +8,6 @@ export default async function AdConnectionsPage() {
   await requireUser(["admin"]);
   const supabase = createClient();
 
-  // Prefer status view (no tokens). Fall back to table select of safe columns if view missing.
   const { data: fromView, error } = await supabase
     .from("ad_platform_connection_status")
     .select("id, platform, account_id, status, connected_at, connected_by")
@@ -23,15 +22,31 @@ export default async function AdConnectionsPage() {
     connections = (data ?? []) as AdPlatformConnectionStatus[];
   }
 
+  const { data: verifySetting } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", "meta_webhook_verify_token")
+    .maybeSingle();
+
+  let metaWebhookVerifyToken = "";
+  const raw = verifySetting?.value;
+  if (typeof raw === "string") metaWebhookVerifyToken = raw.replace(/^"|"$/g, "");
+  else if (raw && typeof raw === "object" && "token" in (raw as object)) {
+    metaWebhookVerifyToken = String((raw as { token: string }).token || "");
+  }
+
   return (
     <div>
       <PageHeader
         eyebrow="Admin · Marketing"
         title="Ad platform"
         accent="Connections"
-        description="Store Meta / Google / LinkedIn credentials. Spend sync jobs use these tokens — marketing users only see status, never raw tokens."
+        description="Store Meta / Google / LinkedIn credentials in the CRM. Meta tokens power Lead Ads ingest (and later spend sync)."
       />
-      <ConnectionsClient connections={connections} />
+      <ConnectionsClient
+        connections={connections}
+        metaWebhookVerifyToken={metaWebhookVerifyToken}
+      />
     </div>
   );
 }
