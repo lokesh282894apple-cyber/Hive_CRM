@@ -124,11 +124,13 @@ export async function syncMetaAdSpend(
   admin: SupabaseClient,
   accessToken: string,
   accountId: string,
-  opts?: { days?: number }
+  opts?: { days?: number; level?: "ad" | "campaign"; maxPages?: number }
 ): Promise<{ synced: number; errors: string[]; accounts: string[] }> {
   const errors: string[] = [];
   let synced = 0;
   const days = opts?.days ?? 30;
+  const level = opts?.level ?? "ad";
+  const maxPages = opts?.maxPages ?? 20;
 
   const resolved = await resolveMetaAdAccountIds(accessToken, accountId);
   errors.push(...resolved.errors);
@@ -147,7 +149,9 @@ export async function syncMetaAdSpend(
       accessToken,
       adAccountId,
       sinceStr,
-      untilStr
+      untilStr,
+      level,
+      maxPages
     );
     synced += result.synced;
     errors.push(...result.errors);
@@ -161,24 +165,32 @@ async function syncOneAdAccount(
   accessToken: string,
   adAccountId: string,
   since: string,
-  until: string
+  until: string,
+  level: "ad" | "campaign",
+  maxPages: number
 ): Promise<{ synced: number; errors: string[] }> {
   const errors: string[] = [];
   let synced = 0;
 
+  const fields =
+    level === "campaign"
+      ? "campaign_name,spend,impressions,clicks,reach,actions"
+      : "campaign_name,adset_name,ad_name,spend,impressions,clicks,reach,actions,video_thruplay_watched_actions";
+
   const params = new URLSearchParams({
-    fields:
-      "campaign_name,adset_name,ad_name,spend,impressions,clicks,reach,actions,video_thruplay_watched_actions",
+    fields,
     time_range: JSON.stringify({ since, until }),
     time_increment: "1",
-    level: "ad",
+    level,
     limit: "500",
   });
 
   let nextUrl: string | null =
     `https://graph.facebook.com/v21.0/act_${adAccountId}/insights?${params}`;
+  let pages = 0;
 
-  while (nextUrl) {
+  while (nextUrl && pages < maxPages) {
+    pages += 1;
     const res = await fetch(nextUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -232,6 +244,10 @@ async function syncOneAdAccount(
       }
 
       const thru = Number(row.video_thruplay_watched_actions?.[0]?.value) || 0;
+      const adName =
+        level === "campaign"
+          ? "(campaign total)"
+          : row.ad_name ?? row.campaign_name;
 
       await admin.from("ad_insights_weekly").upsert(
         {
@@ -239,7 +255,7 @@ async function syncOneAdAccount(
           week_start: mondayOf(date),
           campaign_name: row.campaign_name,
           ad_set_name: row.adset_name ?? null,
-          ad_name: row.ad_name ?? row.campaign_name,
+          ad_name: adName,
           spend,
           results: leads,
           reach: Number(row.reach) || 0,

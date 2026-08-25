@@ -154,7 +154,7 @@ export async function disconnectAdPlatform(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-/** Pull last 30 days Meta spend + ad insights into CRM (no CSV). */
+/** Pull recent Meta spend into CRM (fast path for button; cron does fuller sync). */
 export async function syncMetaSpendNow(): Promise<
   ActionResult & { synced?: number; message?: string; adAccounts?: string[] }
 > {
@@ -180,7 +180,9 @@ export async function syncMetaSpendNow(): Promise<
   for (const conn of connections) {
     if (!conn.access_token || !conn.account_id) continue;
     const result = await syncMetaAdSpend(admin, conn.access_token, conn.account_id, {
-      days: 30,
+      days: 14,
+      level: "campaign",
+      maxPages: 8,
     });
     synced += result.synced;
     errors.push(...result.errors);
@@ -209,7 +211,7 @@ export async function syncMetaSpendNow(): Promise<
     adAccounts: Array.from(new Set(accounts)),
     message:
       synced > 0
-        ? `Synced ${synced} spend rows from Meta`
+        ? `Synced ${synced} spend rows from Meta (last 14 days)`
         : "No spend rows returned — check ads_read permission / Ad Account access",
   };
 }

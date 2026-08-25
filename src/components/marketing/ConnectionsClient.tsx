@@ -31,6 +31,7 @@ export function ConnectionsClient({
   const [refreshToken, setRefreshToken] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [verifyToken, setVerifyToken] = useState(metaWebhookVerifyToken);
+  const [syncing, setSyncing] = useState(false);
 
   function clearForm() {
     setEditingId(null);
@@ -132,30 +133,49 @@ export function ConnectionsClient({
         <button
           type="button"
           className="btn-secondary mt-3"
-          disabled={pending}
+          disabled={pending || syncing}
           onClick={() => {
-            startTransition(async () => {
-              const res = await syncMetaSpendNow();
-              if (!res.ok) {
-                setError(res.error ?? res.message ?? "Sync failed");
-                setMsg(null);
-              } else {
-                setError(null);
-                setMsg(
-                  res.message ??
-                    `Synced ${res.synced ?? 0} rows${
-                      res.adAccounts?.length
-                        ? ` · accounts: ${res.adAccounts.map((a) => `act_${a}`).join(", ")}`
-                        : ""
-                    }`
+            setError(null);
+            setMsg("Syncing Meta spend… (up to ~30s)");
+            setSyncing(true);
+            void (async () => {
+              try {
+                const res = await syncMetaSpendNow();
+                if (!res.ok) {
+                  setError(res.error ?? res.message ?? "Sync failed");
+                  setMsg(null);
+                } else {
+                  setError(null);
+                  setMsg(
+                    res.message ??
+                      `Synced ${res.synced ?? 0} rows${
+                        res.adAccounts?.length
+                          ? ` · accounts: ${res.adAccounts.map((a) => `act_${a}`).join(", ")}`
+                          : ""
+                      }`
+                  );
+                  router.refresh();
+                }
+              } catch (e) {
+                setError(
+                  e instanceof Error
+                    ? e.message
+                    : "Sync timed out or failed — refresh and try again"
                 );
-                router.refresh();
+                setMsg(null);
+              } finally {
+                setSyncing(false);
               }
-            });
+            })();
           }}
         >
-          Sync Meta spend now
+          {syncing ? "Syncing…" : "Sync Meta spend now"}
         </button>
+        {syncing ? (
+          <p className="mt-2 text-xs text-muted">
+            Pulling last 14 days from Meta — leave this tab open.
+          </p>
+        ) : null}
       </div>
 
       {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}

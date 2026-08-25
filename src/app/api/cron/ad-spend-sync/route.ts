@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       admin,
       conn.access_token,
       conn.account_id,
-      { days: 30 }
+      { days: 30, level: "campaign", maxPages: 15 }
     );
     synced += result.synced;
     errors.push(...result.errors);
