@@ -3,6 +3,7 @@
 import {
   disconnectAdPlatform,
   syncMetaSpendNow,
+  testAdPlatformConnection,
   updateAdPlatformConnection,
   upsertAdPlatformConnection,
 } from "@/app/actions/marketing";
@@ -13,6 +14,18 @@ import { FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 const PLATFORMS = ["meta", "google", "linkedin"] as const;
+
+function healthBadge(c: AdPlatformConnectionStatus): {
+  label: string;
+  tone: "green" | "red" | "yellow" | "gray";
+} | null {
+  if (c.status !== "connected") return null;
+  const h = c.token_health;
+  if (h === "valid") return { label: "Token valid", tone: "green" };
+  if (h === "expired") return { label: "Token expired", tone: "red" };
+  if (h === "error") return { label: "Token error", tone: "yellow" };
+  return { label: "Token untested", tone: "gray" };
+}
 
 export function ConnectionsClient({
   connections,
@@ -32,6 +45,7 @@ export function ConnectionsClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [verifyToken, setVerifyToken] = useState(metaWebhookVerifyToken);
   const [syncing, setSyncing] = useState(false);
+  const [testingId, setTestingId] = useState<string | null>(null);
 
   function clearForm() {
     setEditingId(null);
@@ -69,7 +83,7 @@ export function ConnectionsClient({
         if (!res.ok) setError(res.error);
         else {
           setError(null);
-          setMsg("Connection updated.");
+          setMsg("Connection updated — click Test to verify the new token.");
           clearForm();
           router.refresh();
         }
@@ -85,7 +99,7 @@ export function ConnectionsClient({
       if (!res.ok) setError(res.error);
       else {
         setError(null);
-        setMsg("Connection saved — Lead Ads webhook will use this Meta token.");
+        setMsg("Connection saved — click Test to verify the token with Meta.");
         clearForm();
         router.refresh();
       }
@@ -101,6 +115,34 @@ export function ConnectionsClient({
         router.refresh();
       }
     });
+  }
+
+  function onTest(id: string) {
+    setError(null);
+    setMsg("Testing token with Meta…");
+    setTestingId(id);
+    void (async () => {
+      try {
+        const res = await testAdPlatformConnection(id);
+        if (res.health === "valid") {
+          setError(null);
+          setMsg(res.message);
+        } else {
+          setMsg(null);
+          setError(
+            res.message ||
+              (!res.ok ? res.error : null) ||
+              "Token test failed"
+          );
+        }
+        router.refresh();
+      } catch (e) {
+        setMsg(null);
+        setError(e instanceof Error ? e.message : "Test failed");
+      } finally {
+        setTestingId(null);
+      }
+    })();
   }
 
   function onSaveVerifyToken(e: FormEvent) {
@@ -123,12 +165,10 @@ export function ConnectionsClient({
       <div className="rounded-xl border border-periwinkle/30 bg-periwinkle/5 px-4 py-3 text-sm text-navy">
         <p className="font-semibold">Meta Lead Ads + spend sync</p>
         <p className="mt-1 text-muted">
-          Save a Meta token below. Lead Ads webhook uses it for form fields.
-          Nightly cron + <strong>Sync Meta spend now</strong> pull ad spend
-          automatically (needs <code className="text-xs">ads_read</code> + Ad
-          Account access — System User recommended). Prefer Account ID{" "}
-          <code className="text-xs">act_…</code> for spend, or keep Page ID for
-          leads and let sync discover ad accounts from the token.
+          <strong>Connected</strong> only means credentials are saved. Use{" "}
+          <strong>Test</strong> to confirm Meta still accepts the token (Valid /
+          Expired). Prefer a System User token that never expires. Account ID{" "}
+          <code className="text-xs">act_…</code> for spend; Page ID for Lead Ads.
         </p>
         <button
           type="button"
@@ -179,6 +219,7 @@ export function ConnectionsClient({
       </div>
 
       {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
       <div className="grid gap-6 lg:grid-cols-5">
         <form onSubmit={onConnect} className="panel space-y-3 p-5 lg:col-span-2">
@@ -196,7 +237,6 @@ export function ConnectionsClient({
               </button>
             ) : null}
           </div>
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <div>
             <label className="label-field">Platform</label>
             <select
@@ -220,7 +260,7 @@ export function ConnectionsClient({
               required
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
-              placeholder="e.g. 469156522939481"
+              placeholder="act_1628275181054339 or Page ID"
             />
           </div>
           <div>
@@ -234,7 +274,7 @@ export function ConnectionsClient({
               onChange={(e) => setAccessToken(e.target.value)}
               placeholder={
                 editingId
-                  ? "Required — paste current Page access token"
+                  ? "Required — paste System User or Page access token"
                   : undefined
               }
             />
@@ -251,7 +291,7 @@ export function ConnectionsClient({
             {editingId ? "Update connection" : "Save connection"}
           </button>
           <p className="text-xs text-muted">
-            Tokens are admin-only. Used for Lead Ads ingest and (later) spend sync.
+            Tokens are admin-only. After save, click Test on the row.
           </p>
         </form>
 
@@ -260,48 +300,68 @@ export function ConnectionsClient({
             <p className="eyebrow">Connected accounts</p>
           </div>
           <ul className="divide-y divide-border">
-            {connections.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-center justify-between gap-3 px-5 py-3"
-              >
-                <div>
-                  <p className="text-sm font-medium text-navy">
-                    {c.platform} · {c.account_id}
-                  </p>
-                  <p className="text-xs text-muted">
-                    Connected {new Date(c.connected_at).toLocaleString("en-IN")}
-                    {c.platform === "meta" && c.status === "connected"
-                      ? " · used for Lead Ads"
-                      : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusBadge
-                    label={c.status}
-                    tone={c.status === "connected" ? "green" : "gray"}
-                  />
-                  <button
-                    type="button"
-                    className="rounded-xl border border-border px-2 py-1 text-xs text-navy hover:bg-navy/5"
-                    disabled={pending}
-                    onClick={() => onEdit(c)}
-                  >
-                    Edit
-                  </button>
-                  {c.status === "connected" ? (
-                    <button
-                      type="button"
-                      className="rounded-xl border border-border px-2 py-1 text-xs text-muted hover:text-navy"
-                      disabled={pending}
-                      onClick={() => onDisconnect(c.id)}
-                    >
-                      Disconnect
-                    </button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
+            {connections.map((c) => {
+              const hb = healthBadge(c);
+              return (
+                <li key={c.id} className="space-y-2 px-5 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-navy">
+                        {c.platform} · {c.account_id}
+                      </p>
+                      <p className="text-xs text-muted">
+                        Saved {new Date(c.connected_at).toLocaleString("en-IN")}
+                        {c.last_tested_at
+                          ? ` · tested ${new Date(c.last_tested_at).toLocaleString("en-IN")}`
+                          : ""}
+                      </p>
+                      {c.last_test_error ? (
+                        <p className="mt-1 max-w-md text-xs text-red-600">
+                          {c.last_test_error}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge
+                        label={c.status}
+                        tone={c.status === "connected" ? "green" : "gray"}
+                      />
+                      {hb ? (
+                        <StatusBadge label={hb.label} tone={hb.tone} />
+                      ) : null}
+                      {c.status === "connected" && c.platform === "meta" ? (
+                        <button
+                          type="button"
+                          className="rounded-xl border border-border px-2 py-1 text-xs font-medium text-navy hover:bg-navy/5"
+                          disabled={pending || testingId === c.id}
+                          onClick={() => onTest(c.id)}
+                        >
+                          {testingId === c.id ? "Testing…" : "Test"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="rounded-xl border border-border px-2 py-1 text-xs text-navy hover:bg-navy/5"
+                        disabled={pending}
+                        onClick={() => onEdit(c)}
+                      >
+                        Edit
+                      </button>
+                      {c.status === "connected" ? (
+                        <button
+                          type="button"
+                          className="rounded-xl border border-border px-2 py-1 text-xs text-muted hover:text-navy"
+                          disabled={pending}
+                          onClick={() => onDisconnect(c.id)}
+                        >
+                          Disconnect
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
             {connections.length === 0 ? (
               <li className="px-5 py-8 text-sm text-muted">
                 No platforms connected yet.

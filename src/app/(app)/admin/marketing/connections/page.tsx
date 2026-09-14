@@ -10,14 +10,18 @@ export default async function AdConnectionsPage() {
 
   const { data: fromView, error } = await supabase
     .from("ad_platform_connection_status")
-    .select("id, platform, account_id, status, connected_at, connected_by")
+    .select(
+      "id, platform, account_id, status, connected_at, connected_by, token_health, last_tested_at, last_test_error"
+    )
     .order("connected_at", { ascending: false });
 
   let connections = (fromView ?? []) as AdPlatformConnectionStatus[];
   if (error) {
     const { data } = await supabase
       .from("ad_platform_connections")
-      .select("id, platform, account_id, status, connected_at, connected_by")
+      .select(
+        "id, platform, account_id, status, connected_at, connected_by, token_health, last_tested_at, last_test_error"
+      )
       .order("connected_at", { ascending: false });
     connections = (data ?? []) as AdPlatformConnectionStatus[];
   }

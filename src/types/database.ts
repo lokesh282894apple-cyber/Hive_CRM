@@ -298,4 +298,7 @@ export type AdPlatformConnectionStatus = {
   status: string;
   connected_at: string;
   connected_by: string | null;
+  token_health?: "valid" | "expired" | "error" | "untested" | null;
+  last_tested_at?: string | null;
+  last_test_error?: string | null;
 };

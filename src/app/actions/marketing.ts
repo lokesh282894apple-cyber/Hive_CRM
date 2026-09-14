@@ -215,3 +215,181 @@ export async function syncMetaSpendNow(): Promise<
         : "No spend rows returned — check ads_read permission / Ad Account access",
   };
 }
+
+export type TokenHealthResult = {
+  ok: boolean;
+  health: "valid" | "expired" | "error";
+  message: string;
+  expiresAt?: string | null;
+};
+
+/** Live-check Meta (or other) token against the platform API; persist Valid/Expired. */
+export async function testAdPlatformConnection(
+  id: string
+): Promise<ActionResult & TokenHealthResult> {
+  await requireUser(["admin"]);
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const admin = createAdminClient();
+
+  const { data: conn, error } = await admin
+    .from("ad_platform_connections")
+    .select("id, platform, account_id, access_token, status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !conn) {
+    return {
+      ok: false,
+      error: error?.message ?? "Connection not found",
+      health: "error",
+      message: "Connection not found",
+    };
+  }
+  if (conn.status !== "connected" || !conn.access_token) {
+    return {
+      ok: false,
+      error: "No access token on this connection",
+      health: "error",
+      message: "Disconnected or missing token — Edit and paste a new token",
+    };
+  }
+
+  let health: TokenHealthResult["health"] = "error";
+  let message = "Unknown error";
+  let expiresAt: string | null = null;
+
+  if (conn.platform === "meta") {
+    const result = await testMetaToken(conn.access_token, conn.account_id);
+    health = result.health;
+    message = result.message;
+    expiresAt = result.expiresAt ?? null;
+  } else {
+    health = "error";
+    message = `Live test not implemented for ${conn.platform} yet`;
+  }
+
+  const { error: saveErr } = await admin
+    .from("ad_platform_connections")
+    .update({
+      token_health: health,
+      last_tested_at: new Date().toISOString(),
+      last_test_error: health === "valid" ? null : message,
+    })
+    .eq("id", id);
+
+  if (saveErr) {
+    // Columns may be missing until migration is applied — still return live result
+    console.warn("[testAdPlatformConnection] could not persist health", saveErr.message);
+  }
+
+  revalidatePath("/admin/marketing/connections");
+
+  return {
+    ok: health === "valid",
+    ...(health === "valid" ? {} : { error: message }),
+    health,
+    message:
+      saveErr && /token_health|last_tested/i.test(saveErr.message)
+        ? `${message} (run migration 20260914120000 to persist Valid/Expired badge)`
+        : message,
+    expiresAt,
+  } as ActionResult & TokenHealthResult;
+}
+
+async function testMetaToken(
+  accessToken: string,
+  accountId: string
+): Promise<{
+  health: "valid" | "expired" | "error";
+  message: string;
+  expiresAt?: string | null;
+}> {
+  // 1) Token debug — expiry / is_valid
+  const debugUrl = new URL("https://graph.facebook.com/v21.0/debug_token");
+  debugUrl.searchParams.set("input_token", accessToken);
+  debugUrl.searchParams.set("access_token", accessToken);
+
+  const debugRes = await fetch(debugUrl.toString());
+  const debugBody = (await debugRes.json().catch(() => ({}))) as {
+    data?: {
+      is_valid?: boolean;
+      expires_at?: number;
+      error?: { message?: string; code?: number };
+    };
+    error?: { message?: string; code?: number; error_subcode?: number };
+  };
+
+  if (debugBody.error || debugBody.data?.error) {
+    const err = debugBody.error || debugBody.data?.error;
+    const msg = err?.message || "Meta token invalid";
+    const expired =
+      err?.code === 190 ||
+      /expired|session has expired/i.test(msg);
+    return {
+      health: expired ? "expired" : "error",
+      message: msg,
+    };
+  }
+
+  if (debugBody.data && debugBody.data.is_valid === false) {
+    return {
+      health: "expired",
+      message: debugBody.data.error?.message || "Meta reports token is not valid",
+    };
+  }
+
+  const expUnix = debugBody.data?.expires_at;
+  const expiresAt =
+    expUnix && expUnix > 0
+      ? new Date(expUnix * 1000).toISOString()
+      : expUnix === 0
+        ? null // never expires
+        : null;
+
+  // 2) Account access — Page vs Ad Account
+  const trimmed = accountId.trim();
+  const isAct = /^act_/i.test(trimmed) || looksLikeNumericAdAccount(trimmed);
+  const graphId = isAct
+    ? `act_${trimmed.replace(/^act_/i, "")}`
+    : trimmed;
+
+  const probe = await fetch(
+    `https://graph.facebook.com/v21.0/${graphId}?fields=id,name&access_token=${encodeURIComponent(accessToken)}`
+  );
+  const probeBody = (await probe.json().catch(() => ({}))) as {
+    id?: string;
+    name?: string;
+    error?: { message?: string; code?: number };
+  };
+
+  if (!probe.ok || probeBody.error) {
+    const msg = probeBody.error?.message || `Cannot read ${graphId}`;
+    const expired =
+      probeBody.error?.code === 190 || /expired|session has expired/i.test(msg);
+    // Token may be valid but wrong account type — still surface as error
+    if (expired) {
+      return { health: "expired", message: msg, expiresAt };
+    }
+    return {
+      health: "error",
+      message: `${msg} — check Account ID (use act_… for spend, Page ID for Lead Ads)`,
+      expiresAt,
+    };
+  }
+
+  const never = expUnix === 0;
+  return {
+    health: "valid",
+    message: never
+      ? `Valid · ${probeBody.name || graphId} · token does not expire`
+      : expiresAt
+        ? `Valid · ${probeBody.name || graphId} · expires ${new Date(expiresAt).toLocaleString("en-IN")}`
+        : `Valid · ${probeBody.name || graphId}`,
+    expiresAt,
+  };
+}
+
+function looksLikeNumericAdAccount(id: string): boolean {
+  // Prefer act_ prefix; bare digits may be Page ID — only treat as ad account if prefixed.
+  return /^act_\d+$/i.test(id.trim());
+}
