@@ -91,6 +91,8 @@ export type ResolvedDateRange = {
 
 export type DateRangeSearch = {
   stype?: string | null;
+  /** Legacy alias some URLs used instead of stype */
+  type?: string | null;
   year?: string | null;
   rangeCohort?: string | null;
   /** Data-filter cohort; used as rangeCohort fallback in cohort date mode */
@@ -175,7 +177,7 @@ export function resolveStructuredRange(opts: {
   }
 
   const selectionType: "year" | "cohort" =
-    search.stype === "cohort" ? "cohort" : "year";
+    search.stype === "cohort" || search.type === "cohort" ? "cohort" : "year";
   const currentYear = new Date().getFullYear();
   const currentMonth = monthKey();
 

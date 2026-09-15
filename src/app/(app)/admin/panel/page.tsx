@@ -8,6 +8,7 @@ import { DateRangeBar } from "@/components/admin/DateRangeBar";
 import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 function buildQuery(params: Record<string, string | undefined>) {
   const q = new URLSearchParams();
@@ -37,12 +38,18 @@ export default async function AdminPanelPage({
       .order("name"),
   ]);
 
+  const stypeRaw =
+    searchParams.stype ||
+    (searchParams.type === "cohort" || searchParams.type === "year"
+      ? searchParams.type
+      : null);
   const dateRange = resolveStructuredRange({
     search: {
       ...searchParams,
+      stype: stypeRaw,
       rangeCohort:
         searchParams.rangeCohort ||
-        (searchParams.stype === "cohort" ? searchParams.cohort : null) ||
+        (stypeRaw === "cohort" ? searchParams.cohort : null) ||
         null,
     },
     cohorts,
@@ -65,6 +72,30 @@ export default async function AdminPanelPage({
     : null;
   const courseId = searchParams.course || cohortRow?.course_id || null;
   const panelistId = searchParams.panelist || null;
+
+  const needsCohortParam = !searchParams.cohort && Boolean(dateRange.rangeCohortId);
+  const needsCourseParam = !searchParams.course && Boolean(courseId);
+  const needsTypeFix = Boolean(searchParams.type);
+  if (
+    dateRange.selectionType === "cohort" &&
+    dateRange.rangeCohortId &&
+    (needsCohortParam || needsCourseParam || needsTypeFix)
+  ) {
+    const q = new URLSearchParams();
+    q.set("stype", "cohort");
+    q.set("year", String(dateRange.year));
+    q.set("rangeCohort", dateRange.rangeCohortId);
+    q.set("cohort", cohortId || dateRange.rangeCohortId);
+    if (courseId) q.set("course", courseId);
+    if (dateRange.month)
+      q.set("month", dateRange.month === "entire" ? "entire" : dateRange.month);
+    q.set("from", dateRange.fromDate);
+    q.set("to", dateRange.toDate);
+    if (dateRange.overall) q.set("overall", "1");
+    if (round !== "all") q.set("round", round);
+    if (panelistId) q.set("panelist", panelistId);
+    redirect(`/admin/panel?${q.toString()}`);
+  }
 
   const panel = await fetchPanelPerformance(supabase, {
     rangeDays: dateRange.rangeDays,
@@ -136,6 +167,24 @@ export default async function AdminPanelPage({
         action="/admin/panel"
         stype={dateRange.selectionType}
         className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-white px-4 py-3"
+        values={{
+          course: courseId ?? "",
+          cohort: cohortId ?? "",
+          panelist: panelistId ?? "",
+          round,
+        }}
+        courseOptions={courses.map((c) => ({ id: c.id, label: c.name }))}
+        cohortOptions={filteredCohorts.map((c) => ({
+          id: c.id,
+          label: cohortDisplayLabel(c, cohorts, {
+            courseName: courseMap.get(c.course_id),
+            includeCourse: !courseId,
+          }),
+        }))}
+        panelistOptions={(panelists ?? []).map((p) => ({
+          id: p.id,
+          label: p.name,
+        }))}
       >
         <input type="hidden" name="stype" value={dateRange.selectionType} />
         <input type="hidden" name="year" value={String(dateRange.year)} />
@@ -152,54 +201,6 @@ export default async function AdminPanelPage({
         <input type="hidden" name="from" value={dateRange.fromDate} />
         <input type="hidden" name="to" value={dateRange.toDate} />
         {dateRange.overall ? <input type="hidden" name="overall" value="1" /> : null}
-        <div>
-          <label className="label-field">Panelist</label>
-          <select name="panelist" className="input-field mt-1" defaultValue={panelistId ?? ""}>
-            <option value="">All panelists</option>
-            {(panelists ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label-field">Round</label>
-          <select name="round" className="input-field mt-1" defaultValue={round}>
-            <option value="all">All rounds</option>
-            <option value="R1">R1</option>
-            <option value="R2">R2</option>
-            <option value="R3">R3</option>
-          </select>
-        </div>
-        <div>
-          <label className="label-field">Course</label>
-          <select name="course" className="input-field mt-1" defaultValue={courseId ?? ""}>
-            <option value="">All courses</option>
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label-field">Cohort</label>
-          <select name="cohort" className="input-field mt-1" defaultValue={cohortId ?? ""}>
-            <option value="">All cohorts</option>
-            {filteredCohorts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {cohortDisplayLabel(c, cohorts, {
-                  courseName: courseMap.get(c.course_id),
-                  includeCourse: !courseId,
-                })}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button type="submit" className="btn-primary">
-          Apply
-        </button>
       </SyncedAnalyticsFilters>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

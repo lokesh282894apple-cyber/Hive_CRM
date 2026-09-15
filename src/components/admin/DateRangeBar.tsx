@@ -56,6 +56,11 @@ export function DateRangeBar({
 
   function hrefFor(patch: Record<string, string | undefined>) {
     const q = new URLSearchParams(searchParams.toString());
+    // Normalize legacy `type` → `stype`
+    if (q.has("type") && !q.has("stype")) {
+      q.set("stype", q.get("type") || "");
+      q.delete("type");
+    }
     const base = dateRangeQueryBase(range);
     const next = { ...base, ...patch };
     for (const [k, v] of Object.entries(next)) {
@@ -71,6 +76,7 @@ export function DateRangeBar({
       q.delete("overall");
     }
     q.delete("range");
+    q.delete("type");
     const s = q.toString();
     return s ? `${pathname}?${s}` : pathname;
   }

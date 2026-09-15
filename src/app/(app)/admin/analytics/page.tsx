@@ -15,6 +15,7 @@ import { AttributionSplit } from "@/components/admin/funnel/AttributionSplit";
 import { DayWiseGrid } from "@/components/admin/funnel/DayWiseGrid";
 import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 function Section({
   id,
@@ -77,13 +78,19 @@ export default async function AdminAnalyticsPage({
   ]);
 
   const allCohorts = cohortsRaw ?? [];
+  const stypeRaw =
+    searchParams.stype ||
+    (searchParams.type === "cohort" || searchParams.type === "year"
+      ? searchParams.type
+      : null);
   const dateRange = resolveStructuredRange({
     search: {
       ...searchParams,
+      stype: stypeRaw,
       // Prefer explicit cohort filter when date mode is cohort (keeps bars in sync)
       rangeCohort:
         searchParams.rangeCohort ||
-        (searchParams.stype === "cohort" ? searchParams.cohort : null) ||
+        (stypeRaw === "cohort" ? searchParams.cohort : null) ||
         null,
     },
     cohorts: allCohorts,
@@ -102,6 +109,36 @@ export default async function AdminAnalyticsPage({
     : null;
   const courseId = searchParams.course || cohortRow?.course_id || null;
   const counselorId = searchParams.counselor || null;
+
+  // Normalize URL so top/bottom filters share course + cohort query params
+  const needsCohortParam = !searchParams.cohort && Boolean(dateRange.rangeCohortId);
+  const needsCourseParam = !searchParams.course && Boolean(courseId);
+  const needsTypeFix = Boolean(searchParams.type);
+  if (
+    dateRange.selectionType === "cohort" &&
+    dateRange.rangeCohortId &&
+    (needsCohortParam || needsCourseParam || needsTypeFix)
+  ) {
+    const q = new URLSearchParams();
+    q.set("stype", "cohort");
+    q.set("year", String(dateRange.year));
+    q.set("rangeCohort", dateRange.rangeCohortId);
+    q.set("cohort", cohortId || dateRange.rangeCohortId);
+    if (courseId) q.set("course", courseId);
+    if (dateRange.month)
+      q.set("month", dateRange.month === "entire" ? "entire" : dateRange.month);
+    q.set("from", fromDate);
+    q.set("to", toDate);
+    if (counselorId) q.set("counselor", counselorId);
+    if (searchParams.mode === "snapshot") q.set("mode", "snapshot");
+    if (
+      searchParams.attribution === "organic" ||
+      searchParams.attribution === "inorganic"
+    ) {
+      q.set("attribution", searchParams.attribution);
+    }
+    redirect(`/admin/analytics?${q.toString()}`);
+  }
   const mode: FunnelMode =
     searchParams.mode === "snapshot" ? "snapshot" : "period";
   const attribution: FunnelAttribution =
@@ -176,6 +213,24 @@ export default async function AdminAnalyticsPage({
         action="/admin/analytics"
         stype={dateRange.selectionType}
         className="panel flex flex-wrap items-end gap-3 p-4 sm:p-5"
+        values={{
+          mode,
+          course: courseId ?? "",
+          cohort: cohortId ?? "",
+          counselor: counselorId ?? "",
+        }}
+        courseOptions={(courses ?? []).map((c) => ({ id: c.id, label: c.name }))}
+        cohortOptions={cohorts.map((c) => ({
+          id: c.id,
+          label: cohortDisplayLabel(c, allCohorts, {
+            courseName: courseMap.get(c.course_id),
+            includeCourse: !courseId,
+          }),
+        }))}
+        counselorOptions={(counselors ?? []).map((c) => ({
+          id: c.id,
+          label: c.name,
+        }))}
       >
         <input type="hidden" name="stype" value={dateRange.selectionType} />
         <input type="hidden" name="year" value={String(dateRange.year)} />
@@ -194,68 +249,6 @@ export default async function AdminAnalyticsPage({
         {attribution !== "all" ? (
           <input type="hidden" name="attribution" value={attribution} />
         ) : null}
-        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
-          Funnel mode
-          <select
-            name="mode"
-            defaultValue={mode}
-            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
-          >
-            <option value="period">Period activity</option>
-            <option value="snapshot">Pipeline snapshot</option>
-          </select>
-        </label>
-        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
-          Course
-          <select
-            name="course"
-            defaultValue={courseId ?? ""}
-            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
-          >
-            <option value="">All courses</option>
-            {(courses ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
-          Cohort
-          <select
-            name="cohort"
-            defaultValue={cohortId ?? ""}
-            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
-          >
-            <option value="">All cohorts</option>
-            {cohorts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {cohortDisplayLabel(c, allCohorts, {
-                  courseName: courseMap.get(c.course_id),
-                  includeCourse: !courseId,
-                })}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
-          Counselor
-          <select
-            name="counselor"
-            defaultValue={counselorId ?? ""}
-            className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-navy"
-          >
-            <option value="">All counselors</option>
-            {(counselors ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" className="btn-primary text-xs">
-          Apply
-        </button>
       </SyncedAnalyticsFilters>
 
       <Section
