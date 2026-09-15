@@ -8,6 +8,7 @@ import {
 } from "@/lib/analytics/admissions-funnel";
 import { resolveStructuredRange, monthBounds } from "@/lib/analytics/date-range";
 import { DateRangeBar } from "@/components/admin/DateRangeBar";
+import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/FunnelMatrix";
 import { ConversionTable } from "@/components/admin/funnel/ConversionTable";
 import { AttributionSplit } from "@/components/admin/funnel/AttributionSplit";
@@ -77,13 +78,29 @@ export default async function AdminAnalyticsPage({
 
   const allCohorts = cohortsRaw ?? [];
   const dateRange = resolveStructuredRange({
-    search: searchParams,
+    search: {
+      ...searchParams,
+      // Prefer explicit cohort filter when date mode is cohort (keeps bars in sync)
+      rangeCohort:
+        searchParams.rangeCohort ||
+        (searchParams.stype === "cohort" ? searchParams.cohort : null) ||
+        null,
+    },
     cohorts: allCohorts,
   });
   const { fromDate, toDate } = dateRange;
 
-  const courseId = searchParams.course || null;
-  const cohortId = searchParams.cohort || null;
+  const rangeCohortRow = dateRange.rangeCohortId
+    ? allCohorts.find((c) => c.id === dateRange.rangeCohortId)
+    : null;
+  const cohortId =
+    searchParams.cohort ||
+    (dateRange.selectionType === "cohort" ? dateRange.rangeCohortId : null) ||
+    null;
+  const cohortRow = cohortId
+    ? allCohorts.find((c) => c.id === cohortId) ?? rangeCohortRow
+    : null;
+  const courseId = searchParams.course || cohortRow?.course_id || null;
   const counselorId = searchParams.counselor || null;
   const mode: FunnelMode =
     searchParams.mode === "snapshot" ? "snapshot" : "period";
@@ -136,6 +153,7 @@ export default async function AdminAnalyticsPage({
       includeCourse: true,
     }),
     year: c.year ?? null,
+    courseId: c.course_id,
   }));
 
   return (
@@ -154,7 +172,11 @@ export default async function AdminAnalyticsPage({
         pathname="/admin/analytics"
       />
 
-      <form method="get" className="panel flex flex-wrap items-end gap-3 p-4 sm:p-5">
+      <SyncedAnalyticsFilters
+        action="/admin/analytics"
+        stype={dateRange.selectionType}
+        className="panel flex flex-wrap items-end gap-3 p-4 sm:p-5"
+      >
         <input type="hidden" name="stype" value={dateRange.selectionType} />
         <input type="hidden" name="year" value={String(dateRange.year)} />
         {dateRange.rangeCohortId ? (
@@ -169,6 +191,9 @@ export default async function AdminAnalyticsPage({
         ) : null}
         <input type="hidden" name="from" value={fromDate} />
         <input type="hidden" name="to" value={toDate} />
+        {attribution !== "all" ? (
+          <input type="hidden" name="attribution" value={attribution} />
+        ) : null}
         <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
           Funnel mode
           <select
@@ -231,7 +256,7 @@ export default async function AdminAnalyticsPage({
         <button type="submit" className="btn-primary text-xs">
           Apply
         </button>
-      </form>
+      </SyncedAnalyticsFilters>
 
       <Section
         id="funnel"

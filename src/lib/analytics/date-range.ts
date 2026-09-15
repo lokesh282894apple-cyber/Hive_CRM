@@ -93,6 +93,8 @@ export type DateRangeSearch = {
   stype?: string | null;
   year?: string | null;
   rangeCohort?: string | null;
+  /** Data-filter cohort; used as rangeCohort fallback in cohort date mode */
+  cohort?: string | null;
   month?: string | null;
   from?: string | null;
   to?: string | null;
@@ -180,7 +182,10 @@ export function resolveStructuredRange(opts: {
   let year = Number(search.year);
   if (!Number.isFinite(year) || year < 2000 || year > 2100) year = currentYear;
 
-  const rangeCohortId = search.rangeCohort || null;
+  const rangeCohortId =
+    search.rangeCohort ||
+    (selectionType === "cohort" ? search.cohort : null) ||
+    null;
   const cohort = rangeCohortId
     ? opts.cohorts?.find((c) => c.id === rangeCohortId)
     : null;

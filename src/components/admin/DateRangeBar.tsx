@@ -16,6 +16,7 @@ export type DateRangeCohortOption = {
   id: string;
   label: string;
   year: number | null;
+  courseId?: string | null;
 };
 
 function prettyDate(iso: string) {
@@ -80,6 +81,29 @@ export function DateRangeBar({
     });
   }
 
+  function goCohortMode(cohortId?: string) {
+    const id = cohortId || range.rangeCohortId || cohorts[0]?.id;
+    const c = id ? cohorts.find((x) => x.id === id) : undefined;
+    go({
+      stype: "cohort",
+      rangeCohort: id || undefined,
+      // Keep bottom Course/Cohort filters in sync with the top picker
+      cohort: id || undefined,
+      course: c?.courseId || undefined,
+      month: range.month === "entire" ? "entire" : range.month ?? "entire",
+      overall: undefined,
+    });
+  }
+
+  function goYearMode() {
+    go({
+      stype: "year",
+      rangeCohort: undefined,
+      overall: undefined,
+      month: range.month === "entire" ? "entire" : range.month ?? undefined,
+    });
+  }
+
   const yearMonths = MONTH_SHORT.map((label, i) => {
     const key = `${range.year}-${String(i + 1).padStart(2, "0")}`;
     return { key, label };
@@ -130,14 +154,7 @@ export function DateRangeBar({
                 "rounded-pill px-3 py-1.5 text-xs font-semibold uppercase tracking-eyebrow transition",
                 mode === "year" ? "bg-navy text-white" : "text-muted hover:text-navy"
               )}
-              onClick={() =>
-                go({
-                  stype: "year",
-                  overall: undefined,
-                  month:
-                    range.month === "entire" ? "entire" : range.month ?? undefined,
-                })
-              }
+              onClick={goYearMode}
             >
               Year
             </button>
@@ -147,13 +164,7 @@ export function DateRangeBar({
                 "rounded-pill px-3 py-1.5 text-xs font-semibold uppercase tracking-eyebrow transition",
                 mode === "cohort" ? "bg-navy text-white" : "text-muted hover:text-navy"
               )}
-              onClick={() =>
-                go({
-                  stype: "cohort",
-                  rangeCohort: range.rangeCohortId ?? cohorts[0]?.id,
-                  overall: undefined,
-                })
-              }
+              onClick={() => goCohortMode()}
             >
               Cohort
             </button>
@@ -164,7 +175,7 @@ export function DateRangeBar({
                   "rounded-pill px-3 py-1.5 text-xs font-semibold uppercase tracking-eyebrow transition",
                   mode === "overall" ? "bg-navy text-white" : "text-muted hover:text-navy"
                 )}
-                onClick={() => go({ overall: "1" })}
+                onClick={() => go({ overall: "1", rangeCohort: undefined })}
               >
                 Overall
               </button>
@@ -194,6 +205,7 @@ export function DateRangeBar({
                   month: m,
                   from: bounds?.from,
                   to: bounds?.to,
+                  rangeCohort: undefined,
                   overall: undefined,
                 });
               }}
@@ -208,15 +220,26 @@ export function DateRangeBar({
 
           {mode === "cohort" ? (
             <select
-              aria-label="Cohort"
+              aria-label="Cohort for date range"
               className="h-9 min-w-[180px] max-w-[260px] rounded-pill border border-border bg-white px-3 text-sm font-semibold text-navy outline-none focus:border-periwinkle focus:ring-2 focus:ring-periwinkle/20"
               value={range.rangeCohortId ?? ""}
               disabled={pending}
               onChange={(e) => {
                 const id = e.target.value;
+                if (!id) {
+                  go({
+                    rangeCohort: undefined,
+                    cohort: undefined,
+                    overall: undefined,
+                  });
+                  return;
+                }
                 const c = cohorts.find((x) => x.id === id);
                 go({
-                  rangeCohort: id || undefined,
+                  stype: "cohort",
+                  rangeCohort: id,
+                  cohort: id,
+                  course: c?.courseId || undefined,
                   year: c?.year ? String(c.year) : undefined,
                   month: "entire",
                   overall: undefined,

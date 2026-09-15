@@ -5,6 +5,7 @@ import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
 import { resolveStructuredRange } from "@/lib/analytics/date-range";
 import { DateRangeBar } from "@/components/admin/DateRangeBar";
+import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
 
@@ -36,15 +37,33 @@ export default async function AdminPanelPage({
       .order("name"),
   ]);
 
-  const dateRange = resolveStructuredRange({ search: searchParams, cohorts });
+  const dateRange = resolveStructuredRange({
+    search: {
+      ...searchParams,
+      rangeCohort:
+        searchParams.rangeCohort ||
+        (searchParams.stype === "cohort" ? searchParams.cohort : null) ||
+        null,
+    },
+    cohorts,
+  });
   const round =
     searchParams.round === "R1" ||
     searchParams.round === "R2" ||
     searchParams.round === "R3"
       ? searchParams.round
       : "all";
-  const courseId = searchParams.course || null;
-  const cohortId = searchParams.cohort || null;
+  const rangeCohortRow = dateRange.rangeCohortId
+    ? cohorts.find((c) => c.id === dateRange.rangeCohortId)
+    : null;
+  const cohortId =
+    searchParams.cohort ||
+    (dateRange.selectionType === "cohort" ? dateRange.rangeCohortId : null) ||
+    null;
+  const cohortRow = cohortId
+    ? cohorts.find((c) => c.id === cohortId) ?? rangeCohortRow
+    : null;
+  const courseId = searchParams.course || cohortRow?.course_id || null;
   const panelistId = searchParams.panelist || null;
 
   const panel = await fetchPanelPerformance(supabase, {
@@ -68,7 +87,12 @@ export default async function AdminPanelPage({
       includeCourse: true,
     }),
     year: c.year ?? null,
+    courseId: c.course_id,
   }));
+
+  const filteredCohorts = courseId
+    ? cohorts.filter((c) => c.course_id === courseId)
+    : cohorts;
 
   const base = {
     stype: dateRange.selectionType,
@@ -108,7 +132,11 @@ export default async function AdminPanelPage({
         />
       </div>
 
-      <form className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-white px-4 py-3">
+      <SyncedAnalyticsFilters
+        action="/admin/panel"
+        stype={dateRange.selectionType}
+        className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-white px-4 py-3"
+      >
         <input type="hidden" name="stype" value={dateRange.selectionType} />
         <input type="hidden" name="year" value={String(dateRange.year)} />
         {dateRange.rangeCohortId ? (
@@ -159,11 +187,11 @@ export default async function AdminPanelPage({
           <label className="label-field">Cohort</label>
           <select name="cohort" className="input-field mt-1" defaultValue={cohortId ?? ""}>
             <option value="">All cohorts</option>
-            {cohorts.map((c) => (
+            {filteredCohorts.map((c) => (
               <option key={c.id} value={c.id}>
                 {cohortDisplayLabel(c, cohorts, {
                   courseName: courseMap.get(c.course_id),
-                  includeCourse: true,
+                  includeCourse: !courseId,
                 })}
               </option>
             ))}
@@ -172,7 +200,7 @@ export default async function AdminPanelPage({
         <button type="submit" className="btn-primary">
           Apply
         </button>
-      </form>
+      </SyncedAnalyticsFilters>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
