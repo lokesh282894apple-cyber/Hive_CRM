@@ -12,6 +12,7 @@ import {
 } from "@/lib/leads-query";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
+import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
 
 export default async function LeadsPage({
@@ -49,7 +50,10 @@ export default async function LeadsPage({
 
   const [{ data }, { count }] = await Promise.all([dataQuery, countQuery]);
 
-  const leads = (data as unknown as LeadWithRelations[]) ?? [];
+  const leads = await loadLeadCardMetrics(
+    supabase,
+    (data as unknown as LeadWithRelations[]) ?? []
+  );
   const attrMap = await fetchAttributionForLeads(
     supabase,
     leads.map((l) => l.id)

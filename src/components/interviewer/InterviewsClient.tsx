@@ -22,6 +22,8 @@ export function InterviewsClient({
   const [pending, startTransition] = useTransition();
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [outcomes, setOutcomes] = useState<Record<string, InterviewOutcome>>({});
+  const [tiers, setTiers] = useState<Record<string, "A" | "B" | "C">>({});
+  const [scores, setScores] = useState<Record<string, string>>({});
 
   return (
     <div className="space-y-8">
@@ -72,6 +74,34 @@ export function InterviewsClient({
                       setNotes((prev) => ({ ...prev, [b.id]: e.target.value }))
                     }
                   />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="input-field py-1.5"
+                      value={tiers[b.id] ?? "B"}
+                      onChange={(e) =>
+                        setTiers((prev) => ({
+                          ...prev,
+                          [b.id]: e.target.value as "A" | "B" | "C",
+                        }))
+                      }
+                    >
+                      <option value="A">Grade A</option>
+                      <option value="B">Grade B</option>
+                      <option value="C">Grade C</option>
+                    </select>
+                    <input
+                      className="input-field py-1.5"
+                      type="number"
+                      min={0}
+                      max={5}
+                      step={0.1}
+                      placeholder="Score /5"
+                      value={scores[b.id] ?? ""}
+                      onChange={(e) =>
+                        setScores((prev) => ({ ...prev, [b.id]: e.target.value }))
+                      }
+                    />
+                  </div>
                   <button
                     type="button"
                     className="btn-primary"
@@ -82,6 +112,8 @@ export function InterviewsClient({
                           bookingId: b.id,
                           outcome: outcomes[b.id] ?? "confirmed",
                           feedbackNotes: notes[b.id],
+                          gradeTier: tiers[b.id] ?? "B",
+                          gradeScore: scores[b.id] ? Number(scores[b.id]) : undefined,
                         });
                         router.refresh();
                       })

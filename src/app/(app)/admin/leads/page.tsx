@@ -11,6 +11,7 @@ import {
 } from "@/lib/leads-query";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
+import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
 
 export default async function AdminLeadsPage({
@@ -58,7 +59,10 @@ export default async function AdminLeadsPage({
     getActiveCohorts(),
   ]);
 
-  const leads = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
+  const leads = await loadLeadCardMetrics(
+    supabase,
+    (leadsRaw as unknown as LeadWithRelations[]) ?? []
+  );
   const attrMap = await fetchAttributionForLeads(
     supabase,
     leads.map((l) => l.id)

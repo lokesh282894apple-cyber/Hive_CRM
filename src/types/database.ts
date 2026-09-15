@@ -40,6 +40,14 @@ export type Cohort = {
   default_total_fee: number;
   active: boolean;
   created_at: string;
+  cohort_number?: number | null;
+  year?: number | null;
+};
+
+export type CounselorProgramAlloc = {
+  id: string;
+  user_id: string;
+  course_id: string;
 };
 
 export type Lead = {
@@ -87,6 +95,10 @@ export type Lead = {
   meta_ad_set?: string | null;
   meta_ad_name?: string | null;
   clarity_session_url?: string | null;
+  offer_call_status?: "not_booked" | "booked" | "done" | null;
+  counselor_intent_check?: string | null;
+  convert_probability?: "confirmed_to_pay" | "low_intent" | null;
+  offer_accept_deadline?: string | null;
 };
 
 export type LeadWithRelations = Lead & {
@@ -159,6 +171,11 @@ export type FeeRecord = {
   list_price?: number | null;
   fee_set_by?: string | null;
   fee_set_at?: string | null;
+  scholarship_pct?: number | null;
+  gross_fee_ex_gst?: number | null;
+  admission_fee?: number | null;
+  invoice_number?: string | null;
+  one_shot_deadline?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -301,4 +318,35 @@ export type AdPlatformConnectionStatus = {
   token_health?: "valid" | "expired" | "error" | "untested" | null;
   last_tested_at?: string | null;
   last_test_error?: string | null;
+};
+
+export type LeadPanelistGrade = {
+  id: string;
+  lead_id: string;
+  panelist_id: string;
+  tier: "A" | "B" | "C";
+  score: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MessageSequence = {
+  id: string;
+  trigger_key: string;
+  course_id: string | null;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MessageSequenceStep = {
+  id: string;
+  sequence_id: string;
+  step_order: number;
+  channel: "whatsapp" | "email";
+  delay_hours: number;
+  wa_template_name: string | null;
+  wa_template_lang: string;
+  email_subject: string | null;
+  email_body_html: string | null;
 };

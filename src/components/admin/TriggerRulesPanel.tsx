@@ -2,7 +2,7 @@
 
 import { updateStageTriggerRule, type StageTriggerRule } from "@/app/actions/triggers";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 
 export function TriggerRulesPanel({ rules: initial }: { rules: StageTriggerRule[] }) {
   const router = useRouter();
@@ -46,7 +46,8 @@ export function TriggerRulesPanel({ rules: initial }: { rules: StageTriggerRule[
           </thead>
           <tbody>
             {rules.map((r) => (
-              <tr key={r.id} className="border-b border-border last:border-0">
+              <Fragment key={r.id}>
+              <tr className="border-b border-border last:border-0">
                 <td className="px-3 py-2 font-medium text-navy">{r.label}</td>
                 <td className="px-3 py-2">
                   <input
@@ -101,6 +102,29 @@ export function TriggerRulesPanel({ rules: initial }: { rules: StageTriggerRule[
                   />
                 </td>
               </tr>
+              <tr className="border-b border-border last:border-0 bg-[#F7F8FC]/60">
+                <td colSpan={6} className="px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+                    Message preview
+                  </p>
+                  <p className="mt-1 text-xs text-navy">
+                    WhatsApp template: <code>{r.wa_template_name || "—"}</code>
+                  </p>
+                  <textarea
+                    className="input-field mt-2 min-h-[80px] text-xs"
+                    defaultValue={r.email_body_html ?? ""}
+                    disabled={pending}
+                    placeholder="Email body HTML"
+                    onBlur={(e) => {
+                      const v = e.target.value.trim() || null;
+                      if (v !== r.email_body_html) {
+                        save(r.id, { email_body_html: v });
+                      }
+                    }}
+                  />
+                </td>
+              </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>

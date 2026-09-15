@@ -8,6 +8,7 @@ import {
   CalendarDays,
   ClipboardList,
   Cog,
+  IndianRupee,
   LayoutDashboard,
   Link2,
   Megaphone,
@@ -43,11 +44,10 @@ const counselorNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
   { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
-  { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/panel", label: "Panel", icon: GraduationCap },
-  { href: "/admin/forecast", label: "Forecast", icon: TrendingUp },
+  { href: "/admin/payments", label: "Payments", icon: IndianRupee },
   { href: "/admin/users", label: "Users & Roles", icon: Users },
   { href: "/admin/config", label: "System Config", icon: Cog },
   { href: "/admin/marketing/connections", label: "Ad Connections", icon: Link2 },
@@ -125,6 +125,7 @@ function navItemActive(pathname: string, item: NavItem): boolean {
     pathname === item.href ||
     (item.href !== "/dashboard" &&
       item.href !== "/admin/dashboard" &&
+      item.href !== "/admin/analytics" &&
       item.href !== "/marketing/dashboard" &&
       pathname.startsWith(item.href))
   );

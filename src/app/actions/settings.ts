@@ -28,15 +28,24 @@ export async function upsertCohort(formData: FormData): Promise<ActionResult> {
   await requireUser(["admin"]);
   const supabase = createClient();
   const id = String(formData.get("id") || "");
+  const courseId = String(formData.get("course_id") || "");
+  const cohortNumber = Number(formData.get("cohort_number") || 0);
+  const year = Number(formData.get("year") || 0);
+  const nameFromParts =
+    cohortNumber > 0 && year > 0
+      ? `Cohort ${cohortNumber} – ${year}`
+      : String(formData.get("name") || "").trim();
   const payload = {
-    course_id: String(formData.get("course_id") || ""),
-    name: String(formData.get("name") || "").trim(),
+    course_id: courseId,
+    name: nameFromParts,
+    cohort_number: cohortNumber > 0 ? cohortNumber : null,
+    year: year > 0 ? year : null,
     start_date: String(formData.get("start_date") || "") || null,
     default_total_fee: Number(formData.get("default_total_fee") || 0),
     active: formData.get("active") === "true" || formData.get("active") === "on",
   };
   if (!payload.course_id || !payload.name) {
-    return { ok: false, error: "Course and name required" };
+    return { ok: false, error: "Course and cohort number + year are required" };
   }
 
   const { error } = id
@@ -75,9 +84,7 @@ export async function updateAppSetting(key: string, value: unknown): Promise<Act
   });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/admin/config");
-  revalidatePath("/admin/dashboard");
   revalidatePath("/admin/analytics");
-  revalidatePath("/admin/forecast");
   return { ok: true };
 }
 
@@ -133,9 +140,41 @@ export async function setManualMonthlyAdSpend(
     updated_at: new Date().toISOString(),
   });
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/admin/dashboard");
   revalidatePath("/admin/analytics");
-  revalidatePath("/admin/forecast");
   revalidatePath("/admin/config");
+  return { ok: true };
+}
+
+export async function createCounselorFromConfig(
+  formData: FormData
+): Promise<ActionResult> {
+  await requireUser(["admin"]);
+  const { createUserAccount } = await import("@/app/actions/users");
+  const courseIds = formData
+    .getAll("course_ids")
+    .map((v) => String(v))
+    .filter(Boolean);
+  return createUserAccount({
+    name: String(formData.get("name") || "").trim(),
+    email: String(formData.get("email") || "").trim(),
+    password: String(formData.get("password") || ""),
+    role: "counselor",
+    courseIds,
+  });
+}
+
+export async function setCounselorPrograms(
+  userId: string,
+  courseIds: string[]
+): Promise<ActionResult> {
+  await requireUser(["admin"]);
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const { syncCounselorScopeFromPrograms } = await import(
+    "@/lib/leads/assign-counselor"
+  );
+  const admin = createAdminClient();
+  await syncCounselorScopeFromPrograms(admin, userId, courseIds);
+  revalidatePath("/admin/config");
+  revalidatePath("/admin/analytics");
   return { ok: true };
 }

@@ -64,6 +64,11 @@ export async function setOfferFee(input: {
   totalFee: number;
   paymentMode: PaymentMode;
   notes?: string;
+  scholarshipPct?: number | null;
+  grossFeeExGst?: number | null;
+  admissionFee?: number | null;
+  invoiceNumber?: string | null;
+  oneShotDeadline?: string | null;
 }): Promise<ActionResult & { feeRecordId?: string }> {
   const user = await requireUser(["admin"]);
   const supabase = createClient();
@@ -99,7 +104,10 @@ export async function setOfferFee(input: {
   let realised = 0;
 
   if (existing) {
-    if (existing.payment_mode === "direct_instalments") {
+    if (
+      existing.payment_mode === "direct_instalments" ||
+      existing.payment_mode === "one_shot"
+    ) {
       const { data: all } = await supabase
         .from("installments")
         .select("amount_realised")
@@ -124,6 +132,11 @@ export async function setOfferFee(input: {
         list_price: listPrice,
         fee_set_by: user.id,
         fee_set_at: now,
+        scholarship_pct: input.scholarshipPct ?? null,
+        gross_fee_ex_gst: input.grossFeeExGst ?? input.totalFee,
+        admission_fee: input.admissionFee ?? null,
+        invoice_number: input.invoiceNumber ?? null,
+        one_shot_deadline: input.oneShotDeadline ?? null,
       })
       .eq("id", existing.id);
     if (error) return { ok: false, error: error.message };
@@ -161,6 +174,11 @@ export async function setOfferFee(input: {
       list_price: listPrice,
       fee_set_by: user.id,
       fee_set_at: now,
+      scholarship_pct: input.scholarshipPct ?? null,
+      gross_fee_ex_gst: input.grossFeeExGst ?? input.totalFee,
+      admission_fee: input.admissionFee ?? null,
+      invoice_number: input.invoiceNumber ?? null,
+      one_shot_deadline: input.oneShotDeadline ?? null,
     })
     .select("id")
     .single();
@@ -212,6 +230,9 @@ export async function generateInstallments(input: {
   count: number;
   amounts: number[];
   totalFee: number;
+  paymentMode?: "direct_instalments" | "one_shot";
+  deadlines?: string[];
+  oneShotDeadline?: string | null;
 }): Promise<ActionResult> {
   const user = await requireUser(["admin"]);
   const lead = await getLeadStage(input.leadId);
@@ -220,10 +241,14 @@ export async function generateInstallments(input: {
     return { ok: false, error: "Set the offer fee only after the lead is Offered." };
   }
 
+  const mode = input.paymentMode ?? "direct_instalments";
+  const count = mode === "one_shot" ? 1 : input.count;
+
   const set = await setOfferFee({
     leadId: input.leadId,
     totalFee: input.totalFee,
-    paymentMode: "direct_instalments",
+    paymentMode: mode,
+    oneShotDeadline: input.oneShotDeadline ?? input.deadlines?.[0] ?? null,
   });
   if (!set.ok || !set.feeRecordId) {
     return { ok: false, error: set.ok ? "Missing fee record" : set.error };
@@ -238,9 +263,13 @@ export async function generateInstallments(input: {
 
   const rows = [];
   const start = new Date();
-  for (let i = 0; i < input.count; i++) {
-    const amount = input.amounts[i] ?? 0;
-    const deadline = format(addDays(start, i * days), "yyyy-MM-dd");
+  const amounts = mode === "one_shot" ? [input.totalFee] : input.amounts;
+  for (let i = 0; i < count; i++) {
+    const amount = amounts[i] ?? 0;
+    const deadline =
+      input.deadlines?.[i] ||
+      (mode === "one_shot" && input.oneShotDeadline) ||
+      format(addDays(start, i * days), "yyyy-MM-dd");
     rows.push({
       fee_record_id: feeId,
       installment_number: i + 1,
@@ -257,9 +286,11 @@ export async function generateInstallments(input: {
   await supabase
     .from("fee_records")
     .update({
-      payment_mode: "direct_instalments",
+      payment_mode: mode,
       total_fee: input.totalFee,
       remaining_fee: input.totalFee,
+      one_shot_deadline:
+        mode === "one_shot" ? input.oneShotDeadline ?? rows[0]?.deadline : null,
       fee_set_by: user.id,
       fee_set_at: new Date().toISOString(),
     })

@@ -467,15 +467,22 @@ function computeRound(
   });
 }
 
-function computeOffer(facts: LeadFacts[]): OfferMetrics {
+function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
   let offered = 0;
   let won = 0;
   let lost = 0;
   for (const f of facts) {
-    if (!hasAny(f.stagesEver, OFFER_PLUS)) continue;
+    const pool = mode === "snapshot" ? f.stagesEver : f.stagesInPeriod;
+    if (!hasAny(pool, OFFER_PLUS)) continue;
     offered += 1;
-    if (hasAny(f.stagesEver, WON) || f.lead.stage === "closed_won") won += 1;
-    else if (hasAny(f.stagesEver, LOST) || f.lead.stage === "closed_lost") lost += 1;
+    if (hasAny(pool, WON) || (mode === "snapshot" && f.lead.stage === "closed_won")) {
+      won += 1;
+    } else if (
+      hasAny(pool, LOST) ||
+      (mode === "snapshot" && f.lead.stage === "closed_lost")
+    ) {
+      lost += 1;
+    }
   }
   return {
     offered,
@@ -520,6 +527,18 @@ function leadTotalsOf(facts: LeadFacts[]): LeadTotals {
     else inorganic += 1;
   }
   return { total: facts.length, organic, inorganic };
+}
+
+/** Leads whose created_at calendar day is in [start, endExclusive). */
+function createdBetween(
+  facts: LeadFacts[],
+  start: string,
+  endExclusive: string
+): LeadFacts[] {
+  return facts.filter((f) => {
+    const day = f.lead.created_at.slice(0, 10);
+    return day >= start && day < endExclusive;
+  });
 }
 
 function roundBundle(facts: LeadFacts[], mode: FunnelMode): Record<RoundKey, RoundMetrics> {
@@ -753,12 +772,20 @@ export async function fetchAdmissionsFunnel(
   const facts = filterAttr(allFacts, attribution);
 
   const roundFunnel = roundBundle(facts, mode);
-  const offerFunnel = computeOffer(facts);
-  const conversionPercents = computeConversions(facts, offerFunnel);
-  const totals = leadTotalsOf(facts);
+  const offerFunnel = computeOffer(facts, mode);
+  const createdInRange = createdBetween(allFacts, periodStart, endExclusive);
+  const conversionPercents = computeConversions(
+    attribution === "all"
+      ? createdInRange
+      : createdBetween(facts, periodStart, endExclusive),
+    offerFunnel
+  );
+  const totals = leadTotalsOf(createdInRange);
 
-  const organicFacts = allFacts.filter((f) => f.attr === "organic");
-  const inorganicFacts = allFacts.filter((f) => f.attr === "inorganic");
+  const organicFacts = filterAttr(allFacts, "organic");
+  const inorganicFacts = filterAttr(allFacts, "inorganic");
+  const organicInRange = createdBetween(organicFacts, periodStart, endExclusive);
+  const inorganicInRange = createdBetween(inorganicFacts, periodStart, endExclusive);
 
   const days = daysInRange(periodStart, periodEnd);
   const dayWise: DayWiseRow[] = days.map((date) => ({
@@ -769,18 +796,12 @@ export async function fetchAdmissionsFunnel(
   }));
   const weekRollups = buildWeekRollups(dayWise);
 
-  // Month strip: current + prior 5 months
+  // Month strip: leads *created* in each calendar month (not the year/all-time total).
   const byMonth: MonthStripRow[] = [];
   {
-    const [y, m] = month.split("-").map(Number);
-    for (let i = 5; i >= 0; i--) {
-      let mm = m! - i;
-      let yy = y!;
-      while (mm <= 0) {
-        mm += 12;
-        yy -= 1;
-      }
-      const key = `${yy}-${String(mm).padStart(2, "0")}`;
+    const year = Number((fromOk ?? month).slice(0, 4));
+    for (let mm = 1; mm <= 12; mm++) {
+      const key = `${year}-${String(mm).padStart(2, "0")}`;
       const b = monthBounds(key);
       const monthFactsMap = buildLeadFacts(
         leads,
@@ -790,13 +811,16 @@ export async function fetchAdmissionsFunnel(
         b.start,
         b.endExclusive
       );
-      const mf = filterAttr(Array.from(monthFactsMap.values()), attribution);
-      const rf = roundBundle(mf, "period");
-      const of = computeOffer(mf);
+      const monthAll = Array.from(monthFactsMap.values());
+      const created = createdBetween(monthAll, b.start, b.endExclusive);
+      const activity =
+        attribution === "all" ? monthAll : filterAttr(monthAll, attribution);
+      const rf = roundBundle(activity, "period");
+      const of = computeOffer(activity, "period");
       byMonth.push({
         month: key,
         label: monthLabel(key),
-        leadTotals: leadTotalsOf(mf),
+        leadTotals: leadTotalsOf(created),
         r1OnCalendar: rf.R1.onCalendar,
         offered: of.offered,
         won: of.won,
@@ -812,9 +836,9 @@ export async function fetchAdmissionsFunnel(
       return {
         id: c.id,
         name: c.name,
-        leadTotals: leadTotalsOf(cf),
+        leadTotals: leadTotalsOf(createdBetween(cf, periodStart, endExclusive)),
         roundFunnel: roundBundle(cf, mode),
-        offerFunnel: computeOffer(cf),
+        offerFunnel: computeOffer(cf, mode),
       };
     })
     .filter(Boolean) as CohortFunnelSummary[];
@@ -833,14 +857,14 @@ export async function fetchAdmissionsFunnel(
     byCohort,
     pulse: buildPulse(roundFunnel, offerFunnel),
     organic: {
-      leadTotals: leadTotalsOf(organicFacts),
+      leadTotals: leadTotalsOf(organicInRange),
       roundFunnel: roundBundle(organicFacts, mode),
-      offerFunnel: computeOffer(organicFacts),
+      offerFunnel: computeOffer(organicFacts, mode),
     },
     inorganic: {
-      leadTotals: leadTotalsOf(inorganicFacts),
+      leadTotals: leadTotalsOf(inorganicInRange),
       roundFunnel: roundBundle(inorganicFacts, mode),
-      offerFunnel: computeOffer(inorganicFacts),
+      offerFunnel: computeOffer(inorganicFacts, mode),
     },
   };
 }

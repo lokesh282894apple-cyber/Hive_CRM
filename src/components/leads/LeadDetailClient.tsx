@@ -12,6 +12,7 @@ import { markNoShowOrReschedule } from "@/app/actions/interviews";
 import {
   CALL_OUTCOMES,
   LEAD_SOURCES,
+  PAYMENT_MODE_LABELS,
   STAGE_LABELS,
   STAGE_TRANSITIONS,
   STAGES,
@@ -27,6 +28,7 @@ import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
 import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
 import { LeadScoreCard, LeadScoreSummary } from "@/components/leads/LeadScoreCard";
 import { LeadQualificationPanel } from "@/components/leads/LeadQualificationPanel";
+import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
 import type { ScoreBreakdown } from "@/lib/leads/score";
 import type {
   AppUser,
@@ -303,7 +305,9 @@ export function LeadDetailClient({
               </span>
             </p>
             <p className="mt-0.5 text-xs text-muted">
-              {feeSummary.payment_mode === "loan" ? "Loan" : "Direct installments"}
+              {PAYMENT_MODE_LABELS[
+                feeSummary.payment_mode as keyof typeof PAYMENT_MODE_LABELS
+              ] ?? feeSummary.payment_mode}
               {feeSummary.list_price != null &&
               Number(feeSummary.list_price) !== Number(feeSummary.total_fee)
                 ? ` · list ${formatCurrency(feeSummary.list_price)}`
@@ -429,6 +433,13 @@ export function LeadDetailClient({
             {displayInterview?.interviewerName ?? "—"}
           </p>
         </div>
+      </div>
+
+      <div className="mb-6 rounded-xl border border-border bg-white px-4 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+          Counselor intent & offer
+        </p>
+        <LeadOfferFields lead={lead} />
       </div>
 
       <div className="mb-6 flex gap-1 rounded-pill border border-border bg-white p-1 w-fit">

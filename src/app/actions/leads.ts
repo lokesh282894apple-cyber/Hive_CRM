@@ -19,12 +19,23 @@ export async function createLead(
     ? Number(formData.get("intent_score"))
     : null;
 
+  const courseId = String(formData.get("course_id") || "") || null;
+  let allocatedTo =
+    user.role === "admin"
+      ? String(formData.get("lead_allocated_to") || "") || null
+      : user.id;
+  if (!allocatedTo && courseId) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { pickCounselorForCourse } = await import("@/lib/leads/assign-counselor");
+    allocatedTo = await pickCounselorForCourse(createAdminClient(), courseId);
+  }
+
   const payload = {
     name: String(formData.get("name") || "").trim(),
     email: String(formData.get("email") || "").trim() || null,
     phone: String(formData.get("phone") || "").trim(),
     linkedin: String(formData.get("linkedin") || "").trim() || null,
-    course_id: String(formData.get("course_id") || "") || null,
+    course_id: courseId,
     cohort_id: String(formData.get("cohort_id") || "") || null,
     source: String(formData.get("source") || "other"),
     years_experience: formData.get("years_experience")
@@ -33,10 +44,7 @@ export async function createLead(
     preferred_industry: String(formData.get("preferred_industry") || "").trim() || null,
     intent_score: intentPrior,
     score_auto: intentPrior,
-    lead_allocated_to:
-      user.role === "admin"
-        ? String(formData.get("lead_allocated_to") || "") || user.id
-        : user.id,
+    lead_allocated_to: allocatedTo || (user.role === "admin" ? user.id : user.id),
     stage: "new_lead" as Stage,
   };
 
@@ -323,5 +331,50 @@ export async function deleteCallLog(id: string, leadId: string): Promise<ActionR
   if (error) return { ok: false, error: error.message };
   await recomputeLeadScore(supabase, leadId);
   revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function updateLeadCardFields(
+  leadId: string,
+  patch: {
+    counselor_intent_check?: string | null;
+    convert_probability?: "confirmed_to_pay" | "low_intent" | null;
+    offer_call_status?: "not_booked" | "booked" | "done" | null;
+    offer_accept_deadline?: string | null;
+  }
+): Promise<ActionResult> {
+  await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+  const { error } = await supabase.from("leads").update(patch).eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  revalidatePath("/admin/leads");
+  return { ok: true };
+}
+
+export async function upsertPanelistGrade(input: {
+  leadId: string;
+  tier: "A" | "B" | "C";
+  score: number;
+}): Promise<ActionResult> {
+  const user = await requireUser(["interviewer", "admin", "counselor"]);
+  const supabase = createClient();
+  const score = Math.min(5, Math.max(0, Number(input.score)));
+  const { error } = await supabase.from("lead_panelist_grades").upsert(
+    {
+      lead_id: input.leadId,
+      panelist_id: user.id,
+      tier: input.tier,
+      score,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "lead_id,panelist_id" }
+  );
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/leads/${input.leadId}`);
+  revalidatePath("/leads");
+  revalidatePath("/admin/leads");
+  revalidatePath("/interviewer/interviews");
   return { ok: true };
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { pickCounselorForCourse } from "@/lib/leads/assign-counselor";
 import { isUuid, validateTrackApiKey } from "@/lib/marketing/track-auth";
 import {
   findExistingLead,
@@ -106,46 +107,6 @@ async function resolveCourseAndCohort(
   }
 
   return { courseId: resolvedCourse, cohortId: resolvedCohort };
-}
-
-async function pickCounselor(
-  admin: SupabaseClient,
-  courseId: string | null,
-  cohortId: string | null
-): Promise<string | null> {
-  if (!courseId) return null;
-
-  let scopeQuery = admin
-    .from("counselor_scope")
-    .select("user_id, users!inner(id, active, role)")
-    .eq("course_id", courseId);
-  if (cohortId) scopeQuery = scopeQuery.eq("cohort_id", cohortId);
-
-  const { data: scopes } = await scopeQuery;
-  const counselorIds = (scopes ?? [])
-    .map((s) => {
-      const u = s.users as unknown as { id: string; active: boolean; role: string };
-      return u?.active && u.role === "counselor" ? u.id : null;
-    })
-    .filter(Boolean) as string[];
-
-  if (!counselorIds.length) return null;
-
-  const unique = Array.from(new Set(counselorIds));
-  const { data: rr } = await admin
-    .from("app_settings")
-    .select("value")
-    .eq("key", "round_robin_last")
-    .maybeSingle();
-  const last = typeof rr?.value === "string" ? rr.value.replace(/^"|"$/g, "") : null;
-  const idx = last ? unique.indexOf(last) : -1;
-  const allocatedTo = unique[(idx + 1) % unique.length];
-  await admin.from("app_settings").upsert({
-    key: "round_robin_last",
-    value: JSON.stringify(allocatedTo),
-    updated_at: new Date().toISOString(),
-  });
-  return allocatedTo;
 }
 
 /**
@@ -259,7 +220,7 @@ export async function POST(request: NextRequest) {
     courseId = resolved.courseId;
     cohortId = resolved.cohortId;
 
-    const allocatedTo = await pickCounselor(admin, courseId, cohortId);
+    const allocatedTo = await pickCounselorForCourse(admin, courseId);
 
     const match = await findExistingLead(admin, phone, email);
     let existing = match?.lead ?? null;

@@ -25,7 +25,7 @@ function redirectTo(request: NextRequest, pathname: string) {
 }
 
 function homeForRole(role: string | null) {
-  if (role === "admin") return "/admin/dashboard";
+  if (role === "admin") return "/admin/analytics";
   if (role === "interviewer") return "/interviewer/interviews";
   if (role === "marketing") return "/marketing/dashboard";
   return "/dashboard";

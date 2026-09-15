@@ -16,7 +16,7 @@ export const getActiveCohorts = cache(async () => {
   const supabase = createClient();
   const { data } = await supabase
     .from("cohorts")
-    .select("id, name, course_id, active, start_date, default_total_fee")
+    .select("id, name, course_id, active, start_date, default_total_fee, cohort_number, year")
     .eq("active", true)
     .order("name");
   return data ?? [];

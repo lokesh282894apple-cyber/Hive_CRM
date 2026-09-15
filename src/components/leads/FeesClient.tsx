@@ -10,7 +10,9 @@ import {
 import {
   LOAN_STAGE_LABELS,
   LOAN_STAGES,
+  PAYMENT_MODE_LABELS,
   type LoanStage,
+  type PaymentMode,
   type Stage,
 } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/Primitives";
@@ -20,6 +22,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 const FEE_ELIGIBLE: Stage[] = ["offered", "closed_won"];
+type FeeTab = "direct" | "one_shot" | "loan";
+
+function tabFromMode(mode: PaymentMode | undefined, requested: string | null): FeeTab {
+  if (requested === "loan" || requested === "one_shot" || requested === "direct") {
+    return requested;
+  }
+  if (mode === "loan") return "loan";
+  if (mode === "one_shot") return "one_shot";
+  return "direct";
+}
 
 export function FeesClient({
   leadId,
@@ -45,15 +57,29 @@ export function FeesClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tab = searchParams.get("tab") === "loan" || feeRecord?.payment_mode === "loan"
-    ? "loan"
-    : "direct";
+  const tab = tabFromMode(feeRecord?.payment_mode, searchParams.get("tab"));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState(feeRecord?.notes ?? "");
   const [count, setCount] = useState(installments.length || defaultCount);
-  const [totalFee, setTotalFee] = useState(
-    feeRecord?.total_fee ?? defaultTotalFee
+  const [totalFee, setTotalFee] = useState(feeRecord?.total_fee ?? defaultTotalFee);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>(
+    feeRecord?.payment_mode ?? "direct_instalments"
+  );
+  const [scholarshipPct, setScholarshipPct] = useState(
+    feeRecord?.scholarship_pct != null ? Number(feeRecord.scholarship_pct) : ""
+  );
+  const [grossFeeExGst, setGrossFeeExGst] = useState(
+    feeRecord?.gross_fee_ex_gst != null
+      ? Number(feeRecord.gross_fee_ex_gst)
+      : feeRecord?.total_fee ?? defaultTotalFee
+  );
+  const [admissionFee, setAdmissionFee] = useState(
+    feeRecord?.admission_fee != null ? Number(feeRecord.admission_fee) : ""
+  );
+  const [invoiceNumber, setInvoiceNumber] = useState(feeRecord?.invoice_number ?? "");
+  const [oneShotDeadline, setOneShotDeadline] = useState(
+    feeRecord?.one_shot_deadline ?? ""
   );
   const equalAmount = useMemo(
     () => (count > 0 ? Math.round(Number(totalFee) / count) : 0),
@@ -71,7 +97,7 @@ export function FeesClient({
   const stageOk = FEE_ELIGIBLE.includes(leadStage);
   const lockedTotal = feeRecord ? Number(feeRecord.total_fee) : null;
 
-  function setTab(next: "direct" | "loan") {
+  function setTab(next: FeeTab) {
     router.push(`/leads/${leadId}/fees?tab=${next}`);
   }
 
@@ -81,6 +107,87 @@ export function FeesClient({
     arr[n - 1] = total - base * (n - 1);
     setAmounts(arr);
   }
+
+  function extraFeeFields() {
+    return {
+      scholarshipPct:
+        scholarshipPct === "" ? null : Number(scholarshipPct) || null,
+      grossFeeExGst: Number(grossFeeExGst) || Number(totalFee),
+      admissionFee: admissionFee === "" ? null : Number(admissionFee) || null,
+      invoiceNumber: invoiceNumber.trim() || null,
+      oneShotDeadline: oneShotDeadline || null,
+    };
+  }
+
+  const extraFieldsForm = (
+    <>
+      <div>
+        <label className="label-field">Payment route</label>
+        <select
+          className="input-field"
+          value={paymentMode}
+          onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+        >
+          <option value="direct_instalments">{PAYMENT_MODE_LABELS.direct_instalments}</option>
+          <option value="one_shot">{PAYMENT_MODE_LABELS.one_shot}</option>
+          <option value="loan">{PAYMENT_MODE_LABELS.loan}</option>
+        </select>
+      </div>
+      <div>
+        <label className="label-field">Scholarship %</label>
+        <input
+          type="number"
+          min={0}
+          max={100}
+          className="input-field"
+          value={scholarshipPct}
+          onChange={(e) =>
+            setScholarshipPct(e.target.value === "" ? "" : Number(e.target.value))
+          }
+        />
+      </div>
+      <div>
+        <label className="label-field">Gross fee ex-GST (₹)</label>
+        <input
+          type="number"
+          className="input-field"
+          value={grossFeeExGst}
+          onChange={(e) => setGrossFeeExGst(Number(e.target.value))}
+        />
+      </div>
+      <div>
+        <label className="label-field">Admission fee (₹)</label>
+        <input
+          type="number"
+          className="input-field"
+          value={admissionFee}
+          onChange={(e) =>
+            setAdmissionFee(e.target.value === "" ? "" : Number(e.target.value))
+          }
+        />
+      </div>
+      <div>
+        <label className="label-field">Invoice number</label>
+        <input
+          type="text"
+          className="input-field"
+          value={invoiceNumber}
+          onChange={(e) => setInvoiceNumber(e.target.value)}
+        />
+      </div>
+      {paymentMode === "one_shot" ? (
+        <div>
+          <label className="label-field">One-shot deadline</label>
+          <input
+            type="date"
+            className="input-field"
+            value={oneShotDeadline}
+            onChange={(e) => setOneShotDeadline(e.target.value)}
+          />
+        </div>
+      ) : null}
+    </>
+  );
 
   if (!stageOk && !feeRecord) {
     return (
@@ -116,9 +223,14 @@ export function FeesClient({
             type="number"
             className="input-field"
             value={totalFee}
-            onChange={(e) => setTotalFee(Number(e.target.value))}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              setTotalFee(n);
+              setGrossFeeExGst(n);
+            }}
           />
         </div>
+        {extraFieldsForm}
         <div>
           <label className="label-field">Reason (optional)</label>
           <input
@@ -129,54 +241,37 @@ export function FeesClient({
             onChange={(e) => setNotes(e.target.value)}
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={pending}
-            onClick={() =>
-              startTransition(async () => {
-                const res = await setOfferFee({
-                  leadId,
-                  totalFee: Number(totalFee),
-                  paymentMode: "direct_instalments",
-                  notes,
-                });
-                if (!res.ok) setError(res.error);
-                else {
-                  setError(null);
-                  router.push(`/leads/${leadId}/fees?tab=direct`);
-                  router.refresh();
-                }
-              })
-            }
-          >
-            Save & use installments
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={pending}
-            onClick={() =>
-              startTransition(async () => {
-                const res = await setOfferFee({
-                  leadId,
-                  totalFee: Number(totalFee),
-                  paymentMode: "loan",
-                  notes,
-                });
-                if (!res.ok) setError(res.error);
-                else {
-                  setError(null);
-                  router.push(`/leads/${leadId}/fees?tab=loan`);
-                  router.refresh();
-                }
-              })
-            }
-          >
-            Save & use loan
-          </button>
-        </div>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              const extras = extraFeeFields();
+              const res = await setOfferFee({
+                leadId,
+                totalFee: Number(totalFee),
+                paymentMode,
+                notes,
+                ...extras,
+              });
+              if (!res.ok) setError(res.error);
+              else {
+                setError(null);
+                const nextTab: FeeTab =
+                  paymentMode === "loan"
+                    ? "loan"
+                    : paymentMode === "one_shot"
+                      ? "one_shot"
+                      : "direct";
+                router.push(`/leads/${leadId}/fees?tab=${nextTab}`);
+                router.refresh();
+              }
+            })
+          }
+        >
+          Save offer fee
+        </button>
       </div>
     );
   }
@@ -197,24 +292,24 @@ export function FeesClient({
   return (
     <div>
       <div className="mb-6 flex gap-1 rounded-pill border border-border bg-white p-1 w-fit">
-        <button
-          type="button"
-          onClick={() => setTab("direct")}
-          className={`rounded-pill px-4 py-1.5 text-xs font-semibold uppercase tracking-eyebrow ${
-            tab === "direct" ? "bg-navy text-white" : "text-muted"
-          }`}
-        >
-          Direct payment
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("loan")}
-          className={`rounded-pill px-4 py-1.5 text-xs font-semibold uppercase tracking-eyebrow ${
-            tab === "loan" ? "bg-navy text-white" : "text-muted"
-          }`}
-        >
-          Loan
-        </button>
+        {(
+          [
+            ["direct", PAYMENT_MODE_LABELS.direct_instalments],
+            ["one_shot", PAYMENT_MODE_LABELS.one_shot],
+            ["loan", PAYMENT_MODE_LABELS.loan],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`rounded-pill px-4 py-1.5 text-xs font-semibold uppercase tracking-eyebrow ${
+              tab === id ? "bg-navy text-white" : "text-muted"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {error ? <p className="mb-3 text-sm text-danger">{error}</p> : null}
@@ -231,6 +326,21 @@ export function FeesClient({
               {formatCurrency(feeRecord?.remaining_fee ?? totalFee)}
             </span>
           </p>
+          <p className="mt-1 text-xs text-muted">
+            {PAYMENT_MODE_LABELS[feeRecord?.payment_mode ?? "direct_instalments"]}
+            {feeRecord?.scholarship_pct != null
+              ? ` · scholarship ${feeRecord.scholarship_pct}%`
+              : ""}
+            {feeRecord?.invoice_number ? ` · invoice ${feeRecord.invoice_number}` : ""}
+          </p>
+          {feeRecord?.gross_fee_ex_gst != null ? (
+            <p className="mt-1 text-xs text-muted">
+              Gross ex-GST {formatCurrency(feeRecord.gross_fee_ex_gst)}
+              {feeRecord.admission_fee != null
+                ? ` · admission ${formatCurrency(feeRecord.admission_fee)}`
+                : ""}
+            </p>
+          ) : null}
           {feeRecord?.list_price != null ? (
             <p className="mt-1 text-xs text-muted">
               List price {formatCurrency(feeRecord.list_price)}
@@ -257,6 +367,9 @@ export function FeesClient({
                 onChange={(e) => setTotalFee(Number(e.target.value))}
               />
             </div>
+            <div className="grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {extraFieldsForm}
+            </div>
             <div>
               <label className="label-field">Reason</label>
               <input
@@ -273,9 +386,22 @@ export function FeesClient({
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
-                  const res = await updateFeeTotal(leadId, Number(totalFee), notes);
-                  if (!res.ok) setError(res.error);
-                  else {
+                  const extras = extraFeeFields();
+                  const res = await setOfferFee({
+                    leadId,
+                    totalFee: Number(totalFee),
+                    paymentMode,
+                    notes,
+                    ...extras,
+                  });
+                  if (!res.ok) {
+                    const fallback = await updateFeeTotal(leadId, Number(totalFee), notes);
+                    if (!fallback.ok) setError(fallback.error);
+                    else {
+                      setError(null);
+                      router.refresh();
+                    }
+                  } else {
                     setError(null);
                     router.refresh();
                   }
@@ -292,67 +418,110 @@ export function FeesClient({
         )}
       </div>
 
-      {tab === "direct" ? (
+      {tab === "direct" || tab === "one_shot" ? (
         <div className="space-y-4">
           {canEditFee ? (
             <div className="panel space-y-3 p-5">
-              <p className="eyebrow">Generate installments</p>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <label className="label-field">Total installments (N)</label>
-                  <input
-                    type="number"
-                    min={1}
-                    className="input-field"
-                    value={count}
-                    onChange={(e) => {
-                      const n = Math.max(1, Number(e.target.value) || 1);
-                      setCount(n);
-                      syncAmounts(n, Number(totalFee));
-                    }}
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="label-field">Amounts (editable per installment)</label>
-                  <div className="flex flex-wrap gap-2">
-                    {amounts.map((a, i) => (
+              {tab === "one_shot" ? (
+                <>
+                  <p className="eyebrow">One-shot payment</p>
+                  <div>
+                    <label className="label-field">Deadline</label>
+                    <input
+                      type="date"
+                      className="input-field max-w-xs"
+                      value={oneShotDeadline}
+                      onChange={(e) => setOneShotDeadline(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={pending}
+                    onClick={() =>
+                      startTransition(async () => {
+                        const res = await generateInstallments({
+                          leadId,
+                          count: 1,
+                          amounts: [Number(totalFee)],
+                          totalFee: Number(totalFee),
+                          paymentMode: "one_shot",
+                          oneShotDeadline: oneShotDeadline || null,
+                          deadlines: oneShotDeadline ? [oneShotDeadline] : undefined,
+                        });
+                        if (!res.ok) setError(res.error);
+                        else {
+                          setError(null);
+                          router.refresh();
+                        }
+                      })
+                    }
+                  >
+                    Save one-shot plan
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="eyebrow">Generate In-house EMI</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <label className="label-field">Total installments (N)</label>
                       <input
-                        key={i}
                         type="number"
-                        className="input-field w-28"
-                        value={a}
+                        min={1}
+                        className="input-field"
+                        value={count}
                         onChange={(e) => {
-                          const next = [...amounts];
-                          next[i] = Number(e.target.value);
-                          setAmounts(next);
+                          const n = Math.max(1, Number(e.target.value) || 1);
+                          setCount(n);
+                          syncAmounts(n, Number(totalFee));
                         }}
                       />
-                    ))}
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label-field">Amounts (editable per installment)</label>
+                      <div className="flex flex-wrap gap-2">
+                        {amounts.map((a, i) => (
+                          <input
+                            key={i}
+                            type="number"
+                            className="input-field w-28"
+                            value={a}
+                            onChange={(e) => {
+                              const next = [...amounts];
+                              next[i] = Number(e.target.value);
+                              setAmounts(next);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={pending}
-                onClick={() =>
-                  startTransition(async () => {
-                    const res = await generateInstallments({
-                      leadId,
-                      count,
-                      amounts,
-                      totalFee: Number(totalFee),
-                    });
-                    if (!res.ok) setError(res.error);
-                    else {
-                      setError(null);
-                      router.refresh();
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={pending}
+                    onClick={() =>
+                      startTransition(async () => {
+                        const res = await generateInstallments({
+                          leadId,
+                          count,
+                          amounts,
+                          totalFee: Number(totalFee),
+                          paymentMode: "direct_instalments",
+                        });
+                        if (!res.ok) setError(res.error);
+                        else {
+                          setError(null);
+                          router.refresh();
+                        }
+                      })
                     }
-                  })
-                }
-              >
-                Generate / reset installments
-              </button>
+                  >
+                    Generate / reset installments
+                  </button>
+                </>
+              )}
             </div>
           ) : null}
 
@@ -412,7 +581,9 @@ export function FeesClient({
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-muted">
                       {canEditFee
-                        ? "No installments yet — generate them above."
+                        ? tab === "one_shot"
+                          ? "No one-shot plan yet — save the deadline above."
+                          : "No installments yet — generate them above."
                         : "No installments yet — ask admin to set up the plan."}
                     </td>
                   </tr>
@@ -444,7 +615,7 @@ export function FeesClient({
             });
           }}
         >
-          <p className="eyebrow">Loan pipeline · 6 stages</p>
+          <p className="eyebrow">Loan pipeline</p>
           {!canEditFee ? (
             <p className="text-xs text-muted">
               Loan total is locked at {formatCurrency(lockedTotal ?? 0)}. Update stage and

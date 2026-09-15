@@ -349,3 +349,48 @@ export function mapRow(
     },
   };
 }
+
+export const FEE_IMPORT_FIELDS = [
+  { id: "phone", label: "Phone (match lead)", required: false },
+  { id: "email", label: "Email (match lead)", required: false },
+  { id: "hubspot_id", label: "HubSpot / Lead ID", required: false },
+  { id: "total_fee", label: "Total / gross fee", required: true },
+  { id: "scholarship_pct", label: "Scholarship %", required: false },
+  { id: "gross_fee_ex_gst", label: "Gross fee excluding GST", required: false },
+  { id: "admission_fee", label: "Admission fee", required: false },
+  { id: "invoice_number", label: "Invoice number", required: false },
+  { id: "payment_mode", label: "Payment route (loan / emi / one-shot)", required: false },
+  { id: "one_shot_deadline", label: "One-shot deadline", required: false },
+  { id: "loan_amount", label: "Loan amount", required: false },
+  { id: "loan_stage", label: "Loan status", required: false },
+  { id: "loan_deadline", label: "Loan payment deadline", required: false },
+] as const;
+
+export type FeeImportFieldId = (typeof FEE_IMPORT_FIELDS)[number]["id"];
+export type FeeColumnMapping = Partial<Record<FeeImportFieldId, string>>;
+
+const FEE_ALIASES: Record<FeeImportFieldId, string[]> = {
+  phone: ["phone", "phone number", "mobile"],
+  email: ["email"],
+  hubspot_id: ["hubspot id", "record id", "lead id"],
+  total_fee: ["total fee", "gross fee", "fee", "amount"],
+  scholarship_pct: ["scholarship", "scholarship %", "scholarship percent"],
+  gross_fee_ex_gst: ["gross fee excluding gst", "fee ex gst", "ex gst"],
+  admission_fee: ["admission fee", "token fee"],
+  invoice_number: ["invoice", "invoice number", "invoice no"],
+  payment_mode: ["payment mode", "payment route", "loan / emi", "mode"],
+  one_shot_deadline: ["one shot deadline", "oneshot deadline", "full payment deadline"],
+  loan_amount: ["loan amount"],
+  loan_stage: ["loan stage", "loan status"],
+  loan_deadline: ["loan deadline", "deadline to pay"],
+};
+
+export function suggestFeeColumnMapping(headers: string[]): FeeColumnMapping {
+  const mapping: FeeColumnMapping = {};
+  const norm = headers.map((h) => ({ raw: h, n: h.trim().toLowerCase() }));
+  for (const [id, aliases] of Object.entries(FEE_ALIASES) as [FeeImportFieldId, string[]][]) {
+    const hit = norm.find((h) => aliases.some((a) => h.n === a || h.n.includes(a)));
+    if (hit) mapping[id] = hit.raw;
+  }
+  return mapping;
+}

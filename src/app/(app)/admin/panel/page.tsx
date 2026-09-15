@@ -2,7 +2,9 @@ import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { fetchPanelPerformance } from "@/lib/analytics/panel-performance";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
-import { cohortNumberMap } from "@/lib/cohorts/display";
+import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
+import { resolveStructuredRange } from "@/lib/analytics/date-range";
+import { DateRangeBar } from "@/components/admin/DateRangeBar";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
 
@@ -18,20 +20,23 @@ function buildQuery(params: Record<string, string | undefined>) {
 export default async function AdminPanelPage({
   searchParams,
 }: {
-  searchParams: {
-    range?: string;
-    round?: string;
-    course?: string;
-    cohort?: string;
-  };
+  searchParams: Record<string, string | undefined>;
 }) {
   await requireUser(["admin"]);
   const supabase = createClient();
 
-  const rangeDays =
-    searchParams.range === "7" || searchParams.range === "90"
-      ? Number(searchParams.range)
-      : 30;
+  const [courses, cohorts, { data: panelists }] = await Promise.all([
+    getAllCourses(),
+    getAllCohorts(),
+    supabase
+      .from("users")
+      .select("id, name")
+      .eq("role", "interviewer")
+      .eq("active", true)
+      .order("name"),
+  ]);
+
+  const dateRange = resolveStructuredRange({ search: searchParams, cohorts });
   const round =
     searchParams.round === "R1" ||
     searchParams.round === "R2" ||
@@ -40,23 +45,43 @@ export default async function AdminPanelPage({
       : "all";
   const courseId = searchParams.course || null;
   const cohortId = searchParams.cohort || null;
+  const panelistId = searchParams.panelist || null;
 
-  const [panel, courses, cohorts] = await Promise.all([
-    fetchPanelPerformance(supabase, { rangeDays, round, courseId, cohortId }),
-    getAllCourses(),
-    getAllCohorts(),
-  ]);
+  const panel = await fetchPanelPerformance(supabase, {
+    rangeDays: dateRange.rangeDays,
+    sinceIso: dateRange.overall ? null : dateRange.sinceIso,
+    overall: dateRange.overall,
+    round,
+    courseId,
+    cohortId,
+    panelistId,
+  });
 
-  const cohortNums = cohortNumberMap(cohorts);
   const courseMap = new Map(courses.map((c) => [c.id, c.name]));
   const t = panel.totals;
   const selectedPct = t.conducted > 0 ? (t.selected / t.conducted) * 100 : 0;
+  const years = uniqueCohortYears(cohorts);
+  const dateCohorts = cohorts.map((c) => ({
+    id: c.id,
+    label: cohortDisplayLabel(c, cohorts, {
+      courseName: courseMap.get(c.course_id),
+      includeCourse: true,
+    }),
+    year: c.year ?? null,
+  }));
 
   const base = {
-    range: String(rangeDays),
+    stype: dateRange.selectionType,
+    year: String(dateRange.year),
+    rangeCohort: dateRange.rangeCohortId ?? undefined,
+    month: dateRange.month === "entire" ? "entire" : dateRange.month ?? undefined,
+    from: dateRange.fromDate,
+    to: dateRange.toDate,
+    overall: dateRange.overall ? "1" : undefined,
     round: round === "all" ? undefined : round,
     course: courseId ?? undefined,
     cohort: cohortId ?? undefined,
+    panelist: panelistId ?? undefined,
   };
 
   return (
@@ -73,13 +98,41 @@ export default async function AdminPanelPage({
         }
       />
 
+      <div className="mb-6">
+        <DateRangeBar
+          range={dateRange}
+          years={years}
+          cohorts={dateCohorts}
+          showOverall
+          pathname="/admin/panel"
+        />
+      </div>
+
       <form className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-white px-4 py-3">
+        <input type="hidden" name="stype" value={dateRange.selectionType} />
+        <input type="hidden" name="year" value={String(dateRange.year)} />
+        {dateRange.rangeCohortId ? (
+          <input type="hidden" name="rangeCohort" value={dateRange.rangeCohortId} />
+        ) : null}
+        {dateRange.month ? (
+          <input
+            type="hidden"
+            name="month"
+            value={dateRange.month === "entire" ? "entire" : dateRange.month}
+          />
+        ) : null}
+        <input type="hidden" name="from" value={dateRange.fromDate} />
+        <input type="hidden" name="to" value={dateRange.toDate} />
+        {dateRange.overall ? <input type="hidden" name="overall" value="1" /> : null}
         <div>
-          <label className="label-field">Range</label>
-          <select name="range" className="input-field mt-1" defaultValue={String(rangeDays)}>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
+          <label className="label-field">Panelist</label>
+          <select name="panelist" className="input-field mt-1" defaultValue={panelistId ?? ""}>
+            <option value="">All panelists</option>
+            {(panelists ?? []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
           </select>
         </div>
         <div>
@@ -108,9 +161,10 @@ export default async function AdminPanelPage({
             <option value="">All cohorts</option>
             {cohorts.map((c) => (
               <option key={c.id} value={c.id}>
-                {(courseMap.get(c.course_id) ?? "Course") +
-                  " · " +
-                  (cohortNums.get(c.id) ?? c.name)}
+                {cohortDisplayLabel(c, cohorts, {
+                  courseName: courseMap.get(c.course_id),
+                  includeCourse: true,
+                })}
               </option>
             ))}
           </select>
@@ -121,7 +175,11 @@ export default async function AdminPanelPage({
       </form>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Booked" value={t.booked} hint={`Last ${rangeDays}d`} />
+        <StatCard
+          label="Booked"
+          value={t.booked}
+          hint={dateRange.overall ? "Overall" : `${dateRange.fromDate} → ${dateRange.toDate}`}
+        />
         <StatCard label="Conducted" value={t.conducted} hint="Outcome submitted" />
         <StatCard
           label="Selected"
@@ -176,24 +234,15 @@ export default async function AdminPanelPage({
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.reject}
-                      <span className="ml-1 text-[10px] text-muted/70">
-                        ({r.rejectPct.toFixed(0)}%)
-                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.tbb}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.offeredAfter}
-                      <span className="ml-1 text-[10px] text-muted/70">
-                        ({r.offeredAfterPct.toFixed(0)}%)
-                      </span>
                     </td>
                     <td className="px-5 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.wonAfter}
-                      <span className="ml-1 text-[10px] text-muted/70">
-                        ({r.wonAfterPct.toFixed(0)}%)
-                      </span>
                     </td>
                   </tr>
                 ))}

@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui/Primitives";
 import { SettingsClient } from "@/components/admin/SettingsClient";
 import { isGoogleCalendarConfigured } from "@/lib/google-calendar";
 import { listStageTriggerRules } from "@/app/actions/triggers";
+import { listMessageSequences } from "@/app/actions/sequences";
 
 export default async function AdminConfigPage() {
   await requireUser(["admin"]);
@@ -14,12 +15,22 @@ export default async function AdminConfigPage() {
     { data: vendors },
     { data: settings },
     triggerRules,
+    { data: counselors },
+    { data: counselorAllocs },
+    sequences,
   ] = await Promise.all([
     supabase.from("courses").select("*").order("name"),
     supabase.from("cohorts").select("*").order("name"),
     supabase.from("loan_vendors").select("*").order("name"),
     supabase.from("app_settings").select("*"),
     listStageTriggerRules().catch(() => []),
+    supabase
+      .from("users")
+      .select("*")
+      .eq("role", "counselor")
+      .order("name"),
+    supabase.from("counselor_program_alloc").select("user_id, course_id"),
+    listMessageSequences().catch(() => []),
   ]);
 
   const map = Object.fromEntries((settings ?? []).map((s) => [s.key, s.value]));
@@ -41,7 +52,7 @@ export default async function AdminConfigPage() {
         eyebrow="Admin · Config"
         title="System"
         accent="Config"
-        description="Courses, cohorts, loan vendors, fee templates, WA/email triggers, and Google Meet."
+        description="Courses, cohorts, counselors, loan vendors, fee templates, WA/email triggers, and per-program sequences."
       />
       <SettingsClient
         courses={courses ?? []}
@@ -52,6 +63,9 @@ export default async function AdminConfigPage() {
         manualMonthlyAdSpend={manualMonthlyAdSpend}
         googleMeetConfigured={isGoogleCalendarConfigured()}
         triggerRules={triggerRules}
+        counselors={(counselors as import("@/types/database").AppUser[]) ?? []}
+        counselorAllocs={counselorAllocs ?? []}
+        sequences={sequences}
       />
     </div>
   );

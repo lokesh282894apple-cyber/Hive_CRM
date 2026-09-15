@@ -40,12 +40,39 @@ export async function dispatchStageTriggers(
   const { data: lead } = await supabase
     .from("leads")
     .select(
-      "id, name, email, phone, stage, lead_allocated_to, users:lead_allocated_to(name)"
+      "id, name, email, phone, stage, course_id, lead_allocated_to, users:lead_allocated_to(name)"
     )
     .eq("id", opts.leadId)
     .maybeSingle();
 
   if (!lead) return { queued: 0, sent: 0, failed: 0, skipped: 0 };
+  const leadRow = lead;
+  const dispatchKey = triggerKey;
+
+  const { data: seqOverride } = lead.course_id
+    ? await supabase
+        .from("message_sequences")
+        .select("id")
+        .eq("trigger_key", triggerKey)
+        .eq("course_id", lead.course_id)
+        .maybeSingle()
+    : { data: null };
+  const { data: seqDefault } = seqOverride
+    ? { data: seqOverride }
+    : await supabase
+        .from("message_sequences")
+        .select("id")
+        .eq("trigger_key", triggerKey)
+        .is("course_id", null)
+        .maybeSingle();
+  const sequenceId = seqOverride?.id ?? seqDefault?.id;
+  const { data: steps } = sequenceId
+    ? await supabase
+        .from("message_sequence_steps")
+        .select("*")
+        .eq("sequence_id", sequenceId)
+        .order("step_order")
+    : { data: [] };
 
   const counsellor =
     (lead.users as unknown as { name?: string } | null)?.name || "your counsellor";
@@ -83,76 +110,118 @@ export async function dispatchStageTriggers(
   let failed = 0;
   let skipped = 0;
 
-  if (rule.wa_enabled && rule.wa_template_name && lead.phone) {
-    const logId = await insertLog(supabase, {
-      leadId: lead.id,
-      triggerKey,
-      channel: "whatsapp",
-      templateName: rule.wa_template_name,
-      toAddress: lead.phone,
-      stageHistoryId: opts.stageHistoryId,
-      payload: { vars },
-    });
+  type SequenceStep = {
+    channel: "whatsapp" | "email";
+    delay_hours: number;
+    wa_template_name: string | null;
+    wa_template_lang?: string | null;
+    email_subject: string | null;
+    email_body_html: string | null;
+  };
 
+  const sequenceSteps = (steps ?? []) as SequenceStep[];
+
+  async function sendWhatsApp(templateName: string | null, language: string, extra?: unknown) {
+    const phone = leadRow.phone;
+    if (!templateName || !phone) {
+      skipped += 1;
+      return;
+    }
+    const logId = await insertLog(supabase, {
+      leadId: leadRow.id,
+      triggerKey: dispatchKey,
+      channel: "whatsapp",
+      templateName,
+      toAddress: phone,
+      stageHistoryId: opts.stageHistoryId,
+      payload: { vars, extra },
+    });
     if (!isWhatsAppConfigured()) {
       await updateLog(supabase, logId, "skipped", null, "WhatsApp provider not configured");
       skipped += 1;
+      return;
+    }
+    const result = await sendWhatsAppTemplate({
+      toPhone: phone,
+      templateName,
+      language,
+      bodyParams: [
+        vars.name || "",
+        vars.counsellor_name || "",
+        vars.interview_datetime || "",
+        vars.meet_link || "",
+      ].filter((x, i) => x || i < 2),
+    });
+    if (result.ok) {
+      await updateLog(supabase, logId, "sent", result.id, null);
+      sent += 1;
+    } else if (result.skipped) {
+      await updateLog(supabase, logId, "skipped", null, result.error);
+      skipped += 1;
     } else {
-      const result = await sendWhatsAppTemplate({
-        toPhone: lead.phone,
-        templateName: rule.wa_template_name,
-        language: rule.wa_template_lang || "en",
-        bodyParams: [
-          vars.name || "",
-          vars.counsellor_name || "",
-          vars.interview_datetime || "",
-          vars.meet_link || "",
-        ].filter((x, i) => x || i < 2),
-      });
-      if (result.ok) {
-        await updateLog(supabase, logId, "sent", result.id, null);
-        sent += 1;
-      } else if (result.skipped) {
-        await updateLog(supabase, logId, "skipped", null, result.error);
-        skipped += 1;
-      } else {
-        await updateLog(supabase, logId, "failed", null, result.error);
-        failed += 1;
-      }
+      await updateLog(supabase, logId, "failed", null, result.error);
+      failed += 1;
     }
   }
 
-  if (rule.email_enabled && lead.email && (rule.email_subject || rule.email_body_html)) {
-    const subject = mergeTemplate(rule.email_subject || "HiveSchool Admissions", vars);
-    const html = mergeTemplate(
-      rule.email_body_html || "<p>Hi {{name}}</p>",
-      vars
-    );
+  async function sendMail(
+    subjectTpl: string | null,
+    bodyTpl: string | null,
+    extra?: unknown
+  ) {
+    const email = leadRow.email;
+    if (!email || !(subjectTpl || bodyTpl)) {
+      skipped += 1;
+      return;
+    }
+    const subject = mergeTemplate(subjectTpl || "HiveSchool Admissions", vars);
+    const html = mergeTemplate(bodyTpl || "<p>Hi {{name}}</p>", vars);
     const logId = await insertLog(supabase, {
-      leadId: lead.id,
-      triggerKey,
+      leadId: leadRow.id,
+      triggerKey: dispatchKey,
       channel: "email",
-      templateName: rule.email_subject,
-      toAddress: lead.email,
+      templateName: subjectTpl,
+      toAddress: email,
       stageHistoryId: opts.stageHistoryId,
-      payload: { subject, html },
+      payload: { subject, html, extra },
     });
-
     if (!isEmailConfigured()) {
       await updateLog(supabase, logId, "skipped", null, "Email provider not configured");
       skipped += 1;
+      return;
+    }
+    const result = await sendEmail({ to: email, subject, html });
+    if (result.ok) {
+      await updateLog(supabase, logId, "sent", result.id, null);
+      sent += 1;
+    } else if (result.skipped) {
+      await updateLog(supabase, logId, "skipped", null, result.error);
+      skipped += 1;
     } else {
-      const result = await sendEmail({ to: lead.email, subject, html });
-      if (result.ok) {
-        await updateLog(supabase, logId, "sent", result.id, null);
-        sent += 1;
-      } else if (result.skipped) {
-        await updateLog(supabase, logId, "skipped", null, result.error);
-        skipped += 1;
+      await updateLog(supabase, logId, "failed", null, result.error);
+      failed += 1;
+    }
+  }
+
+  if (sequenceSteps.length) {
+    for (const step of sequenceSteps) {
+      // v1: delay_hours is recorded; delayed steps still send immediately.
+      if (step.channel === "whatsapp") {
+        await sendWhatsApp(step.wa_template_name, step.wa_template_lang || "en", {
+          delay_hours: step.delay_hours,
+        });
       } else {
-        await updateLog(supabase, logId, "failed", null, result.error);
-        failed += 1;
+        await sendMail(step.email_subject, step.email_body_html, {
+          delay_hours: step.delay_hours,
+        });
       }
+    }
+  } else {
+    if (rule.wa_enabled && rule.wa_template_name) {
+      await sendWhatsApp(rule.wa_template_name, rule.wa_template_lang || "en");
+    }
+    if (rule.email_enabled && (rule.email_subject || rule.email_body_html)) {
+      await sendMail(rule.email_subject, rule.email_body_html);
     }
   }
 

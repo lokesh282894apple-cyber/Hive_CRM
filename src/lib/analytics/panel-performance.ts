@@ -4,9 +4,14 @@ import { fetchAllPages } from "@/lib/supabase/paginate";
 
 export type PanelFilters = {
   rangeDays?: number;
+  fromDate?: string | null;
+  toDate?: string | null;
+  sinceIso?: string | null;
+  overall?: boolean;
   round?: "R1" | "R2" | "R3" | "all";
   courseId?: string | null;
   cohortId?: string | null;
+  panelistId?: string | null;
 };
 
 export type PanelistRoundStats = {
@@ -36,6 +41,7 @@ export type PanelPerformance = {
   round: "R1" | "R2" | "R3" | "all";
   rows: PanelistRow[];
   totals: PanelistRoundStats;
+  overall: boolean;
 };
 
 function emptyStats(): PanelistRoundStats {
@@ -62,12 +68,18 @@ export async function fetchPanelPerformance(
   const roundFilter = filters.round ?? "all";
   const courseId = filters.courseId ?? null;
   const cohortId = filters.cohortId ?? null;
+  const panelistId = filters.panelistId ?? null;
   const db = admissionsAggClient();
 
-  const since = new Date();
-  since.setHours(0, 0, 0, 0);
-  since.setDate(since.getDate() - rangeDays);
-  const sinceIso = since.toISOString();
+  const sinceIso = filters.overall
+    ? "2000-01-01T00:00:00.000Z"
+    : filters.sinceIso ??
+      (() => {
+        const since = new Date();
+        since.setHours(0, 0, 0, 0);
+        since.setDate(since.getDate() - rangeDays);
+        return since.toISOString();
+      })();
 
   const [bookings, historyAll] = await Promise.all([
     fetchAllPages((from, to) => {
@@ -80,6 +92,7 @@ export async function fetchPanelPerformance(
         .order("scheduled_at", { ascending: false })
         .range(from, to);
       if (roundFilter !== "all") q = q.eq("round", roundFilter);
+      if (panelistId) q = q.eq("interviewer_id", panelistId);
       return q;
     }, "panel_bookings"),
     fetchAllPages(
@@ -220,5 +233,6 @@ export async function fetchPanelPerformance(
     round: roundFilter,
     rows,
     totals: grand,
+    overall: Boolean(filters.overall),
   };
 }

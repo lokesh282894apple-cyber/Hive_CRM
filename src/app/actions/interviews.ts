@@ -449,6 +449,8 @@ export async function submitInterviewOutcome(input: {
   bookingId: string;
   outcome: InterviewOutcome;
   feedbackNotes?: string;
+  gradeTier?: "A" | "B" | "C";
+  gradeScore?: number;
 }): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin", "interviewer"]);
   const supabase = createClient();
@@ -493,6 +495,15 @@ export async function submitInterviewOutcome(input: {
 
   const { recomputeLeadScore } = await import("@/lib/leads/score");
   await recomputeLeadScore(supabase, booking.lead_id);
+
+  if (input.gradeTier && input.gradeScore != null) {
+    const { upsertPanelistGrade } = await import("@/app/actions/leads");
+    await upsertPanelistGrade({
+      leadId: booking.lead_id,
+      tier: input.gradeTier,
+      score: input.gradeScore,
+    });
+  }
 
   revalidatePath(`/leads/${booking.lead_id}`);
   revalidatePath("/interviewer/interviews");

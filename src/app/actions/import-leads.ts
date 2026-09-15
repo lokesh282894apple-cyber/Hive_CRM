@@ -117,6 +117,13 @@ export async function importLeadsFromCsv(input: {
         counselorByName.get(d.owner_name.toLowerCase()) ?? null;
     }
 
+    if (!lead_allocated_to && course_id) {
+      const { pickCounselorForCourse } = await import(
+        "@/lib/leads/assign-counselor"
+      );
+      lead_allocated_to = await pickCounselorForCourse(admin, course_id);
+    }
+
     const payload: Record<string, unknown> = {
       name: d.name,
       phone: d.phone,
@@ -196,5 +203,135 @@ export async function importLeadsFromCsv(input: {
 
   revalidatePath("/admin/leads");
   revalidatePath("/leads");
+  return { ok: true, created, updated, skipped, errors: errors.slice(0, 50) };
+}
+
+export async function importFeesFromCsv(input: {
+  csvText: string;
+  mapping: import("@/lib/hubspot-import").FeeColumnMapping;
+  dryRun?: boolean;
+}): Promise<ImportLeadsResult> {
+  await requireUser(["admin"]);
+  const admin = createAdminClient();
+  const { rows } = parseCsv(input.csvText);
+  if (!rows.length) return { ok: false, error: "CSV has no data rows" };
+  if (!input.mapping.total_fee) {
+    return { ok: false, error: "Map a total / gross fee column" };
+  }
+  if (!input.mapping.phone && !input.mapping.email && !input.mapping.hubspot_id) {
+    return { ok: false, error: "Map phone, email, or HubSpot ID to match a lead" };
+  }
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  const errors: { row: number; error: string }[] = [];
+
+  function cell(row: Record<string, string>, id: keyof typeof input.mapping) {
+    const h = input.mapping[id];
+    return h ? (row[h] ?? "").trim() : "";
+  }
+
+  function parseMode(raw: string): "direct_instalments" | "loan" | "one_shot" {
+    const v = raw.toLowerCase();
+    if (v.includes("loan")) return "loan";
+    if (v.includes("one") || v.includes("shot") || v.includes("full")) return "one_shot";
+    return "direct_instalments";
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNum = i + 2;
+    const row = rows[i];
+    const phone = cell(row, "phone").replace(/\D/g, "");
+    const email = cell(row, "email").toLowerCase();
+    const hubspotId = cell(row, "hubspot_id");
+    const totalFee = Number(cell(row, "total_fee").replace(/,/g, ""));
+    if (!Number.isFinite(totalFee) || totalFee < 0) {
+      errors.push({ row: rowNum, error: "Invalid total fee" });
+      skipped++;
+      continue;
+    }
+
+    let q = admin.from("leads").select("id, stage");
+    if (hubspotId) q = q.eq("hubspot_id", hubspotId);
+    else if (phone) q = q.eq("phone", phone);
+    else q = q.ilike("email", email);
+    const { data: lead } = await q.maybeSingle();
+    if (!lead) {
+      errors.push({ row: rowNum, error: "No matching lead" });
+      skipped++;
+      continue;
+    }
+    if (lead.stage !== "offered" && lead.stage !== "closed_won") {
+      errors.push({ row: rowNum, error: "Lead is not Offered / Closed-won" });
+      skipped++;
+      continue;
+    }
+
+    const paymentMode = parseMode(cell(row, "payment_mode"));
+    const payload = {
+      lead_id: lead.id,
+      payment_mode: paymentMode,
+      total_fee: totalFee,
+      remaining_fee: totalFee,
+      scholarship_pct: cell(row, "scholarship_pct")
+        ? Number(cell(row, "scholarship_pct"))
+        : null,
+      gross_fee_ex_gst: cell(row, "gross_fee_ex_gst")
+        ? Number(cell(row, "gross_fee_ex_gst"))
+        : totalFee,
+      admission_fee: cell(row, "admission_fee")
+        ? Number(cell(row, "admission_fee"))
+        : null,
+      invoice_number: cell(row, "invoice_number") || null,
+      one_shot_deadline: cell(row, "one_shot_deadline") || null,
+    };
+
+    if (input.dryRun) {
+      created++;
+      continue;
+    }
+
+    const { data: existing } = await admin
+      .from("fee_records")
+      .select("id")
+      .eq("lead_id", lead.id)
+      .maybeSingle();
+    if (existing) {
+      const { error } = await admin.from("fee_records").update(payload).eq("id", existing.id);
+      if (error) {
+        errors.push({ row: rowNum, error: error.message });
+        skipped++;
+      } else {
+        updated++;
+      }
+    } else {
+      const { data: inserted, error } = await admin
+        .from("fee_records")
+        .insert(payload)
+        .select("id")
+        .single();
+      if (error || !inserted) {
+        errors.push({ row: rowNum, error: error?.message ?? "Insert failed" });
+        skipped++;
+        continue;
+      }
+      created++;
+      if (paymentMode === "loan") {
+        await admin.from("loans").insert({
+          fee_record_id: inserted.id,
+          total_fee: cell(row, "loan_amount")
+            ? Number(cell(row, "loan_amount"))
+            : totalFee,
+          remaining_fee: totalFee,
+          deadline_to_hit: cell(row, "loan_deadline") || null,
+          stage: "docs_to_share",
+        });
+      }
+    }
+  }
+
+  revalidatePath("/admin/payments");
+  revalidatePath("/admin/leads");
   return { ok: true, created, updated, skipped, errors: errors.slice(0, 50) };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { updateLeadStage } from "@/app/actions/leads";
+import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
 import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
 import {
   BOARD_COLUMN_CAP,
@@ -14,8 +14,14 @@ import {
   type BoardDensity,
   type Stage,
 } from "@/lib/constants";
+import {
+  CONVERT_PROBABILITY_LABELS,
+  type ConvertProbability,
+} from "@/lib/constants";
 import { StageBadge } from "@/components/ui/Primitives";
-import { cn } from "@/lib/utils";
+import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
+import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
+import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import type { LeadWithRelations } from "@/types/database";
 import {
   DndContext,
@@ -50,6 +56,65 @@ function initials(name: string) {
     .join("");
 }
 
+function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
+  const m = lead.cardMetrics;
+  const stage = lead.stage;
+  const isNew = stage === "new_lead" || stage === "lead_created" || stage === "in_funnel";
+  const isNurture = stage === "call_logged_nurturing" || stage === "dnp";
+  const isInterview =
+    stage.startsWith("r1_") || stage.startsWith("r2_") || stage.startsWith("r3_");
+  const isOffer = stage === "offered" || stage === "yet_to_offer";
+  const noCall = !m?.lastCallAt && isNew;
+  return (
+    <div className="mt-2 space-y-0.5 text-[11px] text-muted">
+      {noCall ? (
+        <p>Call not logged since {formatDurationSince(lead.created_at)}</p>
+      ) : null}
+      {isNurture ? (
+        <p>
+          Calls {m?.totalCalls ?? 0} · Unique days {m?.uniqueDays ?? 0}
+        </p>
+      ) : null}
+      {isInterview ? (
+        <>
+          {m?.interviewAt ? <p>Interview {formatDate(m.interviewAt)}</p> : null}
+          {stage.includes("booked") ||
+          stage.includes("no_show") ||
+          stage.includes("reschedule") ? (
+            <>
+              <p>Last call {formatRelativeAgo(m?.lastCallAt ?? null)}</p>
+              <p>Avg calls/day {m?.avgCallsPerDaySinceStage ?? "—"}</p>
+            </>
+          ) : null}
+        </>
+      ) : null}
+      {isOffer ? (
+        <>
+          <p>Last call {formatRelativeAgo(m?.lastCallAt ?? null)}</p>
+          <p>Avg calls/day {m?.avgCallsPerDaySinceStage ?? "—"}</p>
+          {lead.offer_accept_deadline ? (
+            <p>Accept by {formatDate(lead.offer_accept_deadline)}</p>
+          ) : null}
+          {lead.convert_probability ? (
+            <p className="font-semibold text-navy">
+              {CONVERT_PROBABILITY_LABELS[lead.convert_probability as ConvertProbability]}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+      {lead.counselor_intent_check ? (
+        <p>Intent · {lead.counselor_intent_check}</p>
+      ) : null}
+      {m?.gradeAvg != null ? (
+        <p>
+          Grade score {m.gradeAvg}/5
+          {m.gradeCount > 1 ? ` · ${m.gradeCount} panelists` : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function accentBar(accent: BoardColumnDef["accent"]) {
   switch (accent) {
     case "warning":
@@ -78,7 +143,7 @@ function LeadCard({
   cohortLabel,
   disableDrag,
 }: {
-  lead: LeadWithRelations;
+  lead: LeadWithCard;
   dragging?: boolean;
   compact?: boolean;
   showClaim?: boolean;
@@ -179,6 +244,8 @@ function LeadCard({
               ) : (
                 <p className="mt-2 text-[11px] text-warning">Unassigned</p>
               )}
+              <LeadCardMetricsBlock lead={lead} />
+              <LeadOfferFields lead={lead} compact />
             </>
           ) : (
             <p className="mt-1 truncate text-[11px] text-muted">
@@ -203,7 +270,7 @@ function BoardColumn({
   disableDrag,
 }: {
   column: BoardColumnDef;
-  leads: LeadWithRelations[];
+  leads: LeadWithCard[];
   density: BoardDensity;
   onJumpStage?: (stage: Stage) => void;
   showClaim?: boolean;
@@ -359,7 +426,7 @@ export function PipelineBoard({
   onClaim,
   cohortNums,
 }: {
-  leads: LeadWithRelations[];
+  leads: LeadWithCard[];
   isAdmin?: boolean;
   showClaim?: boolean;
   onClaim?: (id: string) => void;
@@ -407,12 +474,37 @@ export function PipelineBoard({
   );
 
   const byColumn = useMemo(() => {
-    const map: Record<string, LeadWithRelations[]> = {};
+    const map: Record<string, LeadWithCard[]> = {};
     for (const col of columns) map[col.id] = [];
     for (const lead of items) {
-      const col = columns.find((c) => (c.stages ?? []).includes(lead.stage));
+      const col = columns.find((c) => {
+        if (!(c.stages ?? []).includes(lead.stage)) return false;
+        if (c.offerCallStatus) {
+          return (lead.offer_call_status ?? "not_booked") === c.offerCallStatus;
+        }
+        return true;
+      });
       if (col) map[col.id].push(lead);
       else map[columns[0]?.id]?.push(lead);
+    }
+    for (const col of columns) {
+      const list = map[col.id] ?? [];
+      const interviewCol = col.stages.some(
+        (s) => s.startsWith("r1_") || s.startsWith("r2_") || s.startsWith("r3_")
+      );
+      if (col.offerCallStatus) {
+        list.sort((a, b) =>
+          (a.offer_accept_deadline ?? "9999").localeCompare(
+            b.offer_accept_deadline ?? "9999"
+          )
+        );
+      } else if (interviewCol) {
+        list.sort((a, b) =>
+          (b.cardMetrics?.interviewAt ?? "").localeCompare(
+            a.cardMetrics?.interviewAt ?? ""
+          )
+        );
+      }
     }
     if (focusStage && density === "grouped") {
       for (const col of columns) {
@@ -493,11 +585,15 @@ export function PipelineBoard({
       if (!lead) return;
 
       const stages = targetCol.stages ?? [];
-      if (stages.includes(lead.stage)) return;
+      const sameStage = stages.includes(lead.stage);
+      const sameOffer =
+        !targetCol.offerCallStatus ||
+        (lead.offer_call_status ?? "not_booked") === targetCol.offerCallStatus;
+      if (sameStage && sameOffer) return;
 
       const nextStage = targetCol.dropStage;
 
-      if (!isAdmin) {
+      if (!sameStage && !isAdmin) {
         const allowed = STAGE_TRANSITIONS[lead.stage] ?? [];
         if (!allowed.includes(nextStage)) {
           setError(
@@ -507,22 +603,40 @@ export function PipelineBoard({
         }
       }
 
-      if ((BOOKING_REQUIRED_STAGES as readonly string[]).includes(nextStage)) {
+      if (!sameStage && (BOOKING_REQUIRED_STAGES as readonly string[]).includes(nextStage)) {
         openBookingDialog(lead, nextStage);
         return;
       }
 
       const prev = items;
       const next = items.map((l) =>
-        l.id === leadId ? { ...l, stage: nextStage } : l
+        l.id === leadId
+          ? {
+              ...l,
+              stage: nextStage,
+              offer_call_status: targetCol.offerCallStatus ?? l.offer_call_status,
+            }
+          : l
       );
       setItems(next);
 
       startTransition(async () => {
-        const res = await updateLeadStage(leadId, nextStage);
-        if (!res.ok) {
-          setItems(prev);
-          setError(res.error);
+        if (!sameStage) {
+          const res = await updateLeadStage(leadId, nextStage);
+          if (!res.ok) {
+            setItems(prev);
+            setError(res.error);
+            return;
+          }
+        }
+        if (targetCol.offerCallStatus) {
+          const res = await updateLeadCardFields(leadId, {
+            offer_call_status: targetCol.offerCallStatus,
+          });
+          if (!res.ok) {
+            setItems(prev);
+            setError(res.error);
+          }
         }
       });
     } catch (err) {

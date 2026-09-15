@@ -161,6 +161,21 @@ export const LEAD_LIST_TABS = [
     label: "Interview reschedules",
     stages: ["r1_reschedule", "r2_reschedule", "r3_reschedule"] as Stage[],
   },
+  {
+    id: "offer_call_not_booked",
+    label: "Offer · call not booked",
+    stages: ["offered"] as Stage[],
+  },
+  {
+    id: "offer_call_booked",
+    label: "Offer · call booked",
+    stages: ["offered"] as Stage[],
+  },
+  {
+    id: "offer_call_done",
+    label: "Offer · call done",
+    stages: ["offered"] as Stage[],
+  },
   { id: "all", label: "All", stages: [...STAGES] as Stage[] },
 ] as const;
 
@@ -207,6 +222,21 @@ export const STAGE_GROUPS = [
     id: "offer",
     label: "Offer",
     stages: ["yet_to_offer", "offered"] as Stage[],
+  },
+  {
+    id: "offer_call_not_booked",
+    label: "Post-offer call not booked",
+    stages: ["offered"] as Stage[],
+  },
+  {
+    id: "offer_call_booked",
+    label: "Post-offer call booked",
+    stages: ["offered"] as Stage[],
+  },
+  {
+    id: "offer_call_done",
+    label: "Post-offer call done",
+    stages: ["offered"] as Stage[],
   },
   {
     id: "all",
@@ -258,6 +288,7 @@ export type BoardColumnDef = {
   dropStage: Stage;
   accent: "periwinkle" | "warning" | "blue" | "gold" | "gray" | "green" | "red";
   section: string;
+  offerCallStatus?: "not_booked" | "booked" | "done";
 };
 
 export const BOARD_COLUMNS: BoardColumnDef[] = [
@@ -316,13 +347,43 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     section: "Interviews",
   },
   {
-    id: "offer",
-    label: "Offer",
-    hint: "Yet to offer · Offered",
-    stages: ["yet_to_offer", "offered"],
+    id: "yet_to_offer",
+    label: "Yet to Offer",
+    hint: "Interview done · offer not sent",
+    stages: ["yet_to_offer"],
     dropStage: "yet_to_offer",
     accent: "gold",
     section: "Close",
+  },
+  {
+    id: "offer_call_not_booked",
+    label: "Offer · call not booked",
+    hint: "Offered · post-offer call not booked",
+    stages: ["offered"],
+    dropStage: "offered",
+    accent: "gold",
+    section: "Close",
+    offerCallStatus: "not_booked",
+  },
+  {
+    id: "offer_call_booked",
+    label: "Offer · call booked",
+    hint: "Offered · post-offer call booked",
+    stages: ["offered"],
+    dropStage: "offered",
+    accent: "gold",
+    section: "Close",
+    offerCallStatus: "booked",
+  },
+  {
+    id: "offer_call_done",
+    label: "Offer · call done",
+    hint: "Offered · post-offer call done",
+    stages: ["offered"],
+    dropStage: "offered",
+    accent: "gold",
+    section: "Close",
+    offerCallStatus: "done",
   },
   {
     id: "closed",
@@ -415,8 +476,34 @@ export type InterviewRound = (typeof INTERVIEW_ROUNDS)[number];
 export const INTERVIEW_OUTCOMES = ["confirmed", "reject", "tbb"] as const;
 export type InterviewOutcome = (typeof INTERVIEW_OUTCOMES)[number];
 
-export const PAYMENT_MODES = ["direct_instalments", "loan"] as const;
+export const PAYMENT_MODES = ["direct_instalments", "loan", "one_shot"] as const;
 export type PaymentMode = (typeof PAYMENT_MODES)[number];
+
+export const PAYMENT_MODE_LABELS: Record<PaymentMode, string> = {
+  direct_instalments: "In-house EMI",
+  loan: "Loan",
+  one_shot: "One-shot",
+};
+
+export const OFFER_CALL_STATUSES = ["not_booked", "booked", "done"] as const;
+export type OfferCallStatus = (typeof OFFER_CALL_STATUSES)[number];
+
+export const OFFER_CALL_STATUS_LABELS: Record<OfferCallStatus, string> = {
+  not_booked: "Post-offer call not booked",
+  booked: "Post-offer call booked",
+  done: "Post-offer call done",
+};
+
+export const CONVERT_PROBABILITIES = ["confirmed_to_pay", "low_intent"] as const;
+export type ConvertProbability = (typeof CONVERT_PROBABILITIES)[number];
+
+export const CONVERT_PROBABILITY_LABELS: Record<ConvertProbability, string> = {
+  confirmed_to_pay: "Confirmed to pay",
+  low_intent: "Low intent",
+};
+
+export const GRADE_TIERS = ["A", "B", "C"] as const;
+export type GradeTier = (typeof GRADE_TIERS)[number];
 
 export const INSTALLMENT_STATUSES = ["pending", "partial", "paid", "overdue"] as const;
 export type InstallmentStatus = (typeof INSTALLMENT_STATUSES)[number];
@@ -433,10 +520,10 @@ export const LOAN_STAGES = [
 export type LoanStage = (typeof LOAN_STAGES)[number];
 
 export const LOAN_STAGE_LABELS: Record<LoanStage, string> = {
-  docs_to_share: "Docs to Share",
-  docs_shared: "Docs Shared",
-  sent_to_vendor: "Sent to Vendor",
-  approved: "Approved",
+  docs_to_share: "Loan Document Submitted",
+  docs_shared: "Loan Processed",
+  sent_to_vendor: "Loan Processed Received",
+  approved: "Loan Approved",
   disbursed_pending: "Disbursed Pending",
   disbursed_hit_bank: "Disbursed — Hit Bank",
 };
@@ -453,7 +540,7 @@ export const LEAD_SOURCES = [
 ] as const;
 
 export function homeForRole(role: Role): string {
-  if (role === "admin") return "/admin/dashboard";
+  if (role === "admin") return "/admin/analytics";
   if (role === "interviewer") return "/interviewer/interviews";
   if (role === "marketing") return "/marketing/dashboard";
   return "/dashboard";

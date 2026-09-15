@@ -1,0 +1,191 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { cohortDisplayLabel } from "@/lib/cohorts/display";
+import { LOAN_STAGE_LABELS, type LoanStage, type PaymentMode } from "@/lib/constants";
+
+export type PaymentCard = {
+  leadId: string;
+  name: string;
+  courseName: string | null;
+  cohortLabel: string;
+  scholarshipPct: number | null;
+  grossFeeExGst: number;
+  admissionFee: number | null;
+  paymentMode: PaymentMode;
+  overallStatus: string;
+  invoiceNumber: string | null;
+  remaining: number;
+  total: number;
+  oneShotDeadline: string | null;
+  installments: {
+    n: number;
+    amount: number;
+    deadline: string;
+    status: string;
+  }[];
+  loan: {
+    amount: number;
+    deadline: string | null;
+    status: string;
+    daysRemaining: number | null;
+  } | null;
+};
+
+export type LoanRow = {
+  leadId: string;
+  name: string;
+  courseName: string | null;
+  amount: number;
+  daysRemaining: number | null;
+  status: string;
+};
+
+export type CohortPayerSummary = {
+  cohortId: string | null;
+  label: string;
+  payers: number;
+  revenue: number;
+};
+
+export type PaymentsDashboard = {
+  cards: PaymentCard[];
+  loans: LoanRow[];
+  byCohort: CohortPayerSummary[];
+};
+
+function daysUntil(date: string | null): number | null {
+  if (!date) return null;
+  return Math.ceil(
+    (new Date(`${date}T12:00:00`).getTime() - Date.now()) / 86_400_000
+  );
+}
+
+export async function fetchPaymentsDashboard(
+  supabase: SupabaseClient,
+  opts?: { cohortId?: string | null; courseId?: string | null }
+): Promise<PaymentsDashboard> {
+  const [{ data: fees }, { data: leads }, { data: courses }, { data: cohorts }] =
+    await Promise.all([
+      supabase.from("fee_records").select("*"),
+      supabase
+        .from("leads")
+        .select("id, name, course_id, cohort_id, stage")
+        .in("stage", ["offered", "closed_won"]),
+      supabase.from("courses").select("id, name"),
+      supabase
+        .from("cohorts")
+        .select("id, name, course_id, cohort_number, year, start_date"),
+    ]);
+
+  const leadMap = new Map((leads ?? []).map((l) => [l.id, l]));
+  const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
+  const allCohorts = cohorts ?? [];
+
+  const feeIds = (fees ?? []).map((f) => f.id);
+  const [{ data: installments }, { data: loans }] = await Promise.all([
+    feeIds.length
+      ? supabase
+          .from("installments")
+          .select("*")
+          .in("fee_record_id", feeIds)
+          .order("installment_number")
+      : Promise.resolve({ data: [] }),
+    feeIds.length
+      ? supabase.from("loans").select("*").in("fee_record_id", feeIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const instByFee = new Map<string, typeof installments>();
+  for (const i of installments ?? []) {
+    const list = instByFee.get(i.fee_record_id) ?? [];
+    list.push(i);
+    instByFee.set(i.fee_record_id, list);
+  }
+  const loanByFee = new Map((loans ?? []).map((l) => [l.fee_record_id, l]));
+
+  const cards: PaymentCard[] = [];
+  for (const fee of fees ?? []) {
+    const lead = leadMap.get(fee.lead_id);
+    if (!lead) continue;
+    if (opts?.courseId && lead.course_id !== opts.courseId) continue;
+    if (opts?.cohortId && lead.cohort_id !== opts.cohortId) continue;
+
+    const cohort = allCohorts.find((c) => c.id === lead.cohort_id);
+    const mode = (fee.payment_mode as PaymentMode) || "direct_instalments";
+    const remaining = Number(fee.remaining_fee) || 0;
+    const total = Number(fee.total_fee) || 0;
+    const loan = loanByFee.get(fee.id) ?? null;
+    let overallStatus = remaining <= 0 ? "Paid" : "Yet to Pay";
+    if (mode === "loan" && loan) {
+      overallStatus = LOAN_STAGE_LABELS[loan.stage as LoanStage] ?? loan.stage;
+    }
+
+    cards.push({
+      leadId: lead.id,
+      name: lead.name,
+      courseName: lead.course_id ? courseMap.get(lead.course_id) ?? null : null,
+      cohortLabel: cohort
+        ? cohortDisplayLabel(cohort, allCohorts, {
+            courseName: courseMap.get(cohort.course_id),
+            includeCourse: true,
+          })
+        : "—",
+      scholarshipPct: fee.scholarship_pct != null ? Number(fee.scholarship_pct) : null,
+      grossFeeExGst: Number(fee.gross_fee_ex_gst ?? fee.total_fee) || 0,
+      admissionFee: fee.admission_fee != null ? Number(fee.admission_fee) : null,
+      paymentMode: mode,
+      overallStatus,
+      invoiceNumber: fee.invoice_number ?? null,
+      remaining,
+      total,
+      oneShotDeadline: fee.one_shot_deadline ?? null,
+      installments: (instByFee.get(fee.id) ?? []).map((i) => ({
+        n: i.installment_number,
+        amount: Number(i.amount_to_realise),
+        deadline: i.deadline,
+        status: i.status,
+      })),
+      loan: loan
+        ? {
+            amount: Number(loan.total_fee),
+            deadline: loan.deadline_to_hit,
+            status: LOAN_STAGE_LABELS[loan.stage as LoanStage] ?? loan.stage,
+            daysRemaining: daysUntil(loan.deadline_to_hit),
+          }
+        : null,
+    });
+  }
+
+  const loanRows: LoanRow[] = cards
+    .filter((c) => c.loan)
+    .map((c) => ({
+      leadId: c.leadId,
+      name: c.name,
+      courseName: c.courseName,
+      amount: c.loan!.amount,
+      daysRemaining: c.loan!.daysRemaining,
+      status: c.loan!.status,
+    }));
+
+  const byCohortMap = new Map<string, CohortPayerSummary>();
+  for (const c of cards) {
+    const lead = leadMap.get(c.leadId);
+    const key = lead?.cohort_id ?? "none";
+    const cur = byCohortMap.get(key) ?? {
+      cohortId: lead?.cohort_id ?? null,
+      label: c.cohortLabel,
+      payers: 0,
+      revenue: 0,
+    };
+    if (c.remaining < c.total) {
+      cur.payers += 1;
+      cur.revenue += c.total - c.remaining;
+    }
+    byCohortMap.set(key, cur);
+  }
+
+  return {
+    cards,
+    loans: loanRows,
+    byCohort: Array.from(byCohortMap.values()),
+  };
+}

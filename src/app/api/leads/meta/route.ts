@@ -98,6 +98,26 @@ export async function POST(request: NextRequest) {
             })
             .eq("id", leadId);
         } else {
+          const { pickCounselorForCourse } = await import(
+            "@/lib/leads/assign-counselor"
+          );
+          let courseId: string | null = null;
+          const programme =
+            fields.programme || fields.program || fields.course || fields.course_name;
+          if (programme) {
+            const { data: courses } = await admin
+              .from("courses")
+              .select("id, name")
+              .eq("active", true);
+            const matchCourse = (courses ?? []).find((c) =>
+              c.name.toLowerCase().includes(String(programme).toLowerCase()) ||
+              String(programme).toLowerCase().includes(c.name.toLowerCase())
+            );
+            courseId = matchCourse?.id ?? null;
+          }
+          const allocatedTo = courseId
+            ? await pickCounselorForCourse(admin, courseId)
+            : null;
           const { data, error } = await admin
             .from("leads")
             .insert({
@@ -106,6 +126,8 @@ export async function POST(request: NextRequest) {
               email,
               source: "meta_ad",
               stage: "new_lead",
+              course_id: courseId,
+              lead_allocated_to: allocatedTo,
               utm_source: "meta",
               utm_medium: "paid",
               utm_campaign: attribution.campaign_name || attribution.campaign_id,

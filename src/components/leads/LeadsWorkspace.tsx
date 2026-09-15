@@ -18,8 +18,9 @@ import {
   type LeadsFilterParams,
 } from "@/lib/leads-query";
 import { cohortNumberMap } from "@/lib/cohorts/display";
-import { cn, formatDate } from "@/lib/utils";
-import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
+import type { LeadWithCard } from "@/lib/leads/card-metrics";
+import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
+import type { AppUser, Cohort, Course } from "@/types/database";
 import { differenceInDays } from "date-fns";
 import { LayoutGrid, List, Search } from "lucide-react";
 import Link from "next/link";
@@ -37,7 +38,7 @@ export function LeadsWorkspace({
   basePath = "/leads",
   attributionByLead = {},
 }: {
-  leads: LeadWithRelations[];
+  leads: LeadWithCard[];
   /** For list pagination — count of matching rows if known, else leads.length */
   totalEstimate: number;
   filters: LeadsFilterParams;
@@ -144,10 +145,39 @@ export function LeadsWorkspace({
 
   const [listTab, setListTab] = useState<(typeof LEAD_LIST_TABS)[number]["id"]>("all");
   const displayList = useMemo(() => {
-    if (listTab === "all") return listTabFiltered;
-    const tabDef = LEAD_LIST_TABS.find((t) => t.id === listTab)!;
-    return listTabFiltered.filter((l) => tabDef.stages.includes(l.stage as Stage));
-  }, [listTabFiltered, listTab]);
+    let rows = listTabFiltered;
+    if (listTab !== "all") {
+      const tabDef = LEAD_LIST_TABS.find((t) => t.id === listTab)!;
+      rows = rows.filter((l) => tabDef.stages.includes(l.stage as Stage));
+      if (listTab === "offer_call_not_booked") {
+        rows = rows.filter((l) => (l.offer_call_status ?? "not_booked") === "not_booked");
+      } else if (listTab === "offer_call_booked") {
+        rows = rows.filter((l) => l.offer_call_status === "booked");
+      } else if (listTab === "offer_call_done") {
+        rows = rows.filter((l) => l.offer_call_status === "done");
+      }
+    }
+    if (filters.uniqueDays != null && Number.isFinite(filters.uniqueDays)) {
+      rows = rows.filter((l) => (l.cardMetrics?.uniqueDays ?? 0) === filters.uniqueDays);
+    }
+    if (filters.minCalls != null && Number.isFinite(filters.minCalls)) {
+      rows = rows.filter((l) => (l.cardMetrics?.totalCalls ?? 0) >= filters.minCalls!);
+    }
+    const interviewTab =
+      listTab === "no_show" ||
+      listTab === "reschedule" ||
+      rows.some((l) => l.stage.startsWith("r1_") || l.stage.startsWith("r2_"));
+    if (listTab.startsWith("offer_call")) {
+      rows = [...rows].sort((a, b) =>
+        (a.offer_accept_deadline ?? "9999").localeCompare(b.offer_accept_deadline ?? "9999")
+      );
+    } else if (interviewTab) {
+      rows = [...rows].sort((a, b) =>
+        (b.cardMetrics?.interviewAt ?? "").localeCompare(a.cardMetrics?.interviewAt ?? "")
+      );
+    }
+    return rows;
+  }, [listTabFiltered, listTab, filters.uniqueDays, filters.minCalls]);
 
   const hasMorePages =
     filters.mode === "list" && filters.page * LIST_PAGE_SIZE < totalEstimate;
@@ -323,6 +353,50 @@ export function LeadsWorkspace({
             Stale {STALE_LEAD_DAYS}d+
           </label>
 
+          <select
+            className="input-field w-auto py-1.5 text-xs"
+            value={filters.callNotLoggedHours ?? ""}
+            onChange={(e) =>
+              pushFilters({
+                callNotLoggedHours: e.target.value ? Number(e.target.value) : null,
+                page: 1,
+              })
+            }
+          >
+            <option value="">Call not logged</option>
+            <option value="1">≥ 1 hour</option>
+            <option value="12">≥ 12 hours</option>
+            <option value="24">≥ 1 day</option>
+            <option value="48">≥ 2 days</option>
+            <option value="72">≥ 3 days</option>
+          </select>
+          <input
+            className="input-field w-28 py-1.5 text-xs"
+            type="number"
+            min={0}
+            placeholder="Unique days"
+            value={filters.uniqueDays ?? ""}
+            onChange={(e) =>
+              pushFilters({
+                uniqueDays: e.target.value === "" ? null : Number(e.target.value),
+                page: 1,
+              })
+            }
+          />
+          <input
+            className="input-field w-28 py-1.5 text-xs"
+            type="number"
+            min={0}
+            placeholder="Min calls"
+            value={filters.minCalls ?? ""}
+            onChange={(e) =>
+              pushFilters({
+                minCalls: e.target.value === "" ? null : Number(e.target.value),
+                page: 1,
+              })
+            }
+          />
+
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input
@@ -408,6 +482,9 @@ export function LeadsWorkspace({
                     <th className="eyebrow px-4 py-3">Course</th>
                     <th className="eyebrow px-4 py-3">Stage</th>
                     <th className="eyebrow px-4 py-3">Convert %</th>
+                    <th className="eyebrow px-4 py-3">Work</th>
+                    <th className="eyebrow px-4 py-3">Interview / deadline</th>
+                    <th className="eyebrow px-4 py-3">Grade</th>
                     <th className="eyebrow px-4 py-3">Last touch</th>
                     {isAdmin || showClaim ? (
                       <th className="eyebrow px-4 py-3">Owner</th>
@@ -488,6 +565,43 @@ export function LeadsWorkspace({
                           </td>
                           <td className="px-4 py-3 text-muted">
                             {l.intent_score != null ? `${l.intent_score}%` : "—"}
+                            {l.counselor_intent_check ? (
+                              <span className="block text-[11px]">{l.counselor_intent_check}</span>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3 text-[11px] text-muted">
+                            {!l.cardMetrics?.lastCallAt &&
+                            (l.stage === "new_lead" ||
+                              l.stage === "lead_created" ||
+                              l.stage === "in_funnel") ? (
+                              <span>No call {formatDurationSince(l.created_at)}</span>
+                            ) : (
+                              <>
+                                <span>
+                                  {l.cardMetrics?.totalCalls ?? 0} calls ·{" "}
+                                  {l.cardMetrics?.uniqueDays ?? 0} days
+                                </span>
+                                <span className="block">
+                                  Last {formatRelativeAgo(l.cardMetrics?.lastCallAt ?? null)} · avg{" "}
+                                  {l.cardMetrics?.avgCallsPerDaySinceStage ?? "—"}/d
+                                </span>
+                              </>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-[11px] text-muted">
+                            {l.cardMetrics?.interviewAt
+                              ? formatDate(l.cardMetrics.interviewAt)
+                              : "—"}
+                            {l.offer_accept_deadline ? (
+                              <span className="block">
+                                Accept {formatDate(l.offer_accept_deadline)}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3 text-[11px] text-muted">
+                            {l.cardMetrics?.gradeAvg != null
+                              ? `${l.cardMetrics.gradeAvg}/5`
+                              : "—"}
                           </td>
                           <td className="px-4 py-3">
                             <span

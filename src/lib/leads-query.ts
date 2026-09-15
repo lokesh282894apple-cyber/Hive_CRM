@@ -21,6 +21,9 @@ export type LeadsFilterParams = {
   q: string;
   page: number;
   mode: "board" | "list";
+  callNotLoggedHours: number | null;
+  uniqueDays: number | null;
+  minCalls: number | null;
 };
 
 export type ScopePair = { course_id: string; cohort_id: string };
@@ -28,7 +31,7 @@ export type ScopePair = { course_id: string; cohort_id: string };
 type Supabase = ReturnType<typeof createClient>;
 
 export const LEAD_LIST_SELECT =
-  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, lead_allocated_to, stage, created_at, updated_at, last_contacted_at, hubspot_id, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, lead_allocated_to, stage, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
 
 export function parseLeadsSearchParams(
   sp: Record<string, string | string[] | undefined>,
@@ -56,6 +59,9 @@ export function parseLeadsSearchParams(
     q: (get("q") || "").trim(),
     page,
     mode,
+    callNotLoggedHours: get("noCallH") ? Number(get("noCallH")) : null,
+    uniqueDays: get("uDays") ? Number(get("uDays")) : null,
+    minCalls: get("minCalls") ? Number(get("minCalls")) : null,
   };
 }
 
@@ -142,6 +148,21 @@ export function applyLeadsFilters(
     query = query.in("stage", stages);
   }
 
+  if (filters.stageGroup === "offer_call_not_booked") {
+    query = query.eq("offer_call_status", "not_booked");
+  } else if (filters.stageGroup === "offer_call_booked") {
+    query = query.eq("offer_call_status", "booked");
+  } else if (filters.stageGroup === "offer_call_done") {
+    query = query.eq("offer_call_status", "done");
+  }
+
+  if (filters.callNotLoggedHours && filters.callNotLoggedHours > 0) {
+    const cutoff = new Date(
+      Date.now() - filters.callNotLoggedHours * 3_600_000
+    ).toISOString();
+    query = query.is("last_contacted_at", null).lt("created_at", cutoff);
+  }
+
   if (filters.staleOnly) {
     const cutoff = subDays(new Date(), STALE_LEAD_DAYS).toISOString();
     query = query.or(
@@ -186,6 +207,11 @@ export function filtersToSearchParams(
   if (filters.stageGroup !== undefined) setOrDel("group", filters.stageGroup);
   if (filters.staleOnly !== undefined) setOrDel("stale", filters.staleOnly);
   if (filters.q !== undefined) setOrDel("q", filters.q || null);
+  if (filters.callNotLoggedHours !== undefined) {
+    setOrDel("noCallH", filters.callNotLoggedHours);
+  }
+  if (filters.uniqueDays !== undefined) setOrDel("uDays", filters.uniqueDays);
+  if (filters.minCalls !== undefined) setOrDel("minCalls", filters.minCalls);
   if (filters.page !== undefined) {
     if (filters.page <= 1) sp.delete("page");
     else sp.set("page", String(filters.page));

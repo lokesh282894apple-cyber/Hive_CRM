@@ -15,7 +15,7 @@ export async function createUserAccount(input: {
   role: Role;
   courseIds?: string[];
   cohortIds?: string[];
-}): Promise<ActionResult> {
+}): Promise<ActionResult & { id?: string }> {
   await requireUser(["admin"]);
   const admin = createAdminClient();
 
@@ -39,24 +39,39 @@ export async function createUserAccount(input: {
     return { ok: false, error: profileError.message };
   }
 
-  if (input.role === "counselor" && input.cohortIds?.length) {
-    const supabase = createClient();
-    const { data: cohorts } = await supabase
-      .from("cohorts")
-      .select("id, course_id")
-      .in("id", input.cohortIds);
-    const rows = (cohorts ?? []).map((c) => ({
-      user_id: authData.user!.id,
-      course_id: c.course_id,
-      cohort_id: c.id,
-    }));
-    if (rows.length) {
-      await admin.from("counselor_scope").insert(rows);
+  if (input.role === "counselor") {
+    const { syncCounselorScopeFromPrograms } = await import(
+      "@/lib/leads/assign-counselor"
+    );
+    if (input.courseIds?.length) {
+      await syncCounselorScopeFromPrograms(admin, authData.user.id, input.courseIds);
+    } else if (input.cohortIds?.length) {
+      const supabase = createClient();
+      const { data: cohorts } = await supabase
+        .from("cohorts")
+        .select("id, course_id")
+        .in("id", input.cohortIds);
+      const rows = (cohorts ?? []).map((c) => ({
+        user_id: authData.user!.id,
+        course_id: c.course_id,
+        cohort_id: c.id,
+      }));
+      if (rows.length) {
+        await admin.from("counselor_scope").insert(rows);
+        const courseIds = Array.from(new Set(rows.map((r) => r.course_id)));
+        await admin.from("counselor_program_alloc").insert(
+          courseIds.map((course_id) => ({
+            user_id: authData.user!.id,
+            course_id,
+          }))
+        );
+      }
     }
   }
 
   revalidatePath("/admin/users");
-  return { ok: true };
+  revalidatePath("/admin/config");
+  return { ok: true, id: authData.user.id };
 }
 
 export async function updateUserProfile(input: {

@@ -6,12 +6,15 @@ import {
   upsertCourse,
   upsertLoanVendor,
 } from "@/app/actions/settings";
+import { CounselorsConfigPanel } from "@/components/admin/CounselorsConfigPanel";
 import { TriggerRulesPanel } from "@/components/admin/TriggerRulesPanel";
-import type { Cohort, Course, LoanVendor } from "@/types/database";
+import { MessageSequencesPanel } from "@/components/admin/MessageSequencesPanel";
+import { cohortEntryLabel } from "@/lib/cohorts/display";
+import type { AppUser, Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
-type Tab = "courses" | "vendors" | "fees" | "triggers";
+type Tab = "courses" | "counselors" | "vendors" | "fees" | "triggers" | "sequences";
 
 export function SettingsClient({
   courses,
@@ -22,6 +25,9 @@ export function SettingsClient({
   manualMonthlyAdSpend = 0,
   googleMeetConfigured = false,
   triggerRules = [],
+  counselors = [],
+  counselorAllocs = [],
+  sequences = [],
 }: {
   courses: Course[];
   cohorts: Cohort[];
@@ -31,6 +37,9 @@ export function SettingsClient({
   manualMonthlyAdSpend?: number;
   googleMeetConfigured?: boolean;
   triggerRules?: import("@/app/actions/triggers").StageTriggerRule[];
+  counselors?: AppUser[];
+  counselorAllocs?: { user_id: string; course_id: string }[];
+  sequences?: import("@/app/actions/sequences").SequenceWithSteps[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,9 +82,11 @@ export function SettingsClient({
         {(
           [
             ["courses", "Courses & Cohorts"],
+            ["counselors", "Counselors"],
             ["vendors", "Loan Vendors"],
             ["fees", "Fee Templates"],
             ["triggers", "WA + Email triggers"],
+            ["sequences", "Program sequences"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -144,7 +155,22 @@ export function SettingsClient({
                 </option>
               ))}
             </select>
-            <input name="name" className="input-field" placeholder="Cohort name" required />
+            <input
+              name="cohort_number"
+              type="number"
+              min={1}
+              className="input-field"
+              placeholder="Cohort number (e.g. 1)"
+              required
+            />
+            <input
+              name="year"
+              type="number"
+              min={2020}
+              className="input-field"
+              placeholder="Year (e.g. 2026)"
+              required
+            />
             <input name="start_date" type="date" className="input-field" />
             <input
               name="default_total_fee"
@@ -159,7 +185,7 @@ export function SettingsClient({
             <ul className="mt-4 max-h-64 space-y-2 overflow-y-auto border-t border-border pt-4">
               {cohorts.map((c) => (
                 <li key={c.id} className="text-sm">
-                  <span className="font-medium text-navy">{c.name}</span>
+                  <span className="font-medium text-navy">{cohortEntryLabel(c)}</span>
                   <span className="text-muted">
                     {" "}
                     · ₹{Number(c.default_total_fee).toLocaleString("en-IN")}
@@ -278,6 +304,22 @@ export function SettingsClient({
       ) : null}
 
       {tab === "triggers" ? <TriggerRulesPanel rules={triggerRules} /> : null}
+
+      {tab === "counselors" ? (
+        <CounselorsConfigPanel
+          counselors={counselors}
+          courses={courses}
+          allocs={counselorAllocs}
+        />
+      ) : null}
+
+      {tab === "sequences" ? (
+        <MessageSequencesPanel
+          courses={courses}
+          triggerRules={triggerRules}
+          sequences={sequences}
+        />
+      ) : null}
     </div>
   );
 }
