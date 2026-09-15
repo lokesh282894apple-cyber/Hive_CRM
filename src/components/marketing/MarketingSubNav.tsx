@@ -24,8 +24,9 @@ export function MarketingSubNav({ section }: { section: MarketingSection }) {
           <Link
             key={tab.href}
             href={tab.href}
+            prefetch={false}
             className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition",
+              "rounded-lg px-3 py-1.5 text-sm font-medium",
               active
                 ? "bg-navy text-white"
                 : "text-navy/70 hover:bg-navy/5 hover:text-navy"

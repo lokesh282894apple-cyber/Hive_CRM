@@ -24,6 +24,37 @@ function db(): SupabaseClient {
   return createAdminClient();
 }
 
+/** PostgREST `.in()` URL length + row caps — chunk ids and fetch in parallel batches. */
+const IN_CHUNK = 150;
+const IN_CONCURRENCY = 4;
+
+async function selectInChunks<T extends Record<string, unknown>>(
+  table: string,
+  idColumn: string,
+  ids: string[],
+  columns: string
+): Promise<T[]> {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (!unique.length) return [];
+  const admin = db();
+  const chunks: string[][] = [];
+  for (let i = 0; i < unique.length; i += IN_CHUNK) {
+    chunks.push(unique.slice(i, i + IN_CHUNK));
+  }
+  const out: T[] = [];
+  for (let i = 0; i < chunks.length; i += IN_CONCURRENCY) {
+    const batch = chunks.slice(i, i + IN_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (chunk) => {
+        const { data } = await admin.from(table).select(columns).in(idColumn, chunk);
+        return (data ?? []) as unknown as T[];
+      })
+    );
+    for (const rows of results) out.push(...rows);
+  }
+  return out;
+}
+
 export type MarketingFilters = {
   fromDate: string;
   toDate: string;
@@ -92,44 +123,48 @@ export async function fetchLeadFunnel(filters: MarketingFilters): Promise<Funnel
   const fromIso = `${filters.fromDate}T00:00:00.000Z`;
   const toIso = `${filters.toDate}T23:59:59.999Z`;
 
-  const [sessionsRes, leadsRes, historyRes, spendRes, costRes, attrRes, campsRes] =
-    await Promise.all([
-      admin
-        .from("visitor_sessions")
-        .select("id, first_seen_at")
-        .gte("first_seen_at", fromIso)
-        .lte("first_seen_at", toIso),
-      admin
-        .from("leads")
-        .select(
-          "id, created_at, programme, cohort_id, source, utm_medium, aql_at, qualification_intent, financial_check, stage"
-        )
-        .gte("created_at", fromIso)
-        .lte("created_at", toIso),
-      admin
-        .from("stage_history")
-        .select("lead_id, to_stage, changed_at")
-        .gte("changed_at", fromIso)
-        .lte("changed_at", toIso),
-      admin
-        .from("ad_spend_daily")
-        .select("date, spend")
-        .gte("date", filters.fromDate)
-        .lte("date", filters.toDate),
-      admin
-        .from("marketing_cost_entries")
-        .select("entry_date, amount_inr, is_organic")
-        .gte("entry_date", filters.fromDate)
-        .lte("entry_date", filters.toDate),
-      admin.from("lead_attribution").select("lead_id, first_touch_campaign_id"),
-      admin.from("campaigns").select("id, source_type"),
-    ]);
+  const [sessionsRes, leadsRes, historyRes, spendRes, costRes, campsRes] = await Promise.all([
+    admin
+      .from("visitor_sessions")
+      .select("id, first_seen_at")
+      .gte("first_seen_at", fromIso)
+      .lte("first_seen_at", toIso),
+    admin
+      .from("leads")
+      .select(
+        "id, created_at, programme, cohort_id, source, utm_medium, aql_at, qualification_intent, financial_check, stage"
+      )
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso),
+    admin
+      .from("stage_history")
+      .select("lead_id, to_stage, changed_at")
+      .gte("changed_at", fromIso)
+      .lte("changed_at", toIso),
+    admin
+      .from("ad_spend_daily")
+      .select("date, spend")
+      .gte("date", filters.fromDate)
+      .lte("date", filters.toDate),
+    admin
+      .from("marketing_cost_entries")
+      .select("entry_date, amount_inr, is_organic")
+      .gte("entry_date", filters.fromDate)
+      .lte("entry_date", filters.toDate),
+    admin.from("campaigns").select("id, source_type"),
+  ]);
+
+  const leadIds = (leadsRes.data ?? []).map((l) => l.id as string);
+  const attrs = await selectInChunks<{
+    lead_id: string;
+    first_touch_campaign_id: string | null;
+  }>("lead_attribution", "lead_id", leadIds, "lead_id, first_touch_campaign_id");
 
   const campMap = new Map(
     (campsRes.data ?? []).map((c) => [c.id as string, c.source_type as string])
   );
   const attrMap = new Map(
-    (attrRes.data ?? []).map((a) => [a.lead_id as string, a.first_touch_campaign_id as string])
+    attrs.map((a) => [a.lead_id as string, a.first_touch_campaign_id as string])
   );
 
   const dayMap = new Map<string, FunnelDayRow>();
@@ -333,22 +368,42 @@ export async function fetchAttributionReport(
     .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
     .lte("created_at", `${filters.toDate}T23:59:59.999Z`);
 
-  const { data: attrs } = await admin
-    .from("lead_attribution")
-    .select("lead_id, first_touch_campaign_id, last_touch_campaign_id, session_id");
+  const leadList = leads ?? [];
+  if (!leadList.length) return [];
 
-  const { data: sessions } = await admin
-    .from("visitor_sessions")
-    .select("id, utm_source, utm_medium, utm_campaign");
+  const leadIds = leadList.map((l) => l.id as string);
+  const attrs = await selectInChunks<{
+    lead_id: string;
+    first_touch_campaign_id: string | null;
+    last_touch_campaign_id: string | null;
+    session_id: string | null;
+  }>(
+    "lead_attribution",
+    "lead_id",
+    leadIds,
+    "lead_id, first_touch_campaign_id, last_touch_campaign_id, session_id"
+  );
 
-  const sessMap = new Map((sessions ?? []).map((s) => [s.id, s]));
+  const attrByLead = new Map(attrs.map((a) => [a.lead_id, a]));
+  const sessionIds = attrs
+    .map((a) => a.session_id)
+    .filter((id): id is string => Boolean(id));
+  const sessions = await selectInChunks<{
+    id: string;
+    utm_source: string | null;
+    utm_medium: string | null;
+    utm_campaign: string | null;
+  }>("visitor_sessions", "id", sessionIds, "id, utm_source, utm_medium, utm_campaign");
+
+  const sessMap = new Map(sessions.map((s) => [s.id, s]));
   const agg = new Map<string, AttributionRow>();
+  const leadKey = new Map<string, string>();
 
-  for (const l of leads ?? []) {
-    const attr = (attrs ?? []).find((a) => a.lead_id === l.id);
-    let src = l.utm_source;
-    let med = l.utm_medium;
-    let camp = l.utm_campaign;
+  for (const l of leadList) {
+    const attr = attrByLead.get(l.id);
+    let src = l.utm_source as string | null;
+    let med = l.utm_medium as string | null;
+    let camp = l.utm_campaign as string | null;
     if (attr?.session_id) {
       const sess = sessMap.get(attr.session_id);
       if (sess) {
@@ -358,6 +413,7 @@ export async function fetchAttributionReport(
       }
     }
     const key = `${src ?? "direct"}|${med ?? "none"}|${camp ?? "none"}`;
+    leadKey.set(l.id, key);
     let row = agg.get(key);
     if (!row) {
       row = {
@@ -379,17 +435,17 @@ export async function fetchAttributionReport(
     if (l.stage === "closed_won") row.enrolled += 1;
   }
 
-  const wonIds = (leads ?? []).filter((l) => l.stage === "closed_won").map((l) => l.id);
+  const wonIds = leadList.filter((l) => l.stage === "closed_won").map((l) => l.id as string);
   if (wonIds.length) {
-    const { data: fees } = await admin
-      .from("fee_records")
-      .select("lead_id, total_fee, remaining_fee")
-      .in("lead_id", wonIds);
-    for (const f of fees ?? []) {
+    const fees = await selectInChunks<{
+      lead_id: string;
+      total_fee: number | null;
+      remaining_fee: number | null;
+    }>("fee_records", "lead_id", wonIds, "lead_id, total_fee, remaining_fee");
+    for (const f of fees) {
       const realised = (Number(f.total_fee) || 0) - (Number(f.remaining_fee) || 0);
-      const l = (leads ?? []).find((x) => x.id === f.lead_id);
-      if (!l) continue;
-      const key = `${l.utm_source ?? "direct"}|${l.utm_medium ?? "none"}|${l.utm_campaign ?? "none"}`;
+      const key = leadKey.get(f.lead_id);
+      if (!key) continue;
       const row = agg.get(key);
       if (row) row.revenue += realised;
     }
@@ -416,29 +472,33 @@ export type CampaignRoiRow = {
 
 export async function fetchCampaignRoi(filters: MarketingFilters): Promise<CampaignRoiRow[]> {
   const admin = db();
-  const { data: campaigns } = await admin
-    .from("campaigns")
-    .select("id, name, channel_id, source_type, channels(name)");
+  const [campaignsRes, spendRes, leadsRes] = await Promise.all([
+    admin.from("campaigns").select("id, name, channel_id, source_type, channels(name)"),
+    admin
+      .from("ad_spend_daily")
+      .select("campaign_id, spend, date")
+      .gte("date", filters.fromDate)
+      .lte("date", filters.toDate),
+    admin
+      .from("leads")
+      .select("id, stage, aql_at, qualification_intent, financial_check")
+      .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
+      .lte("created_at", `${filters.toDate}T23:59:59.999Z`),
+  ]);
 
-  const { data: spendRows } = await admin
-    .from("ad_spend_daily")
-    .select("campaign_id, spend, date")
-    .gte("date", filters.fromDate)
-    .lte("date", filters.toDate);
+  const campaigns = campaignsRes.data ?? [];
+  const spendRows = spendRes.data ?? [];
+  const leads = leadsRes.data ?? [];
+  const leadMap = new Map(leads.map((l) => [l.id as string, l]));
+  const leadIds = leads.map((l) => l.id as string);
 
-  const { data: attrs } = await admin
-    .from("lead_attribution")
-    .select("lead_id, first_touch_campaign_id, converted_at");
+  const attrs = await selectInChunks<{
+    lead_id: string;
+    first_touch_campaign_id: string | null;
+  }>("lead_attribution", "lead_id", leadIds, "lead_id, first_touch_campaign_id");
 
-  const { data: leads } = await admin
-    .from("leads")
-    .select("id, stage, aql_at, qualification_intent, financial_check")
-    .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
-    .lte("created_at", `${filters.toDate}T23:59:59.999Z`);
-
-  const leadMap = new Map((leads ?? []).map((l) => [l.id, l]));
   const spendByCamp = new Map<string, number>();
-  for (const s of spendRows ?? []) {
+  for (const s of spendRows) {
     if (!s.campaign_id) continue;
     spendByCamp.set(s.campaign_id, (spendByCamp.get(s.campaign_id) ?? 0) + Number(s.spend));
   }
@@ -447,10 +507,12 @@ export async function fetchCampaignRoi(filters: MarketingFilters): Promise<Campa
     string,
     { leads: number; aql: number; r1: number; enrolled: number; revenue: number }
   >();
+  const attrByLead = new Map<string, string>();
 
-  for (const a of attrs ?? []) {
+  for (const a of attrs) {
     const cid = a.first_touch_campaign_id;
     if (!cid) continue;
+    attrByLead.set(a.lead_id, cid);
     const l = leadMap.get(a.lead_id);
     if (!l) continue;
     const st = stats.get(cid) ?? { leads: 0, aql: 0, r1: 0, enrolled: 0, revenue: 0 };
@@ -461,41 +523,44 @@ export async function fetchCampaignRoi(filters: MarketingFilters): Promise<Campa
     stats.set(cid, st);
   }
 
-  const enrolledIds = (leads ?? []).filter((l) => l.stage === "closed_won").map((l) => l.id);
+  const enrolledIds = leads.filter((l) => l.stage === "closed_won").map((l) => l.id as string);
   if (enrolledIds.length) {
-    const { data: fees } = await admin
-      .from("fee_records")
-      .select("lead_id, total_fee, remaining_fee")
-      .in("lead_id", enrolledIds);
-    for (const f of fees ?? []) {
+    const fees = await selectInChunks<{
+      lead_id: string;
+      total_fee: number | null;
+      remaining_fee: number | null;
+    }>("fee_records", "lead_id", enrolledIds, "lead_id, total_fee, remaining_fee");
+    for (const f of fees) {
       const realised = (Number(f.total_fee) || 0) - (Number(f.remaining_fee) || 0);
-      const attr = (attrs ?? []).find((a) => a.lead_id === f.lead_id);
-      if (!attr?.first_touch_campaign_id) continue;
-      const st = stats.get(attr.first_touch_campaign_id);
+      const cid = attrByLead.get(f.lead_id);
+      if (!cid) continue;
+      const st = stats.get(cid);
       if (st) st.revenue += realised;
     }
   }
 
-  return (campaigns ?? []).map((c) => {
-    const st = stats.get(c.id) ?? { leads: 0, aql: 0, r1: 0, enrolled: 0, revenue: 0 };
-    const spend = spendByCamp.get(c.id) ?? 0;
-    const ch = c.channels as { name?: string } | null;
-    return {
-      campaignId: c.id,
-      campaignName: c.name,
-      channel: ch?.name ?? null,
-      spend,
-      leads: st.leads,
-      aql: st.aql,
-      r1Booked: st.r1,
-      enrolments: st.enrolled,
-      revenue: st.revenue,
-      cpl: blendedCpl(spend, st.leads),
-      cac: blendedCpl(spend, st.enrolled),
-      roas: roas(st.revenue, spend),
-      roiPct: roiPct(st.revenue, spend),
-    };
-  }).filter((r) => r.leads > 0 || r.spend > 0)
+  return campaigns
+    .map((c) => {
+      const st = stats.get(c.id) ?? { leads: 0, aql: 0, r1: 0, enrolled: 0, revenue: 0 };
+      const spend = spendByCamp.get(c.id) ?? 0;
+      const ch = c.channels as { name?: string } | null;
+      return {
+        campaignId: c.id,
+        campaignName: c.name,
+        channel: ch?.name ?? null,
+        spend,
+        leads: st.leads,
+        aql: st.aql,
+        r1Booked: st.r1,
+        enrolments: st.enrolled,
+        revenue: st.revenue,
+        cpl: blendedCpl(spend, st.leads),
+        cac: blendedCpl(spend, st.enrolled),
+        roas: roas(st.revenue, spend),
+        roiPct: roiPct(st.revenue, spend),
+      };
+    })
+    .filter((r) => r.leads > 0 || r.spend > 0)
     .sort((a, b) => (b.roiPct ?? -999) - (a.roiPct ?? -999));
 }
 
@@ -592,69 +657,92 @@ export async function fetchMonthlyMarketingData(
   const admin = db();
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const rows: MonthlyMktRow[] = [];
 
+  const oldest = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+  const fromDate = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, "0")}-01`;
+  const toDate = now.toISOString().slice(0, 10);
+  const fromIso = `${fromDate}T00:00:00.000Z`;
+  const toIso = `${toDate}T23:59:59.999Z`;
+
+  const monthKeys: string[] = [];
   for (let i = monthsBack; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const from = `${monthKey}-01`;
-    const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    const to =
-      monthKey === currentMonth
-        ? now.toISOString().slice(0, 10)
-        : `${monthKey}-${String(lastDay).padStart(2, "0")}`;
-
-    const funnel = await fetchLeadFunnel({ fromDate: from, toDate: to });
-    const totals = funnel.reduce(
-      (acc, r) => ({
-        sessions: acc.sessions + r.sessions,
-        leads: acc.leads + r.leads,
-        aql: acc.aql + r.aqlTotal,
-        r1Booked: acc.r1Booked + r.r1Booked,
-        r1Completed: acc.r1Completed + r.r1Completed,
-        metaSpend: acc.metaSpend + r.metaSpend,
-        nonMetaSpend: acc.nonMetaSpend + r.nonMetaSpend,
-      }),
-      {
-        sessions: 0,
-        leads: 0,
-        aql: 0,
-        r1Booked: 0,
-        r1Completed: 0,
-        metaSpend: 0,
-        nonMetaSpend: 0,
-      }
+    monthKeys.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
     );
+  }
 
-    const { count: offers } = await admin
+  const emptyTotals = () => ({
+    sessions: 0,
+    leads: 0,
+    aql: 0,
+    r1Booked: 0,
+    r1Completed: 0,
+    metaSpend: 0,
+    nonMetaSpend: 0,
+    offers: 0,
+    converts: 0,
+    revenue: 0,
+  });
+  const byMonth = new Map(monthKeys.map((k) => [k, emptyTotals()]));
+
+  const [funnel, offeredLeads, wonLeads, fees] = await Promise.all([
+    fetchLeadFunnel({ fromDate, toDate }),
+    admin
       .from("leads")
-      .select("*", { count: "exact", head: true })
+      .select("updated_at")
       .eq("stage", "offered")
-      .gte("updated_at", `${from}T00:00:00.000Z`)
-      .lte("updated_at", `${to}T23:59:59.999Z`);
-
-    const { count: converts } = await admin
+      .gte("updated_at", fromIso)
+      .lte("updated_at", toIso),
+    admin
       .from("leads")
-      .select("*", { count: "exact", head: true })
+      .select("updated_at")
       .eq("stage", "closed_won")
-      .gte("updated_at", `${from}T00:00:00.000Z`)
-      .lte("updated_at", `${to}T23:59:59.999Z`);
-
-    const { data: fees } = await admin
+      .gte("updated_at", fromIso)
+      .lte("updated_at", toIso),
+    admin
       .from("fee_records")
       .select("total_fee, remaining_fee, updated_at")
-      .gte("updated_at", `${from}T00:00:00.000Z`)
-      .lte("updated_at", `${to}T23:59:59.999Z`);
+      .gte("updated_at", fromIso)
+      .lte("updated_at", toIso),
+  ]);
 
-    const revenue = (fees ?? []).reduce(
-      (s, f) => s + ((Number(f.total_fee) || 0) - (Number(f.remaining_fee) || 0)),
-      0
-    );
+  for (const r of funnel) {
+    const mk = r.date.slice(0, 7);
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    t.sessions += r.sessions;
+    t.leads += r.leads;
+    t.aql += r.aqlTotal;
+    t.r1Booked += r.r1Booked;
+    t.r1Completed += r.r1Completed;
+    t.metaSpend += r.metaSpend;
+    t.nonMetaSpend += r.nonMetaSpend;
+  }
+
+  for (const l of offeredLeads.data ?? []) {
+    const mk = String(l.updated_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (t) t.offers += 1;
+  }
+  for (const l of wonLeads.data ?? []) {
+    const mk = String(l.updated_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (t) t.converts += 1;
+  }
+  for (const f of fees.data ?? []) {
+    const mk = String(f.updated_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    t.revenue += (Number(f.total_fee) || 0) - (Number(f.remaining_fee) || 0);
+  }
+
+  const salesCost = 60000;
+  return monthKeys.map((monthKey) => {
+    const totals = byMonth.get(monthKey) ?? emptyTotals();
     const totalSpend = totals.metaSpend + totals.nonMetaSpend;
-    const salesCost = 60000;
-    const conv = converts ?? 0;
-
-    rows.push({
+    const conv = totals.converts;
+    return {
       monthKey,
       status: monthKey === currentMonth ? "live" : "closed",
       metaSpend: totals.metaSpend,
@@ -666,18 +754,17 @@ export async function fetchMonthlyMarketingData(
       aql: totals.aql,
       r1Booked: totals.r1Booked,
       r1Completed: totals.r1Completed,
-      offers: offers ?? 0,
+      offers: totals.offers,
       converts: conv,
-      revenue,
+      revenue: totals.revenue,
       cpl: blendedCpl(totalSpend, totals.leads),
       cpaql: cpaql(totalSpend, totals.aql),
       costPerR1: costPerR1(totalSpend, totals.r1Booked),
       liveCpa: liveCpa(totalSpend, conv),
       liveCac: liveCac(totalSpend, salesCost, conv),
-      roasVal: roas(revenue, totalSpend),
-    });
-  }
-  return rows;
+      roasVal: roas(totals.revenue, totalSpend),
+    };
+  });
 }
 
 export type PnlSection = "total" | "organic" | "inorganic" | "meta_forms";
@@ -693,22 +780,36 @@ export async function fetchMarketingPnl(
   section: PnlSection
 ): Promise<{ stages: PnlStageRow[]; metrics: Record<string, number> }> {
   const admin = db();
-  let q = admin.from("leads").select("id, stage, source, utm_medium, created_at, cohort_id, aql_at, qualification_intent, financial_check");
+  let q = admin
+    .from("leads")
+    .select(
+      "id, stage, source, utm_medium, created_at, cohort_id, aql_at, qualification_intent, financial_check"
+    );
   if (cohortId) q = q.eq("cohort_id", cohortId);
-  const { data: leads } = await q;
+  const [{ data: leads }, { data: camps }] = await Promise.all([
+    q,
+    admin.from("campaigns").select("id, source_type"),
+  ]);
 
-  const { data: attrs } = await admin.from("lead_attribution").select("lead_id, first_touch_campaign_id");
-  const { data: camps } = await admin.from("campaigns").select("id, source_type");
-  const campMap = new Map((camps ?? []).map((c) => [c.id, c.source_type]));
+  const leadList = leads ?? [];
+  const campMap = new Map((camps ?? []).map((c) => [c.id as string, c.source_type as string]));
+  const attrs = await selectInChunks<{
+    lead_id: string;
+    first_touch_campaign_id: string | null;
+  }>(
+    "lead_attribution",
+    "lead_id",
+    leadList.map((l) => l.id as string),
+    "lead_id, first_touch_campaign_id"
+  );
+  const attrMap = new Map(attrs.map((a) => [a.lead_id, a.first_touch_campaign_id]));
 
-  const filtered = (leads ?? []).filter((l) => {
-    const attr = (attrs ?? []).find((a) => a.lead_id === l.id);
+  const filtered = leadList.filter((l) => {
+    const campId = attrMap.get(l.id);
     const inorg = isInorganicLead({
       utm_medium: l.utm_medium,
       source: l.source,
-      campaignSourceType: attr?.first_touch_campaign_id
-        ? campMap.get(attr.first_touch_campaign_id)
-        : null,
+      campaignSourceType: campId ? campMap.get(campId) : null,
     });
     const metaForm = isMetaFormsLead(l.source);
     if (section === "organic") return !inorg;
@@ -758,10 +859,8 @@ export async function fetchMarketingPnl(
     stages,
     metrics: {
       tofuPct: tofuPct(converts, totalLeads) ?? 0,
-      leadsToOffer: mofuPct(
-        stages.find((s) => s.stage === "offered")?.cohortTotal ?? 0,
-        totalLeads
-      ) ?? 0,
+      leadsToOffer:
+        mofuPct(stages.find((s) => s.stage === "offered")?.cohortTotal ?? 0, totalLeads) ?? 0,
     },
   };
 }
@@ -790,15 +889,35 @@ export async function fetchLeadWebsiteMetrics(
     .lte("created_at", `${filters.toDate}T23:59:59.999Z`)
     .limit(200);
 
+  const leadList = (leads ?? []).filter((l) => l.website_session_id);
+  if (!leadList.length) return [];
+
+  const sessionIds = leadList.map((l) => l.website_session_id as string);
+  const events = await selectInChunks<{
+    session_id: string;
+    page_url: string | null;
+    event_type: string;
+    occurred_at: string;
+  }>(
+    "page_events",
+    "session_id",
+    sessionIds,
+    "session_id, page_url, event_type, occurred_at"
+  );
+
+  const bySession = new Map<string, typeof events>();
+  for (const e of events) {
+    const arr = bySession.get(e.session_id) ?? [];
+    arr.push(e);
+    bySession.set(e.session_id, arr);
+  }
+
   const rows: LeadWebsiteRow[] = [];
-  for (const l of leads ?? []) {
-    if (!l.website_session_id) continue;
-    const { data: events } = await admin
-      .from("page_events")
-      .select("page_url, event_type, occurred_at")
-      .eq("session_id", l.website_session_id)
-      .order("occurred_at", { ascending: false });
-    const evs = events ?? [];
+  for (const l of leadList) {
+    const sid = l.website_session_id as string;
+    const evs = (bySession.get(sid) ?? []).slice().sort((a, b) =>
+      String(b.occurred_at).localeCompare(String(a.occurred_at))
+    );
     const pageviews = evs.filter((e) => e.event_type === "pageview").length;
     const first = evs[evs.length - 1]?.occurred_at;
     const last = evs[0]?.occurred_at;
@@ -859,14 +978,16 @@ export async function fetchDailyCallTracker(
 
   if (!leads?.length) return [];
 
-  const leadIds = leads.map((l) => l.id);
-  const { data: calls } = await admin
-    .from("call_logs")
-    .select("lead_id, logged_at")
-    .in("lead_id", leadIds);
+  const leadIds = leads.map((l) => l.id as string);
+  const callRows = await selectInChunks<{ lead_id: string; logged_at: string }>(
+    "call_logs",
+    "lead_id",
+    leadIds,
+    "lead_id, logged_at"
+  );
 
   const callsByLead = new Map<string, string[]>();
-  for (const c of calls ?? []) {
+  for (const c of callRows) {
     const arr = callsByLead.get(c.lead_id) ?? [];
     arr.push(c.logged_at);
     callsByLead.set(c.lead_id, arr);
