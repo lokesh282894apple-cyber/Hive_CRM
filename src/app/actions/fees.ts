@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import type { AppUser } from "@/types/database";
 import { addDays, format } from "date-fns";
 import { revalidatePath } from "next/cache";
-import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -161,7 +160,6 @@ export async function setOfferFee(input: {
 
     revalidatePath(`/leads/${input.leadId}/fees`);
     revalidatePath(`/leads/${input.leadId}`);
-    invalidateMarketingCaches();
     return { ok: true, feeRecordId: existing.id };
   }
 
@@ -188,7 +186,6 @@ export async function setOfferFee(input: {
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/leads/${input.leadId}/fees`);
   revalidatePath(`/leads/${input.leadId}`);
-  invalidateMarketingCaches();
   return { ok: true, feeRecordId: data.id };
 }
 
@@ -301,7 +298,6 @@ export async function generateInstallments(input: {
 
   revalidatePath(`/leads/${input.leadId}/fees`);
   revalidatePath(`/leads/${input.leadId}`);
-  invalidateMarketingCaches();
   return { ok: true };
 }
 
@@ -356,7 +352,6 @@ export async function recordInstallmentPayment(
 
   revalidatePath(`/leads/${leadId}/fees`);
   revalidatePath(`/leads/${leadId}`);
-  invalidateMarketingCaches();
   return { ok: true };
 }
 
@@ -384,7 +379,6 @@ export async function updateInstallmentRow(
     .eq("id", installmentId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/leads/${leadId}/fees`);
-  invalidateMarketingCaches();
   return { ok: true };
 }
 
@@ -481,7 +475,6 @@ export async function upsertLoan(input: {
 
   revalidatePath(`/leads/${input.leadId}/fees`);
   revalidatePath(`/leads/${input.leadId}`);
-  invalidateMarketingCaches();
   return { ok: true };
 }
 

@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
@@ -51,7 +50,7 @@ export default async function AdminLeadsPage({
     countQuery,
     supabase
       .from("users")
-      .select("*")
+      .select("id, name, email, role, active")
       .eq("role", "counselor")
       .eq("active", true)
       .order("name"),
@@ -59,14 +58,15 @@ export default async function AdminLeadsPage({
     getActiveCohorts(),
   ]);
 
-  const leads = await loadLeadCardMetrics(
-    supabase,
-    (leadsRaw as unknown as LeadWithRelations[]) ?? []
-  );
-  const attrMap = await fetchAttributionForLeads(
-    supabase,
-    leads.map((l) => l.id)
-  );
+  const raw = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
+  const [leads, attrMap] = await Promise.all([
+    loadLeadCardMetrics(supabase, raw),
+    fetchAttributionForLeads(
+      supabase,
+      raw.map((l) => l.id)
+    ),
+  ]);
+
   const attributionByLead: Record<
     string,
     { campaign_name: string | null; channel_name: string | null }
@@ -87,19 +87,17 @@ export default async function AdminLeadsPage({
         description="Import HubSpot CSV for cutover, then filter by counselor / course / cohort."
       />
       <HubspotImportClient />
-      <Suspense fallback={<p className="text-sm text-muted">Loading workspace…</p>}>
-        <LeadsWorkspace
-          leads={leads}
-          totalEstimate={count ?? 0}
-          filters={filters}
-          courses={courses as Course[]}
-          cohorts={cohorts as Cohort[]}
-          counselors={(counselors as AppUser[]) ?? []}
-          isAdmin
-          basePath="/admin/leads"
-          attributionByLead={attributionByLead}
-        />
-      </Suspense>
+      <LeadsWorkspace
+        leads={leads}
+        totalEstimate={count ?? 0}
+        filters={filters}
+        courses={courses as Course[]}
+        cohorts={cohorts as Cohort[]}
+        counselors={(counselors as AppUser[]) ?? []}
+        isAdmin
+        basePath="/admin/leads"
+        attributionByLead={attributionByLead}
+      />
     </div>
   );
 }

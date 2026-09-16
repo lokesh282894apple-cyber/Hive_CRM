@@ -1,0 +1,14 @@
+export default function Loading() {
+  return (
+    <div className="animate-pulse space-y-6">
+      <div className="space-y-2">
+        <div className="h-3 w-28 rounded bg-navy/10" />
+        <div className="h-8 w-48 rounded bg-navy/10" />
+        <div className="h-4 w-72 max-w-full rounded bg-navy/5" />
+      </div>
+      <div className="h-10 rounded-xl bg-navy/5" />
+      <div className="panel h-80 bg-navy/[0.03]" />
+      <p className="text-center text-xs text-muted">Loading…</p>
+    </div>
+  );
+}

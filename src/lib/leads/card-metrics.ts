@@ -1,4 +1,5 @@
 import type { createClient } from "@/lib/supabase/server";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 import type { LeadWithRelations } from "@/types/database";
 
 type Supabase = ReturnType<typeof createClient>;
@@ -31,8 +32,16 @@ export type LeadWithCard = LeadWithRelations & {
   cardMetrics?: LeadCardMetrics;
 };
 
+const IN_CHUNK = 80;
+
 function dayKey(iso: string) {
   return iso.slice(0, 10);
+}
+
+function chunkIds(ids: string[]): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) out.push(ids.slice(i, i + IN_CHUNK));
+  return out;
 }
 
 export async function loadLeadCardMetrics(
@@ -42,64 +51,75 @@ export async function loadLeadCardMetrics(
   const ids = leads.map((l) => l.id);
   if (!ids.length) return leads;
 
-  const [callsRes, bookingsRes, historyRes, gradesRes, approvalsRes] =
-    await Promise.all([
-      supabase
-        .from("call_logs")
-        .select("lead_id, logged_at, recording_url")
-        .in("lead_id", ids),
-      supabase
-        .from("interview_bookings")
-        .select("lead_id, scheduled_at, created_at, read_ai_report_url")
-        .in("lead_id", ids)
-        .order("scheduled_at", { ascending: false }),
-      supabase
-        .from("stage_history")
-        .select("lead_id, to_stage, changed_at")
-        .in("lead_id", ids)
-        .order("changed_at", { ascending: false }),
-      supabase
-        .from("lead_panelist_grades")
-        .select("lead_id, score")
-        .in("lead_id", ids),
-      supabase
-        .from("lead_approvals")
-        .select(
-          "lead_id, slot, label, status, approved_at, approved_by, approver:users!lead_approvals_approved_by_fkey(name)"
-        )
-        .in("lead_id", ids),
-    ]);
-
-  const calls = (callsRes.data ?? []) as {
-    lead_id: string;
-    logged_at: string;
-    recording_url: string | null;
-  }[];
-  const bookings = (bookingsRes.data ?? []) as {
+  type CallRow = { lead_id: string; logged_at: string; recording_url: string | null };
+  type BookingRow = {
     lead_id: string;
     scheduled_at: string;
     created_at: string;
     read_ai_report_url: string | null;
-  }[];
-  const history = (historyRes.data ?? []) as {
-    lead_id: string;
-    to_stage: string;
-    changed_at: string;
-  }[];
-  const grades = (gradesRes.data ?? []) as { lead_id: string; score: number }[];
-  const approvals = (approvalsRes.data ?? []) as {
+  };
+  type HistoryRow = { lead_id: string; to_stage: string; changed_at: string };
+  type GradeRow = { lead_id: string; score: number };
+  type ApprovalRow = {
     lead_id: string;
     slot: string;
     label: string | null;
     status: boolean;
     approved_at: string | null;
     approver?: { name?: string } | null;
-  }[];
+  };
 
-  const callsByLead = new Map<
-    string,
-    { logged_at: string; recording_url: string | null }[]
-  >();
+  const calls: CallRow[] = [];
+  const bookings: BookingRow[] = [];
+  const history: HistoryRow[] = [];
+  const grades: GradeRow[] = [];
+  const approvals: ApprovalRow[] = [];
+
+  for (const chunk of chunkIds(ids)) {
+    const [callPage, bookingPage, historyPage, gradePage, approvalPage] =
+      await Promise.all([
+        fetchAllPages<CallRow>(
+          (from, to) =>
+            supabase
+              .from("call_logs")
+              .select("lead_id, logged_at, recording_url")
+              .in("lead_id", chunk)
+              .order("logged_at", { ascending: false })
+              .range(from, to),
+          "card-metrics.calls"
+        ),
+        supabase
+          .from("interview_bookings")
+          .select("lead_id, scheduled_at, created_at, read_ai_report_url")
+          .in("lead_id", chunk)
+          .order("scheduled_at", { ascending: false }),
+        fetchAllPages<HistoryRow>(
+          (from, to) =>
+            supabase
+              .from("stage_history")
+              .select("lead_id, to_stage, changed_at")
+              .in("lead_id", chunk)
+              .order("changed_at", { ascending: false })
+              .range(from, to),
+          "card-metrics.history"
+        ),
+        supabase.from("lead_panelist_grades").select("lead_id, score").in("lead_id", chunk),
+        supabase
+          .from("lead_approvals")
+          .select(
+            "lead_id, slot, label, status, approved_at, approved_by, approver:users!lead_approvals_approved_by_fkey(name)"
+          )
+          .in("lead_id", chunk),
+      ]);
+
+    calls.push(...callPage);
+    bookings.push(...((bookingPage.data ?? []) as BookingRow[]));
+    history.push(...historyPage);
+    grades.push(...((gradePage.data ?? []) as GradeRow[]));
+    approvals.push(...((approvalPage.data ?? []) as ApprovalRow[]));
+  }
+
+  const callsByLead = new Map<string, CallRow[]>();
   for (const c of calls) {
     const list = callsByLead.get(c.lead_id) ?? [];
     list.push(c);

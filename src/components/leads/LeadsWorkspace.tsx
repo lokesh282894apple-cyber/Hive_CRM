@@ -246,7 +246,7 @@ export function LeadsWorkspace({
       new URLSearchParams(searchParams.toString())
     );
     startTransition(() => {
-      router.push(`${basePath || pathname}?${next.toString()}`);
+      router.push(`${basePath || pathname}?${next.toString()}`, { scroll: false });
     });
   }
 
@@ -370,7 +370,13 @@ export function LeadsWorkspace({
   }
 
   return (
-    <div>
+    <div
+      className={cn(
+        "transition-opacity duration-150",
+        pending && "pointer-events-none opacity-60"
+      )}
+      aria-busy={pending}
+    >
       {/* Ownership + layout */}
       <div className="mb-3 flex flex-col gap-3 rounded-panel border border-border bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">

@@ -6,9 +6,13 @@ import { isBookingRequiredStage, STAGES, STAGE_TRANSITIONS } from "@/lib/constan
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+function touchLeadPaths(leadId?: string) {
+  if (leadId) revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+}
 
 export async function createLead(
   formData: FormData
@@ -58,9 +62,7 @@ export async function createLead(
 
   await recomputeLeadScore(supabase, data.id);
 
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
-  invalidateMarketingCaches();
+  touchLeadPaths();
   return { ok: true, id: data.id };
 }
 
@@ -123,11 +125,7 @@ export async function updateLeadStage(
   } catch (err) {
     console.error("[dispatchStageTriggers]", err);
   }
-
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
-  invalidateMarketingCaches();
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -184,9 +182,7 @@ export async function setLeadScoreOverride(
     })
     .eq("id", leadId);
   if (error) return { ok: false, error: error.message };
-
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -206,9 +202,7 @@ export async function clearLeadScoreOverride(leadId: string): Promise<ActionResu
   if (error) return { ok: false, error: error.message };
 
   await recomputeLeadScore(supabase, leadId);
-
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -216,8 +210,7 @@ export async function recomputeLeadScoreAction(leadId: string): Promise<ActionRe
   await requireUser(["counselor", "admin"]);
   const supabase = createClient();
   await recomputeLeadScore(supabase, leadId);
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -248,9 +241,7 @@ export async function reassignLead(
       console.error("[dispatchCounsellorAllocated]", err);
     }
   }
-  revalidatePath("/admin/leads");
-  revalidatePath("/leads");
-  revalidatePath(`/leads/${leadId}`);
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -276,8 +267,7 @@ export async function claimLead(leadId: string): Promise<ActionResult> {
       console.error("[dispatchCounsellorAllocated]", err);
     }
   }
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -351,9 +341,7 @@ export async function updateLeadCardFields(
   const supabase = createClient();
   const { error } = await supabase.from("leads").update(patch).eq("id", leadId);
   if (error) return { ok: false, error: error.message };
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  touchLeadPaths(leadId);
   return { ok: true };
 }
 
@@ -382,9 +370,7 @@ export async function setLeadApproval(input: {
     { onConflict: "lead_id,slot" }
   );
   if (error) return { ok: false, error: error.message };
-  revalidatePath(`/leads/${input.leadId}`);
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  touchLeadPaths(input.leadId);
   return { ok: true };
 }
 
@@ -407,9 +393,7 @@ export async function upsertPanelistGrade(input: {
     { onConflict: "lead_id,panelist_id" }
   );
   if (error) return { ok: false, error: error.message };
-  revalidatePath(`/leads/${input.leadId}`);
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  touchLeadPaths(input.leadId);
   revalidatePath("/interviewer/interviews");
   return { ok: true };
 }

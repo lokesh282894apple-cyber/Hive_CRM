@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -50,14 +49,15 @@ export default async function LeadsPage({
 
   const [{ data }, { count }] = await Promise.all([dataQuery, countQuery]);
 
-  const leads = await loadLeadCardMetrics(
-    supabase,
-    (data as unknown as LeadWithRelations[]) ?? []
-  );
-  const attrMap = await fetchAttributionForLeads(
-    supabase,
-    leads.map((l) => l.id)
-  );
+  const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
+  const [leads, attrMap] = await Promise.all([
+    loadLeadCardMetrics(supabase, leadsRaw),
+    fetchAttributionForLeads(
+      supabase,
+      leadsRaw.map((l) => l.id)
+    ),
+  ]);
+
   const attributionByLead: Record<
     string,
     { campaign_name: string | null; channel_name: string | null }
@@ -82,18 +82,16 @@ export default async function LeadsPage({
           </Link>
         }
       />
-      <Suspense fallback={<p className="text-sm text-muted">Loading workspace…</p>}>
-        <LeadsWorkspace
-          leads={leads}
-          totalEstimate={count ?? 0}
-          filters={filters}
-          courses={courses as Course[]}
-          cohorts={cohorts as Cohort[]}
-          isAdmin={isAdmin}
-          basePath="/leads"
-          attributionByLead={attributionByLead}
-        />
-      </Suspense>
+      <LeadsWorkspace
+        leads={leads}
+        totalEstimate={count ?? 0}
+        filters={filters}
+        courses={courses as Course[]}
+        cohorts={cohorts as Cohort[]}
+        isAdmin={isAdmin}
+        basePath="/leads"
+        attributionByLead={attributionByLead}
+      />
     </div>
   );
 }

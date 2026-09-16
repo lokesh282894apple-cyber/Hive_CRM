@@ -9,6 +9,10 @@ const PUBLIC_PATHS = [
   "/go",
 ];
 
+/** Short-lived role cache — avoids a Postgres round-trip on every RSC navigation. */
+const ROLE_COOKIE = "hive_role_v1";
+const ROLE_COOKIE_MAX_AGE = 5 * 60; // 5 minutes
+
 function isPublicPath(path: string) {
   return (
     PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/")) ||
@@ -29,6 +33,37 @@ function homeForRole(role: string | null) {
   if (role === "interviewer") return "/interviewer/interviews";
   if (role === "marketing") return "/marketing/dashboard";
   return "/dashboard";
+}
+
+function readCachedRole(
+  request: NextRequest,
+  userId: string
+): string | null | undefined {
+  const raw = request.cookies.get(ROLE_COOKIE)?.value;
+  if (!raw) return undefined;
+  const sep = raw.indexOf(":");
+  if (sep <= 0) return undefined;
+  const uid = raw.slice(0, sep);
+  const role = raw.slice(sep + 1);
+  if (uid !== userId) return undefined;
+  if (role === "none") return null;
+  return role || null;
+}
+
+function setRoleCookie(
+  response: NextResponse,
+  userId: string,
+  role: string | null
+) {
+  response.cookies.set({
+    name: ROLE_COOKIE,
+    value: `${userId}:${role ?? "none"}`,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: ROLE_COOKIE_MAX_AGE,
+  });
 }
 
 export async function middleware(request: NextRequest) {
@@ -85,13 +120,19 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
-    const { data: profile } = await supabase
-      .from("users")
-      .select("role, active")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    const role = profile?.active ? profile.role : null;
+    let role: string | null;
+    const cached = readCachedRole(request, user.id);
+    if (cached !== undefined) {
+      role = cached;
+    } else {
+      const { data: profile } = await supabase
+        .from("users")
+        .select("role, active")
+        .eq("id", user.id)
+        .maybeSingle();
+      role = profile?.active ? profile.role : null;
+      setRoleCookie(response, user.id, role);
+    }
 
     if (path === "/login" || path === "/") {
       return redirectTo(request, homeForRole(role));
