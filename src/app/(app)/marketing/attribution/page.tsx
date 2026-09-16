@@ -31,7 +31,6 @@ export default async function MarketingAttributionPage({
               <th className="eyebrow px-3 py-2">Medium</th>
               <th className="eyebrow px-3 py-2">Campaign</th>
               <th className="eyebrow px-3 py-2">Leads</th>
-              <th className="eyebrow px-3 py-2">AQL</th>
               <th className="eyebrow px-3 py-2">R1+</th>
               <th className="eyebrow px-3 py-2">Enrolled</th>
               <th className="eyebrow px-3 py-2">Revenue</th>
@@ -44,7 +43,6 @@ export default async function MarketingAttributionPage({
                 <td className="px-3 py-2">{r.utmMedium ?? "—"}</td>
                 <td className="px-3 py-2 max-w-[180px] truncate">{r.utmCampaign ?? "—"}</td>
                 <td className="px-3 py-2 font-medium">{r.leads}</td>
-                <td className="px-3 py-2">{r.aql}</td>
                 <td className="px-3 py-2">{r.r1}</td>
                 <td className="px-3 py-2">{r.enrolled}</td>
                 <td className="px-3 py-2">{formatInr(r.revenue)}</td>

@@ -137,7 +137,7 @@ export function LeadDetailClient({
     new Set([
       lead.stage,
       ...(STAGE_TRANSITIONS[lead.stage] ?? []),
-      "closed_lost" as Stage,
+      "closed_deferred" as Stage,
     ])
   )).filter((s) => !bookingRequired.has(s) || s === lead.stage);
 
@@ -319,7 +319,7 @@ export function LeadDetailClient({
             {isAdmin ? "Manage fee" : "Record payments"}
           </Link>
         </div>
-      ) : lead.stage === "offered" || lead.stage === "closed_won" ? (
+      ) : lead.stage === "offered" || lead.stage === "closed_paid" ? (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border bg-[#F7F8FC] px-4 py-3">
           <p className="text-sm text-muted">
             {isAdmin

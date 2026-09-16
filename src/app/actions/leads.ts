@@ -6,6 +6,7 @@ import { isBookingRequiredStage, STAGES, STAGE_TRANSITIONS } from "@/lib/constan
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -59,6 +60,7 @@ export async function createLead(
 
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
+  invalidateMarketingCaches();
   return { ok: true, id: data.id };
 }
 
@@ -125,6 +127,7 @@ export async function updateLeadStage(
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
+  invalidateMarketingCaches();
   return { ok: true };
 }
 
@@ -341,13 +344,45 @@ export async function updateLeadCardFields(
     convert_probability?: "confirmed_to_pay" | "low_intent" | null;
     offer_call_status?: "not_booked" | "booked" | "done" | null;
     offer_accept_deadline?: string | null;
+    recording_url?: string | null;
   }
 ): Promise<ActionResult> {
-  await requireUser(["counselor", "admin"]);
+  await requireUser(["counselor", "admin", "interviewer"]);
   const supabase = createClient();
   const { error } = await supabase.from("leads").update(patch).eq("id", leadId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/leads");
+  revalidatePath("/admin/leads");
+  return { ok: true };
+}
+
+/** Toggle an approval slot. Writable by admin or panelist; visible to all counselors. */
+export async function setLeadApproval(input: {
+  leadId: string;
+  slot?: string;
+  label?: string;
+  status: boolean;
+}): Promise<ActionResult> {
+  const user = await requireUser(["admin", "interviewer"]);
+  const supabase = createClient();
+  const slot = input.slot || "leadership";
+  const label = input.label || (slot === "leadership" ? "Approved by Nikhil" : slot);
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("lead_approvals").upsert(
+    {
+      lead_id: input.leadId,
+      slot,
+      label,
+      status: input.status,
+      approved_by: input.status ? user.id : null,
+      approved_at: input.status ? now : null,
+      updated_at: now,
+    },
+    { onConflict: "lead_id,slot" }
+  );
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/leads/${input.leadId}`);
   revalidatePath("/leads");
   revalidatePath("/admin/leads");
   return { ok: true };

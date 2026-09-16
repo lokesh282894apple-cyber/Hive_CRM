@@ -21,6 +21,7 @@ import {
 import { StageBadge } from "@/components/ui/Primitives";
 import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
+import { LeadCardApprovals } from "@/components/leads/LeadCardApprovals";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import type { LeadWithRelations } from "@/types/database";
 import {
@@ -64,6 +65,16 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
   const isInterview =
     stage.startsWith("r1_") || stage.startsWith("r2_") || stage.startsWith("r3_");
   const isOffer = stage === "offered" || stage === "yet_to_offer";
+  const isClosed =
+    stage === "closed_paid" ||
+    stage === "closed_deferred" ||
+    stage === "closed_refund";
+  const showCallSinceMetrics =
+    stage.includes("no_show") ||
+    stage.includes("reschedule") ||
+    stage.includes("booked") ||
+    isOffer ||
+    isClosed;
   const noCall = !m?.lastCallAt && isNew;
   return (
     <div className="mt-2 space-y-0.5 text-[11px] text-muted">
@@ -78,20 +89,20 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
       {isInterview ? (
         <>
           {m?.interviewAt ? <p>Interview {formatDate(m.interviewAt)}</p> : null}
-          {stage.includes("booked") ||
-          stage.includes("no_show") ||
-          stage.includes("reschedule") ? (
+          {showCallSinceMetrics ? (
             <>
-              <p>Last call {formatRelativeAgo(m?.lastCallAt ?? null)}</p>
+              <p>Last call {formatRelativeAgo(m?.lastCallSinceStageAt ?? m?.lastCallAt ?? null)}</p>
               <p>Avg calls/day {m?.avgCallsPerDaySinceStage ?? "—"}</p>
+              <p>Total calls since stage {m?.callsSinceStage ?? 0}</p>
             </>
           ) : null}
         </>
       ) : null}
-      {isOffer ? (
+      {isOffer || isClosed ? (
         <>
-          <p>Last call {formatRelativeAgo(m?.lastCallAt ?? null)}</p>
+          <p>Last call {formatRelativeAgo(m?.lastCallSinceStageAt ?? m?.lastCallAt ?? null)}</p>
           <p>Avg calls/day {m?.avgCallsPerDaySinceStage ?? "—"}</p>
+          <p>Total calls since stage {m?.callsSinceStage ?? 0}</p>
           {lead.offer_accept_deadline ? (
             <p>Accept by {formatDate(lead.offer_accept_deadline)}</p>
           ) : null}
@@ -106,10 +117,33 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
         <p>Intent · {lead.counselor_intent_check}</p>
       ) : null}
       {m?.gradeAvg != null ? (
-        <p>
-          Grade score {m.gradeAvg}/5
+        <p className="font-medium text-navy">
+          Quality score {m.gradeAvg}/5
           {m.gradeCount > 1 ? ` · ${m.gradeCount} panelists` : ""}
         </p>
+      ) : null}
+      {m?.recordingUrl ? (
+        <p>
+          <a
+            href={m.recordingUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-periwinkle hover:underline"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Recording / Read.ai
+          </a>
+        </p>
+      ) : null}
+      {m?.approvals?.length ? (
+        <div className="space-y-0.5">
+          {m.approvals.map((a) => (
+            <p key={a.slot} className={a.status ? "font-semibold text-success" : ""}>
+              {a.label || a.slot}: {a.status ? "Approved" : "Pending"}
+              {a.approvedByName ? ` · ${a.approvedByName}` : ""}
+            </p>
+          ))}
+        </div>
       ) : null}
     </div>
   );
@@ -142,6 +176,7 @@ function LeadCard({
   onClaim,
   cohortLabel,
   disableDrag,
+  canWriteApproval,
 }: {
   lead: LeadWithCard;
   dragging?: boolean;
@@ -150,6 +185,7 @@ function LeadCard({
   onClaim?: (id: string) => void;
   cohortLabel?: string | null;
   disableDrag?: boolean;
+  canWriteApproval?: boolean;
 }) {
   const stale = isStale(lead);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -245,6 +281,10 @@ function LeadCard({
                 <p className="mt-2 text-[11px] text-warning">Unassigned</p>
               )}
               <LeadCardMetricsBlock lead={lead} />
+              <LeadCardApprovals
+                lead={lead}
+                canWriteApproval={Boolean(canWriteApproval)}
+              />
               <LeadOfferFields lead={lead} compact />
             </>
           ) : (
@@ -268,6 +308,7 @@ function BoardColumn({
   onClaim,
   cohortNums,
   disableDrag,
+  canWriteApproval,
 }: {
   column: BoardColumnDef;
   leads: LeadWithCard[];
@@ -277,6 +318,7 @@ function BoardColumn({
   onClaim?: (id: string) => void;
   cohortNums?: Map<string, string>;
   disableDrag?: boolean;
+  canWriteApproval?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -363,6 +405,7 @@ function BoardColumn({
             showClaim={showClaim}
             onClaim={onClaim}
             disableDrag={disableDrag}
+            canWriteApproval={canWriteApproval}
             cohortLabel={
               lead.cohort
                 ? cohortNums?.get(lead.cohort.id) ?? lead.cohort.name
@@ -741,6 +784,7 @@ export function PipelineBoard({
                   onClaim={onClaim}
                   cohortNums={cohortNums}
                   disableDrag={!dndReady}
+                  canWriteApproval={Boolean(isAdmin)}
                   onJumpStage={(stage) =>
                     setFocusStage((prev) => (prev === stage ? null : stage))
                   }

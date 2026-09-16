@@ -25,8 +25,9 @@ export const STAGES = [
   "r3_reschedule",
   "yet_to_offer",
   "offered",
-  "closed_won",
-  "closed_lost",
+  "closed_paid",
+  "closed_deferred",
+  "closed_refund",
 ] as const;
 
 export type Stage = (typeof STAGES)[number];
@@ -70,73 +71,75 @@ export const STAGE_LABELS: Record<Stage, string> = {
   r3_reschedule: "R3 Reschedule",
   yet_to_offer: "Yet to Offer",
   offered: "Offered",
-  closed_won: "Closed - Won",
-  closed_lost: "Closed - Lost",
+  closed_paid: "Closed – Paid",
+  closed_deferred: "Closed – Deferred",
+  closed_refund: "Closed – Refund",
 };
 
-/** Soft-allowed transitions for counselor UI. Admin can set any stage. closed_lost is global. */
+/** Soft-allowed transitions for counselor UI. Admin can set any stage. closed_deferred is global. */
 export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   lead_created: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
     "r1_booked",
-    "closed_lost",
+    "closed_deferred",
   ],
   in_funnel: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
     "r1_booked",
-    "closed_lost",
+    "closed_deferred",
   ],
-  new_lead: ["call_logged_nurturing", "dnp", "r1_booked", "closed_lost"],
-  call_logged_nurturing: ["new_lead", "dnp", "r1_booked", "closed_lost"],
-  dnp: ["new_lead", "call_logged_nurturing", "r1_booked", "closed_lost"],
+  new_lead: ["call_logged_nurturing", "dnp", "r1_booked", "closed_deferred"],
+  call_logged_nurturing: ["new_lead", "dnp", "r1_booked", "closed_deferred"],
+  dnp: ["new_lead", "call_logged_nurturing", "r1_booked", "closed_deferred"],
   no_show: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
     "r1_booked",
-    "closed_lost",
+    "closed_deferred",
   ],
   reschedule: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
     "r1_booked",
-    "closed_lost",
+    "closed_deferred",
   ],
   r1_booked: [
     "r1_confirmed",
     "r1_reject",
     "r1_no_show",
     "r1_reschedule",
-    "closed_lost",
+    "closed_deferred",
   ],
-  r1_confirmed: ["r2_booked", "closed_lost"],
-  r1_reject: ["closed_lost"],
-  r1_no_show: ["r1_booked", "r1_reschedule", "closed_lost"],
-  r1_reschedule: ["r1_booked", "closed_lost"],
+  r1_confirmed: ["r2_booked", "closed_deferred"],
+  r1_reject: ["closed_deferred"],
+  r1_no_show: ["r1_booked", "r1_reschedule", "closed_deferred"],
+  r1_reschedule: ["r1_booked", "closed_deferred"],
   r2_booked: [
     "r2_tbb",
     "r2_reject",
     "r2_no_show",
     "r2_reschedule",
-    "closed_lost",
+    "closed_deferred",
   ],
-  r2_tbb: ["r3_booked", "closed_lost"],
-  r2_reject: ["closed_lost"],
-  r2_no_show: ["r2_booked", "r2_reschedule", "closed_lost"],
-  r2_reschedule: ["r2_booked", "closed_lost"],
-  r3_booked: ["r3_tbb", "r3_no_show", "r3_reschedule", "closed_lost"],
-  r3_tbb: ["yet_to_offer", "closed_lost"],
-  r3_no_show: ["r3_booked", "r3_reschedule", "closed_lost"],
-  r3_reschedule: ["r3_booked", "closed_lost"],
-  yet_to_offer: ["offered", "closed_lost"],
-  offered: ["closed_won", "closed_lost"],
-  closed_won: [],
-  closed_lost: ["new_lead", "call_logged_nurturing"],
+  r2_tbb: ["r3_booked", "closed_deferred"],
+  r2_reject: ["closed_deferred"],
+  r2_no_show: ["r2_booked", "r2_reschedule", "closed_deferred"],
+  r2_reschedule: ["r2_booked", "closed_deferred"],
+  r3_booked: ["r3_tbb", "r3_no_show", "r3_reschedule", "closed_deferred"],
+  r3_tbb: ["yet_to_offer", "closed_deferred"],
+  r3_no_show: ["r3_booked", "r3_reschedule", "closed_deferred"],
+  r3_reschedule: ["r3_booked", "closed_deferred"],
+  yet_to_offer: ["offered", "closed_deferred", "closed_refund"],
+  offered: ["closed_paid", "closed_deferred", "closed_refund"],
+  closed_paid: [],
+  closed_deferred: ["new_lead", "call_logged_nurturing"],
+  closed_refund: ["new_lead", "call_logged_nurturing"],
 };
 
 export const LEAD_LIST_TABS = [
@@ -181,7 +184,8 @@ export const LEAD_LIST_TABS = [
 
 /** Stages treated as “open pipeline” (exclude closed by default). */
 export const OPEN_STAGES = STAGES.filter(
-  (s) => s !== "closed_won" && s !== "closed_lost"
+  (s) =>
+    s !== "closed_paid" && s !== "closed_deferred" && s !== "closed_refund"
 ) as Stage[];
 
 export const STAGE_GROUPS = [
@@ -386,20 +390,44 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     offerCallStatus: "done",
   },
   {
-    id: "closed",
-    label: "Closed",
-    hint: "Won · Lost (global)",
-    stages: ["closed_won", "closed_lost"],
-    dropStage: "closed_won",
-    accent: "gray",
+    id: "closed_paid",
+    label: "Closed – Paid",
+    hint: "Converted · paid",
+    stages: ["closed_paid"],
+    dropStage: "closed_paid",
+    accent: "green",
+    section: "Close",
+  },
+  {
+    id: "closed_deferred",
+    label: "Closed – Deferred",
+    hint: "Closed · payment deferred",
+    stages: ["closed_deferred"],
+    dropStage: "closed_deferred",
+    accent: "warning",
+    section: "Close",
+  },
+  {
+    id: "closed_refund",
+    label: "Closed – Refund",
+    hint: "Closed · refunded",
+    stages: ["closed_refund"],
+    dropStage: "closed_refund",
+    accent: "red",
     section: "Close",
   },
 ];
 
 function accentForStage(stage: Stage): BoardColumnDef["accent"] {
-  if (stage === "closed_won") return "green";
-  if (stage === "closed_lost" || stage.includes("reject")) return "red";
-  if (stage.includes("no_show") || stage === "dnp") return "warning";
+  if (stage === "closed_paid") return "green";
+  if (stage === "closed_refund" || stage.includes("reject")) return "red";
+  if (
+    stage === "closed_deferred" ||
+    stage.includes("no_show") ||
+    stage === "dnp"
+  ) {
+    return "warning";
+  }
   if (stage === "yet_to_offer" || stage === "offered") return "gold";
   if (stage.includes("booked") || stage.includes("confirmed") || stage.includes("tbb")) {
     return "blue";
@@ -450,6 +478,23 @@ export type BoardColumnId = (typeof BOARD_COLUMNS)[number]["id"];
 
 export function boardColumnForStage(stage: Stage, density: BoardDensity = "grouped") {
   return columnsForDensity(density).find((c) => c.stages.includes(stage));
+}
+
+/** Converted / paid closed stage */
+export const CLOSED_PAID_STAGES = ["closed_paid"] as const satisfies readonly Stage[];
+/** All terminal closed stages */
+export const CLOSED_STAGES = [
+  "closed_paid",
+  "closed_deferred",
+  "closed_refund",
+] as const satisfies readonly Stage[];
+
+export function isClosedStage(stage: string): boolean {
+  return (CLOSED_STAGES as readonly string[]).includes(stage);
+}
+
+export function isPaidClosedStage(stage: string): boolean {
+  return stage === "closed_paid";
 }
 
 /** Days without contact before a card is marked stale (Salesforce-style aging signal). */
@@ -553,8 +598,8 @@ export const CAMPAIGN_SOURCE_TYPES = ["paid_ad", "influencer", "organic"] as con
 export type CampaignSourceType = (typeof CAMPAIGN_SOURCE_TYPES)[number];
 
 export function stageTone(stage: Stage): "green" | "yellow" | "red" | "gray" | "blue" {
-  if (stage === "closed_won") return "green";
-  if (stage === "closed_lost" || stage.includes("reject")) return "red";
+  if (stage === "closed_paid") return "green";
+  if (stage === "closed_deferred" || stage.includes("reject")) return "red";
   if (stage.includes("no_show") || stage === "dnp") return "yellow";
   if (stage.includes("booked") || stage.includes("confirmed") || stage === "offered") return "blue";
   return "gray";

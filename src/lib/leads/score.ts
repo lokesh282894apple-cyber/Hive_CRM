@@ -256,8 +256,9 @@ export function stageBaseRate(stage: string): number {
     r3_reschedule: 0.48,
     yet_to_offer: 0.6,
     offered: 0.72,
-    closed_won: 0.97,
-    closed_lost: 0.04,
+    closed_paid: 0.97,
+    closed_deferred: 0.04,
+    closed_refund: 0.02,
   };
   return table[s] ?? 0.12;
 }
@@ -287,8 +288,9 @@ function stageRank(stage: string): number {
     r3_reschedule: 30,
     yet_to_offer: 40,
     offered: 50,
-    closed_won: 60,
-    closed_lost: -1,
+    closed_paid: 60,
+    closed_deferred: -1,
+    closed_refund: -1,
   };
   return table[stage] ?? 2;
 }
@@ -306,12 +308,30 @@ function connectRateSafe(s: ScoreSignals) {
  * - optional empirical model blend (when enough won/lost history exists)
  * - shrinkage when evidence is thin
  */
+export type ScoreWeightMap = Partial<
+  Record<ScoreReason["pillar"] | "calling" | "timing", number>
+>;
+
+const DEFAULT_SCORE_WEIGHTS: ScoreWeightMap = {
+  interest: 1.5,
+  engagement: 1,
+  fit: 1,
+  velocity: 1,
+  source: 0.8,
+  web: 1,
+  interview: 1,
+  offer: 1,
+  calling: 1.2,
+  timing: 1,
+};
+
 export function computeConversionLikelihood(
   signals: ScoreSignals,
   opts?: {
     learnedLogit?: number | null;
     learnedBlendWeight?: number;
     learnedMeta?: { nTotal: number; auc: number | null } | null;
+    weights?: ScoreWeightMap | null;
   }
 ): ScoreBreakdown {
   const stage = signals.stage as Stage;
@@ -320,16 +340,24 @@ export function computeConversionLikelihood(
   const base = stageBaseRate(stage);
   let z = logit(base);
   let pCursor = base;
+  const weights = { ...DEFAULT_SCORE_WEIGHTS, ...(opts?.weights ?? {}) };
 
   const push = (d: number, pillar: ScoreReason["pillar"], text: string) => {
-    if (Math.abs(d) < 0.01) return;
-    const effect: ScoreReason["effect"] = d > 0.02 ? "up" : d < -0.02 ? "down" : "info";
-    evidence.push({ d, pillar, text, effect });
-    z += d;
+    const w =
+      weights[pillar] ??
+      (pillar === "engagement" ? weights.calling : undefined) ??
+      (pillar === "velocity" ? weights.timing : undefined) ??
+      1;
+    const scaled = d * (Number.isFinite(w) ? Number(w) : 1);
+    if (Math.abs(scaled) < 0.01) return;
+    const effect: ScoreReason["effect"] =
+      scaled > 0.02 ? "up" : scaled < -0.02 ? "down" : "info";
+    evidence.push({ d: scaled, pillar, text, effect });
+    z += scaled;
     pCursor = sigmoid(z);
   };
 
-  if (stage === "closed_won") {
+  if (stage === "closed_paid") {
     return {
       score: 97,
       confidence: 100,
@@ -353,7 +381,7 @@ export function computeConversionLikelihood(
       ],
     };
   }
-  if (stage === "closed_lost") {
+  if (stage === "closed_deferred" || stage === "closed_refund") {
     return {
       score: 5,
       confidence: 100,
@@ -504,10 +532,10 @@ export function computeConversionLikelihood(
 
   if (signals.recentCallDays != null) {
     const d = signals.recentCallDays;
-    if (d <= 2) push(0.3, "engagement", `Last touch ${d === 0 ? "today" : `${d}d ago`}`);
-    else if (d <= 7) push(0.12, "engagement", `Last touch ${d}d ago`);
+    if (d <= 2) push(0.3, "engagement", `Recent call ${d === 0 ? "today" : `${d}d ago`}`);
+    else if (d <= 7) push(0.12, "engagement", `Recent call ${d}d ago`);
     else if (d > 21) push(-0.38, "engagement", `No contact for ${d}d`);
-    else if (d > 14) push(-0.18, "engagement", `Last touch ${d}d ago`);
+    else if (d > 14) push(-0.18, "engagement", `Recent call ${d}d ago`);
   } else if ((signals.leadAgeDays ?? 0) > 14 && calls === 0) {
     push(-0.3, "engagement", `Lead ${signals.leadAgeDays}d old with zero calls`);
   }
@@ -745,13 +773,28 @@ function daysBetween(a: string, b: string) {
   return (new Date(b).getTime() - new Date(a).getTime()) / (1000 * 60 * 60 * 24);
 }
 
-function classifyCallOutcome(outcome: string | null | undefined): "pos" | "neg" | "neu" | "dnp" | "wrong" | "callback" {
-  if (!outcome) return "neu";
-  const o = outcome.toLowerCase();
-  if (o === "wrong_number") return "wrong";
-  if (o === "dnp") return "dnp";
-  if (o === "callback_requested") return "callback";
-  if (o === "connected") return "pos";
+function classifyCallOutcome(
+  outcome: string | null | undefined,
+  durationSec?: number | null
+): "pos" | "neg" | "neu" | "dnp" | "wrong" | "callback" {
+  if (!outcome) {
+    if (durationSec != null && durationSec > 0) return "pos";
+    return "neu";
+  }
+  const o = outcome.toLowerCase().replace(/[\s-]+/g, "_");
+  if (o === "wrong_number" || o === "invalid") return "wrong";
+  if (o === "dnp" || o === "no_answer" || o === "busy") return "dnp";
+  if (o === "callback_requested" || o === "callback") return "callback";
+  if (
+    o === "connected" ||
+    o === "completed" ||
+    o === "answered" ||
+    o === "in_progress"
+  ) {
+    return "pos";
+  }
+  if (durationSec != null && durationSec >= 15) return "pos";
+  if (o === "failed" || o === "canceled" || o === "cancelled") return "neu";
   return "neu";
 }
 
@@ -810,7 +853,7 @@ export function buildScoreSignals(input: {
   let wrongNumberCalls = 0;
   const connectedDurations: number[] = [];
   for (const c of calls) {
-    const kind = classifyCallOutcome(c.outcome);
+    const kind = classifyCallOutcome(c.outcome, c.duration);
     if (kind === "pos") {
       connectedCalls += 1;
       if (c.duration != null && c.duration > 0) connectedDurations.push(c.duration);
@@ -867,8 +910,9 @@ export function buildScoreSignals(input: {
     r3_tbb: 31,
     yet_to_offer: 40,
     offered: 50,
-    closed_won: 60,
-    closed_lost: -1,
+    closed_paid: 60,
+    closed_deferred: -1,
+    closed_refund: -1,
   };
   for (const h of history) {
     if (daysToFirstR1 == null && /r1_booked|r1_confirmed/.test(h.to_stage) && createdAt) {
@@ -1170,7 +1214,23 @@ export async function recomputeLeadScore(
   if (!ctx) return null;
 
   const signals = signalsFromContext(ctx);
-  const breakdown = computeConversionLikelihood(signals, await learnedOptsFor(supabase, signals));
+  let weights: ScoreWeightMap | null = null;
+  try {
+    const { data: wrow } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "lead_score_weights")
+      .maybeSingle();
+    if (wrow?.value && typeof wrow.value === "object") {
+      weights = wrow.value as ScoreWeightMap;
+    }
+  } catch {
+    /* table may not exist yet */
+  }
+  const breakdown = computeConversionLikelihood(signals, {
+    ...(await learnedOptsFor(supabase, signals)),
+    weights,
+  });
   const effective =
     ctx.lead.score_override != null ? Number(ctx.lead.score_override) : breakdown.score;
 

@@ -476,7 +476,7 @@ export async function submitInterviewOutcome(input: {
         submitted_at: new Date().toISOString(),
       })
       .eq("id", input.bookingId);
-    await supabase.from("leads").update({ stage: "closed_lost" }).eq("id", booking.lead_id);
+    await supabase.from("leads").update({ stage: "closed_deferred" }).eq("id", booking.lead_id);
   } else {
     const nextStage = OUTCOME_STAGE[booking.round as InterviewRound]?.[input.outcome];
     await supabase

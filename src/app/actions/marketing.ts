@@ -5,6 +5,7 @@ import { slugifyCreativeName } from "@/lib/marketing/attribution";
 import type { CampaignSourceType, CreativeType } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 
 export type ActionResult = { ok: true; id?: string; slug?: string } | { ok: false; error: string };
 
@@ -194,6 +195,7 @@ export async function syncMetaSpendNow(): Promise<
   revalidatePath("/marketing/monthly");
   revalidatePath("/marketing/pnl");
   revalidatePath("/admin/marketing/connections");
+  invalidateMarketingCaches();
 
   if (synced === 0 && errors.length) {
     return {

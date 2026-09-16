@@ -5,6 +5,7 @@ import { LOAN_STAGE_LABELS, type LoanStage, type PaymentMode } from "@/lib/const
 export type PaymentCard = {
   leadId: string;
   name: string;
+  payerName: string | null;
   courseName: string | null;
   cohortLabel: string;
   scholarshipPct: number | null;
@@ -12,6 +13,8 @@ export type PaymentCard = {
   admissionFee: number | null;
   paymentMode: PaymentMode;
   overallStatus: string;
+  paymentStatus: string | null;
+  revenueAmount: number;
   invoiceNumber: string | null;
   remaining: number;
   total: number;
@@ -33,8 +36,10 @@ export type PaymentCard = {
 export type LoanRow = {
   leadId: string;
   name: string;
+  payerName: string | null;
   courseName: string | null;
   amount: number;
+  revenueAmount: number;
   daysRemaining: number | null;
   status: string;
 };
@@ -59,6 +64,17 @@ function daysUntil(date: string | null): number | null {
   );
 }
 
+function resolveRevenue(fee: {
+  revenue_amount?: number | null;
+  total_fee?: number | null;
+  remaining_fee?: number | null;
+}): number {
+  if (fee.revenue_amount != null && Number.isFinite(Number(fee.revenue_amount))) {
+    return Number(fee.revenue_amount);
+  }
+  return (Number(fee.total_fee) || 0) - (Number(fee.remaining_fee) || 0);
+}
+
 export async function fetchPaymentsDashboard(
   supabase: SupabaseClient,
   opts?: { cohortId?: string | null; courseId?: string | null }
@@ -69,7 +85,7 @@ export async function fetchPaymentsDashboard(
       supabase
         .from("leads")
         .select("id, name, course_id, cohort_id, stage")
-        .in("stage", ["offered", "closed_won"]),
+        .in("stage", ["offered", "closed_paid"]),
       supabase.from("courses").select("id, name"),
       supabase
         .from("cohorts")
@@ -114,14 +130,18 @@ export async function fetchPaymentsDashboard(
     const remaining = Number(fee.remaining_fee) || 0;
     const total = Number(fee.total_fee) || 0;
     const loan = loanByFee.get(fee.id) ?? null;
-    let overallStatus = remaining <= 0 ? "Paid" : "Yet to Pay";
-    if (mode === "loan" && loan) {
+    const paymentStatus =
+      (fee.payment_status as string | null | undefined) ?? null;
+    let overallStatus =
+      paymentStatus || (remaining <= 0 ? "Paid" : "Yet to Pay");
+    if (!paymentStatus && mode === "loan" && loan) {
       overallStatus = LOAN_STAGE_LABELS[loan.stage as LoanStage] ?? loan.stage;
     }
 
     cards.push({
       leadId: lead.id,
       name: lead.name,
+      payerName: (fee.payer_name as string | null | undefined) ?? null,
       courseName: lead.course_id ? courseMap.get(lead.course_id) ?? null : null,
       cohortLabel: cohort
         ? cohortDisplayLabel(cohort, allCohorts, {
@@ -134,6 +154,8 @@ export async function fetchPaymentsDashboard(
       admissionFee: fee.admission_fee != null ? Number(fee.admission_fee) : null,
       paymentMode: mode,
       overallStatus,
+      paymentStatus,
+      revenueAmount: resolveRevenue(fee),
       invoiceNumber: fee.invoice_number ?? null,
       remaining,
       total,
@@ -160,10 +182,12 @@ export async function fetchPaymentsDashboard(
     .map((c) => ({
       leadId: c.leadId,
       name: c.name,
+      payerName: c.payerName,
       courseName: c.courseName,
       amount: c.loan!.amount,
+      revenueAmount: c.revenueAmount,
       daysRemaining: c.loan!.daysRemaining,
-      status: c.loan!.status,
+      status: c.paymentStatus ?? c.loan!.status,
     }));
 
   const byCohortMap = new Map<string, CohortPayerSummary>();
@@ -176,9 +200,9 @@ export async function fetchPaymentsDashboard(
       payers: 0,
       revenue: 0,
     };
-    if (c.remaining < c.total) {
+    if (c.revenueAmount > 0 || c.remaining < c.total) {
       cur.payers += 1;
-      cur.revenue += c.total - c.remaining;
+      cur.revenue += c.revenueAmount;
     }
     byCohortMap.set(key, cur);
   }

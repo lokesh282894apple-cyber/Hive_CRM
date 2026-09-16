@@ -262,7 +262,7 @@ export async function importFeesFromCsv(input: {
       skipped++;
       continue;
     }
-    if (lead.stage !== "offered" && lead.stage !== "closed_won") {
+    if (lead.stage !== "offered" && lead.stage !== "closed_paid") {
       errors.push({ row: rowNum, error: "Lead is not Offered / Closed-won" });
       skipped++;
       continue;

@@ -30,13 +30,14 @@ export const marketingSections: Record<
     tabs: [
       { href: "/marketing/ads", label: "Meta ads" },
       { href: "/marketing/performance", label: "Web" },
+      { href: "/marketing/channels", label: "Channels" },
     ],
   },
   pnl: {
     label: "P&L",
     tabs: [
-      { href: "/marketing/pnl", label: "Cohort P&L" },
-      { href: "/marketing/monthly", label: "Live CPA" },
+      { href: "/marketing/pnl", label: "Month P&L" },
+      { href: "/marketing/monthly", label: "All months" },
     ],
   },
   planning: {

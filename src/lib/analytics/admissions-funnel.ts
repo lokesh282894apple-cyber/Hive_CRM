@@ -184,8 +184,8 @@ const R2_PLUS = new Set([
   "r3_reschedule",
   "yet_to_offer",
   "offered",
-  "closed_won",
-  "closed_lost",
+  "closed_paid",
+  "closed_deferred",
 ]);
 
 const R3_BOOKED = new Set(["r3_booked"]);
@@ -202,13 +202,19 @@ const R3_PLUS = new Set([
   ...Array.from(R3_ALL),
   "yet_to_offer",
   "offered",
-  "closed_won",
-  "closed_lost",
+  "closed_paid",
+  "closed_deferred",
 ]);
 
-const OFFER_PLUS = new Set(["yet_to_offer", "offered", "closed_won", "closed_lost"]);
-const WON = new Set(["closed_won"]);
-const LOST = new Set(["closed_lost"]);
+const OFFER_PLUS = new Set([
+  "yet_to_offer",
+  "offered",
+  "closed_paid",
+  "closed_deferred",
+  "closed_refund",
+]);
+const WON = new Set(["closed_paid"]);
+const LOST = new Set(["closed_deferred", "closed_refund"]);
 
 const ORGANIC_SOURCES = new Set([
   "website",
@@ -475,11 +481,11 @@ function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
     const pool = mode === "snapshot" ? f.stagesEver : f.stagesInPeriod;
     if (!hasAny(pool, OFFER_PLUS)) continue;
     offered += 1;
-    if (hasAny(pool, WON) || (mode === "snapshot" && f.lead.stage === "closed_won")) {
+    if (hasAny(pool, WON) || (mode === "snapshot" && f.lead.stage === "closed_paid")) {
       won += 1;
     } else if (
       hasAny(pool, LOST) ||
-      (mode === "snapshot" && f.lead.stage === "closed_lost")
+      (mode === "snapshot" && f.lead.stage === "closed_deferred")
     ) {
       lost += 1;
     }
@@ -504,7 +510,7 @@ function computeConversions(
     if (hasAny(f.stagesEver, R1_ALL) || f.bookings.some((b) => b.round === "R1")) r1 += 1;
     if (hasAny(f.stagesEver, R2_ALL) || f.bookings.some((b) => b.round === "R2")) r2 += 1;
     if (hasAny(f.stagesEver, R3_ALL) || f.bookings.some((b) => b.round === "R3")) r3 += 1;
-    if (f.lead.stage === "closed_won" || hasAny(f.stagesEver, WON)) won += 1;
+    if (f.lead.stage === "closed_paid" || hasAny(f.stagesEver, WON)) won += 1;
   }
   const leads = facts.length;
   return {

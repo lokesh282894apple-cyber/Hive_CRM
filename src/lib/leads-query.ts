@@ -21,9 +21,18 @@ export type LeadsFilterParams = {
   q: string;
   page: number;
   mode: "board" | "list";
+  /**
+   * No call logged for at least this many hours.
+   * Prefer this over days when both could apply.
+   */
   callNotLoggedHours: number | null;
+  /** @deprecated prefer callNotLoggedHours — kept for URL compat */
+  callNotLoggedDays: number | null;
+  /** Max unique call days (≤ N) */
   uniqueDays: number | null;
   minCalls: number | null;
+  /** Min calls logged since entering current stage */
+  minCallsSinceStage: number | null;
 };
 
 export type ScopePair = { course_id: string; cohort_id: string };
@@ -31,7 +40,7 @@ export type ScopePair = { course_id: string; cohort_id: string };
 type Supabase = ReturnType<typeof createClient>;
 
 export const LEAD_LIST_SELECT =
-  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, lead_allocated_to, stage, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, lead_allocated_to, stage, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
 
 export function parseLeadsSearchParams(
   sp: Record<string, string | string[] | undefined>,
@@ -59,9 +68,28 @@ export function parseLeadsSearchParams(
     q: (get("q") || "").trim(),
     page,
     mode,
-    callNotLoggedHours: get("noCallH") ? Number(get("noCallH")) : null,
+    callNotLoggedHours: (() => {
+      const hours = get("noCallH");
+      if (hours && Number(hours) > 0) return Number(hours);
+      const days = get("noCallD");
+      if (days && Number(days) > 0) return Number(days) * 24;
+      return null;
+    })(),
+    callNotLoggedDays: (() => {
+      const days = get("noCallD");
+      if (days && Number(days) > 0) return Number(days);
+      const hours = get("noCallH");
+      if (hours && Number(hours) > 0) {
+        const h = Number(hours);
+        return h >= 24 ? Math.ceil(h / 24) : null;
+      }
+      return null;
+    })(),
     uniqueDays: get("uDays") ? Number(get("uDays")) : null,
     minCalls: get("minCalls") ? Number(get("minCalls")) : null,
+    minCallsSinceStage: get("minStageCalls")
+      ? Number(get("minStageCalls"))
+      : null,
   };
 }
 
@@ -160,7 +188,15 @@ export function applyLeadsFilters(
     const cutoff = new Date(
       Date.now() - filters.callNotLoggedHours * 3_600_000
     ).toISOString();
-    query = query.is("last_contacted_at", null).lt("created_at", cutoff);
+    query = query.or(
+      `and(last_contacted_at.is.null,created_at.lt.${cutoff}),last_contacted_at.lt.${cutoff}`
+    );
+  } else if (filters.callNotLoggedDays && filters.callNotLoggedDays > 0) {
+    const cutoff = subDays(new Date(), filters.callNotLoggedDays).toISOString();
+    // No call in last N days: never contacted (created before cutoff) OR last call older than cutoff
+    query = query.or(
+      `and(last_contacted_at.is.null,created_at.lt.${cutoff}),last_contacted_at.lt.${cutoff}`
+    );
   }
 
   if (filters.staleOnly) {
@@ -209,9 +245,17 @@ export function filtersToSearchParams(
   if (filters.q !== undefined) setOrDel("q", filters.q || null);
   if (filters.callNotLoggedHours !== undefined) {
     setOrDel("noCallH", filters.callNotLoggedHours);
+    if (filters.callNotLoggedHours != null) sp.delete("noCallD");
+  }
+  if (filters.callNotLoggedDays !== undefined && filters.callNotLoggedHours == null) {
+    setOrDel("noCallD", filters.callNotLoggedDays);
+    sp.delete("noCallH");
   }
   if (filters.uniqueDays !== undefined) setOrDel("uDays", filters.uniqueDays);
   if (filters.minCalls !== undefined) setOrDel("minCalls", filters.minCalls);
+  if (filters.minCallsSinceStage !== undefined) {
+    setOrDel("minStageCalls", filters.minCallsSinceStage);
+  }
   if (filters.page !== undefined) {
     if (filters.page <= 1) sp.delete("page");
     else sp.set("page", String(filters.page));

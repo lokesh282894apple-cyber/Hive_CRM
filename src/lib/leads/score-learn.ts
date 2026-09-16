@@ -1,5 +1,5 @@
 /**
- * Empirical conversion model — logistic regression on historical closed_won / closed_lost.
+ * Empirical conversion model — logistic regression on historical closed_paid / closed_deferred.
  * Activates once enough labeled outcomes exist; otherwise expert engine stands alone.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -249,12 +249,12 @@ export async function fitConversionModel(
     .select(
       "id, stage, source, programme, years_experience, preferred_industry, course_id, cohort_id, created_at, email, linkedin, intent_score"
     )
-    .in("stage", ["closed_won", "closed_lost"])
+    .in("stage", ["closed_paid", "closed_deferred"])
     .limit(5000);
 
   const leads = closed ?? [];
-  const nWon = leads.filter((l) => l.stage === "closed_won").length;
-  const nLost = leads.filter((l) => l.stage === "closed_lost").length;
+  const nWon = leads.filter((l) => l.stage === "closed_paid").length;
+  const nLost = leads.filter((l) => l.stage === "closed_deferred").length;
   if (leads.length < MIN_LABELS_FOR_FIT || nWon < MIN_WINS || nLost < MIN_LOSSES) {
     return null;
   }
@@ -335,7 +335,7 @@ export async function fitConversionModel(
           : null,
       });
       const { values } = featureVector(signals);
-      rows.push({ x: values, y: lead.stage === "closed_won" ? 1 : 0 });
+      rows.push({ x: values, y: lead.stage === "closed_paid" ? 1 : 0 });
     }
   }
 

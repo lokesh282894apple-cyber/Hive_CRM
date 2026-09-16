@@ -274,16 +274,16 @@ export async function fetchAdmissionsAnalytics(
   const attentionLeads = all.filter((l) =>
     (ATTENTION_STAGES as readonly string[]).includes(l.stage)
   ).length;
-  const won = all.filter((l) => l.stage === "closed_won").length;
-  const lost = all.filter((l) => l.stage === "closed_lost").length;
+  const won = all.filter((l) => l.stage === "closed_paid").length;
+  const lost = all.filter((l) => l.stage === "closed_deferred").length;
   const closed = won + lost;
   const unassigned = all.filter((l) => !l.lead_allocated_to).length;
   const attributed = attributedCount ?? 0;
 
   const funnelGroups = [
     ...STAGE_GROUPS.filter((g) => !["open", "all"].includes(g.id)),
-    { id: "won", label: "Closed Won", stages: ["closed_won"] as Stage[] },
-    { id: "lost", label: "Closed Lost", stages: ["closed_lost"] as Stage[] },
+    { id: "won", label: "Closed Won", stages: ["closed_paid"] as Stage[] },
+    { id: "lost", label: "Closed Lost", stages: ["closed_deferred"] as Stage[] },
   ].map((g) => ({
     name: g.label,
     count: all.filter((l) => (g.stages as readonly string[]).includes(l.stage)).length,
@@ -336,8 +336,8 @@ export async function fetchAdmissionsAnalytics(
   const counselorBoard = boardCounselors
     .map((c) => {
       const mine = all.filter((l) => l.lead_allocated_to === c.id);
-      const cWon = mine.filter((l) => l.stage === "closed_won").length;
-      const cLost = mine.filter((l) => l.stage === "closed_lost").length;
+      const cWon = mine.filter((l) => l.stage === "closed_paid").length;
+      const cLost = mine.filter((l) => l.stage === "closed_deferred").length;
       const cClosed = cWon + cLost;
       return {
         id: c.id,
@@ -363,7 +363,7 @@ export async function fetchAdmissionsAnalytics(
     if (row) row.leads += 1;
   }
   for (const l of all) {
-    if (l.stage !== "closed_won") continue;
+    if (l.stage !== "closed_paid") continue;
     // approximate won timing with updated_at in range
     if (
       l.updated_at &&
@@ -495,4 +495,121 @@ export async function fetchAdmissionsAnalytics(
       counselor_id: c.counselor_id,
     })),
   };
+}
+
+export type AdmissionsMonthlyRow = {
+  monthKey: string;
+  status: "live" | "closed";
+  leads: number;
+  availableLeads: number;
+  r1Booked: number;
+  converts: number;
+  lost: number;
+  revenueBooked: number;
+  revenueRealized: number;
+};
+
+/** Year-at-a-glance admissions rollup (month cohort + open pipeline). */
+export async function fetchAdmissionsMonthlyRollup(
+  supabase: SupabaseClient,
+  monthsBack = 18
+): Promise<AdmissionsMonthlyRow[]> {
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const oldest = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
+  const fromDate = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, "0")}-01`;
+  const toDate = now.toISOString().slice(0, 10);
+  const fromIso = `${fromDate}T00:00:00.000Z`;
+  const toIso = `${toDate}T23:59:59.999Z`;
+
+  const monthKeys: string[] = [];
+  for (let i = monthsBack; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    monthKeys.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    );
+  }
+
+  const empty = () => ({
+    leads: 0,
+    availableLeads: 0,
+    r1Booked: 0,
+    converts: 0,
+    lost: 0,
+    revenueBooked: 0,
+    revenueRealized: 0,
+  });
+  const byMonth = new Map(monthKeys.map((k) => [k, empty()]));
+
+  const [{ data: leads }, { data: fees }, { data: history }] = await Promise.all([
+    supabase
+      .from("leads")
+      .select("id, created_at, stage")
+      .gte("created_at", fromIso)
+      .lte("created_at", toIso),
+    supabase
+      .from("fee_records")
+      .select("total_fee, remaining_fee, revenue_amount, updated_at")
+      .gte("updated_at", fromIso)
+      .lte("updated_at", toIso),
+    supabase
+      .from("stage_history")
+      .select("lead_id, to_stage, changed_at")
+      .in("to_stage", ["r1_booked", "r1_confirmed", "closed_paid", "closed_deferred"])
+      .gte("changed_at", fromIso)
+      .lte("changed_at", toIso),
+  ]);
+
+  const openSet = new Set(OPEN_STAGES as readonly string[]);
+  for (const l of leads ?? []) {
+    const mk = String(l.created_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    t.leads += 1;
+    if (openSet.has(String(l.stage))) t.availableLeads += 1;
+  }
+
+  const r1Seen = new Set<string>();
+  for (const h of history ?? []) {
+    const mk = String(h.changed_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    if (
+      (h.to_stage === "r1_booked" || h.to_stage === "r1_confirmed") &&
+      !r1Seen.has(`${h.lead_id}:${mk}`)
+    ) {
+      r1Seen.add(`${h.lead_id}:${mk}`);
+      t.r1Booked += 1;
+    }
+  }
+
+  for (const l of leads ?? []) {
+    const mk = String(l.created_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    if (l.stage === "closed_paid") t.converts += 1;
+    if (l.stage === "closed_deferred") t.lost += 1;
+  }
+
+  for (const f of fees ?? []) {
+    const mk = String(f.updated_at).slice(0, 7);
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    const booked = Number(f.total_fee) || 0;
+    const realized =
+      f.revenue_amount != null
+        ? Number(f.revenue_amount) || 0
+        : booked - (Number(f.remaining_fee) || 0);
+    t.revenueBooked += booked;
+    t.revenueRealized += realized;
+  }
+
+  return monthKeys.map((monthKey) => {
+    const t = byMonth.get(monthKey) ?? empty();
+    return {
+      monthKey,
+      status: monthKey === currentMonth ? "live" : "closed",
+      ...t,
+    };
+  });
 }

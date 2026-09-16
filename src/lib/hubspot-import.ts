@@ -189,8 +189,8 @@ export function guessHiveStage(raw: string): Stage | null {
   }
 
   const heuristics: [RegExp, Stage][] = [
-    [/\bclosed\s*won\b|\benrolled\b|\bwon\b/, "closed_won"],
-    [/\bclosed\s*lost\b|\blost\b|\brejected\b/, "closed_lost"],
+    [/\bclosed\s*won\b|\benrolled\b|\bwon\b/, "closed_paid"],
+    [/\bclosed\s*lost\b|\blost\b|\brejected\b/, "closed_deferred"],
     [/\boffer(ed)?\b/, "offered"],
     [/\byet to offer\b/, "yet_to_offer"],
     [/\br3\b.*\bno\s*show/, "r3_no_show"],

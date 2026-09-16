@@ -21,7 +21,7 @@ import type { FeeRecord, Installment, Loan, LoanVendor } from "@/types/database"
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
-const FEE_ELIGIBLE: Stage[] = ["offered", "closed_won"];
+const FEE_ELIGIBLE: Stage[] = ["offered", "closed_paid"];
 type FeeTab = "direct" | "one_shot" | "loan";
 
 function tabFromMode(mode: PaymentMode | undefined, requested: string | null): FeeTab {

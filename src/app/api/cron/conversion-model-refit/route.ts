@@ -9,7 +9,7 @@ import {
 } from "@/lib/leads/score-learn";
 
 /**
- * Weekly refit of the empirical conversion likelihood model from closed_won / closed_lost.
+ * Weekly refit of the empirical conversion likelihood model from closed_paid / closed_deferred.
  * No-op until enough labeled outcomes exist.
  */
 export async function GET(request: NextRequest) {

@@ -33,7 +33,7 @@ export default async function AdminPaymentsPage({
         eyebrow="Admin · Payments"
         title="Payments"
         accent="Fees"
-        description="Fee and loan tracking per student. Fees unlock on Offered / Closed-won."
+        description="Fee and loan tracking per student. Fees unlock on Offered / Closed – paid."
       />
 
       <HubspotImportClient defaultTarget="fees" />
@@ -107,14 +107,68 @@ export default async function AdminPaymentsPage({
 
       <section className="panel overflow-hidden">
         <div className="border-b border-border px-5 py-3">
+          <p className="eyebrow">Payments pipeline</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] text-left text-sm">
+            <thead className="border-b border-border bg-navy/[0.02]">
+              <tr>
+                <th className="eyebrow px-5 py-2.5">Payer</th>
+                <th className="eyebrow px-4 py-2.5">Student</th>
+                <th className="eyebrow px-4 py-2.5">Course</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Revenue</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Loan amount</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Days left</th>
+                <th className="eyebrow px-5 py-2.5">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.cards.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-5 py-8 text-sm text-muted">
+                    No fee records yet.
+                  </td>
+                </tr>
+              ) : (
+                data.cards.map((row) => (
+                  <tr key={row.leadId} className="border-b border-border last:border-0">
+                    <td className="px-5 py-3 text-muted">{row.payerName ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <Link href={`/leads/${row.leadId}/fees`} className="font-medium text-periwinkle">
+                        {row.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-muted">{row.courseName ?? "—"}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {formatCurrency(row.revenueAmount)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {row.loan ? formatCurrency(row.loan.amount) : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {row.loan?.daysRemaining ?? "—"}
+                    </td>
+                    <td className="px-5 py-3">{row.paymentStatus ?? row.overallStatus}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel overflow-hidden">
+        <div className="border-b border-border px-5 py-3">
           <p className="eyebrow">Loans pipeline</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-border bg-navy/[0.02]">
               <tr>
-                <th className="eyebrow px-5 py-2.5">Student</th>
+                <th className="eyebrow px-5 py-2.5">Payer</th>
+                <th className="eyebrow px-4 py-2.5">Student</th>
                 <th className="eyebrow px-4 py-2.5">Course</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Revenue</th>
                 <th className="eyebrow px-4 py-2.5 text-right">Loan amount</th>
                 <th className="eyebrow px-4 py-2.5 text-right">Days left</th>
                 <th className="eyebrow px-5 py-2.5">Status</th>
@@ -123,19 +177,23 @@ export default async function AdminPaymentsPage({
             <tbody>
               {data.loans.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-5 py-8 text-sm text-muted">
+                  <td colSpan={7} className="px-5 py-8 text-sm text-muted">
                     No loans in pipeline.
                   </td>
                 </tr>
               ) : (
                 data.loans.map((row) => (
                   <tr key={row.leadId} className="border-b border-border last:border-0">
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3 text-muted">{row.payerName ?? "—"}</td>
+                    <td className="px-4 py-3">
                       <Link href={`/leads/${row.leadId}/fees`} className="font-medium text-periwinkle">
                         {row.name}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-muted">{row.courseName ?? "—"}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {formatCurrency(row.revenueAmount)}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {formatCurrency(row.amount)}
                     </td>
@@ -162,12 +220,19 @@ export default async function AdminPaymentsPage({
                 <p className="text-xs text-muted">
                   {c.courseName ?? "No course"} · {c.cohortLabel}
                 </p>
+                {c.payerName ? (
+                  <p className="text-xs text-muted">Payer: {c.payerName}</p>
+                ) : null}
               </div>
               <span className="rounded-full bg-navy/5 px-2 py-0.5 text-[11px] font-semibold text-navy">
-                {c.overallStatus}
+                {c.paymentStatus ?? c.overallStatus}
               </span>
             </div>
             <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <dt className="text-muted">Revenue</dt>
+                <dd className="font-medium text-navy">{formatCurrency(c.revenueAmount)}</dd>
+              </div>
               <div>
                 <dt className="text-muted">Scholarship %</dt>
                 <dd className="font-medium text-navy">{c.scholarshipPct ?? "—"}</dd>

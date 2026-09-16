@@ -99,6 +99,7 @@ export type Lead = {
   counselor_intent_check?: string | null;
   convert_probability?: "confirmed_to_pay" | "low_intent" | null;
   offer_accept_deadline?: string | null;
+  recording_url?: string | null;
 };
 
 export type LeadWithRelations = Lead & {
@@ -176,6 +177,9 @@ export type FeeRecord = {
   admission_fee?: number | null;
   invoice_number?: string | null;
   one_shot_deadline?: string | null;
+  payer_name?: string | null;
+  revenue_amount?: number | null;
+  payment_status?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -215,6 +219,15 @@ export type Loan = {
 export type AppSetting = {
   key: string;
   value: unknown;
+  updated_at: string;
+};
+
+export type AiChatUsage = {
+  id: string;
+  month_key: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
   updated_at: string;
 };
 

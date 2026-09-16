@@ -6,6 +6,7 @@ import {
   createMarketingTask,
   createMentorTracker,
   createSocialPost,
+  recomputeActivationLeads,
   syncForecastActuals,
   updateCalendarItemStatus,
   updateMarketingTaskStatus,
@@ -21,6 +22,16 @@ const CHANNELS = [
   "YouTube",
   "WhatsApp",
   "Google",
+  "Organic other",
+] as const;
+
+const ACTIVATION_CHANNELS = [
+  "LinkedIn (organic)",
+  "Instagram",
+  "YouTube",
+  "WhatsApp",
+  "Google",
+  "Twitter",
   "Organic other",
 ] as const;
 
@@ -93,19 +104,42 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
         month_key: monthKey,
         activity: String(fd.get("activity")),
         activity_type: String(fd.get("activity_type") || "other"),
+        channel: String(fd.get("channel") || "") || null,
+        attribution_token: String(fd.get("attribution_token") || "") || null,
+        attribution_window_days: Number(fd.get("attribution_window_days") || 7),
         owner: String(fd.get("owner") || "") || null,
         planned_date: String(fd.get("planned_date") || "") || null,
-        planned_qty: Number(fd.get("planned_qty") || 0),
+        actual_date:
+          String(fd.get("status")) === "done"
+            ? String(fd.get("planned_date") || "") || null
+            : null,
+        planned_qty: Number(fd.get("planned_qty") || 1),
         delivered_qty: Number(fd.get("delivered_qty") || 0),
-        output_metric: String(fd.get("output_metric") || "") || null,
-        output_value: Number(fd.get("output_value") || 0) || null,
+        money_deployed_inr: Number(fd.get("money_deployed_inr") || 0) || null,
+        detailed_notes: String(fd.get("detailed_notes") || "") || null,
         status: String(fd.get("status") || "planned"),
       });
       if (!res.ok) setError(res.error);
       else {
         setError(null);
-        setOk("Activation saved.");
+        setOk(
+          res.attributed != null && res.attributed > 0
+            ? `Activation saved · ${res.attributed} leads attributed (Simer).`
+            : "Activation saved."
+        );
         (e.target as HTMLFormElement).reset();
+        router.refresh();
+      }
+    });
+  }
+
+  function onRecomputeAttr() {
+    start(async () => {
+      const res = await recomputeActivationLeads(monthKey);
+      if (!res.ok) setError(res.error);
+      else {
+        setError(null);
+        setOk(`Recomputed Simer attribution for ${res.updated ?? 0} activations.`);
         router.refresh();
       }
     });
@@ -123,8 +157,16 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
         >
           {pending ? "Updating…" : "Refresh actuals from CRM"}
         </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          disabled={pending}
+          onClick={onRecomputeAttr}
+        >
+          Recompute Simer attribution
+        </button>
         <p className="self-center text-xs text-muted">
-          Auto-fills Leads A / Spend A from leads + Meta spend
+          Auto-fills Leads A / Spend A from leads + Meta spend · attributions from activations
         </p>
       </div>
 
@@ -139,7 +181,7 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
             ))}
           </select>
         </Field>
-        <Field label="Programme">
+        <Field label="Program">
           <input name="programme" className="input-field" placeholder="PGP Offline" />
         </Field>
         <Field label="Owner">
@@ -160,29 +202,51 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
 
       <form onSubmit={onActivation} className="panel grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         <p className="eyebrow sm:col-span-2 lg:col-span-3">Add Non-Meta activation</p>
+        <p className="sm:col-span-2 lg:col-span-3 text-xs text-muted">
+          Set channel + optional UTM/token. When status is <strong>done</strong>, leads in the
+          go-live window matching token or channel are auto-attributed (Simer — broader than
+          last-click).
+        </p>
         <Field label="Activity">
-          <input name="activity" className="input-field" required placeholder="Webinar / LinkedIn live" />
+          <input name="activity" className="input-field" required placeholder="Influencer reel / WA blast" />
         </Field>
         <Field label="Type">
-          <input name="activity_type" className="input-field" placeholder="webinar" />
+          <input name="activity_type" className="input-field" placeholder="influencer / webinar" />
+        </Field>
+        <Field label="Channel">
+          <select name="channel" className="input-field" defaultValue="Instagram">
+            {ACTIVATION_CHANNELS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Attribution token (UTM campaign)">
+          <input
+            name="attribution_token"
+            className="input-field"
+            placeholder="e.g. suhani_sep_reel"
+          />
         </Field>
         <Field label="Owner">
           <input name="owner" className="input-field" />
         </Field>
-        <Field label="Planned date">
+        <Field label="Planned / go-live date">
           <input name="planned_date" type="date" className="input-field" />
         </Field>
-        <Field label="Planned qty">
-          <input name="planned_qty" type="number" min={0} className="input-field" defaultValue={1} />
+        <Field label="Attribution window (days)">
+          <input
+            name="attribution_window_days"
+            type="number"
+            min={1}
+            max={60}
+            className="input-field"
+            defaultValue={7}
+          />
         </Field>
-        <Field label="Delivered qty">
-          <input name="delivered_qty" type="number" min={0} className="input-field" defaultValue={0} />
-        </Field>
-        <Field label="Output metric">
-          <input name="output_metric" className="input-field" placeholder="leads" />
-        </Field>
-        <Field label="Output value">
-          <input name="output_value" type="number" className="input-field" />
+        <Field label="Money deployed (INR)">
+          <input name="money_deployed_inr" type="number" min={0} className="input-field" defaultValue={0} />
         </Field>
         <Field label="Status">
           <select name="status" className="input-field" defaultValue="planned">
@@ -191,6 +255,15 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
             <option value="missed">missed</option>
           </select>
         </Field>
+        <Field label="Detailed notes">
+          <textarea
+            name="detailed_notes"
+            className="input-field min-h-[72px] sm:col-span-2"
+            placeholder="What shipped, audience, follow-ups"
+          />
+        </Field>
+        <input type="hidden" name="planned_qty" value={1} />
+        <input type="hidden" name="delivered_qty" value={0} />
         <div className="flex items-end">
           <button type="submit" className="btn-primary" disabled={pending}>
             Save activation

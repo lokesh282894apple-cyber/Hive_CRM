@@ -318,7 +318,7 @@ export async function fetchFounderCommand(
       R2_STAGES.has(stage) ||
       stage.startsWith("r3_") ||
       OFFER_STAGES.has(stage) ||
-      stage === "closed_won"
+      stage === "closed_paid"
     ) {
       reached.r1.add(leadId);
     }
@@ -326,14 +326,14 @@ export async function fetchFounderCommand(
       R2_STAGES.has(stage) ||
       stage.startsWith("r3_") ||
       OFFER_STAGES.has(stage) ||
-      stage === "closed_won"
+      stage === "closed_paid"
     ) {
       reached.r2.add(leadId);
     }
-    if (OFFER_STAGES.has(stage) || stage === "closed_won") {
+    if (OFFER_STAGES.has(stage) || stage === "closed_paid") {
       reached.offer.add(leadId);
     }
-    if (stage === "closed_won") reached.won.add(leadId);
+    if (stage === "closed_paid") reached.won.add(leadId);
   }
 
   for (const h of history) markReached(h.lead_id, h.to_stage);
@@ -467,7 +467,7 @@ export async function fetchFounderCommand(
     const mine = allLeads.filter((l) => l.cohort_id === c.id);
     const open = mine.filter((l) => OPEN_STAGES.includes(l.stage as Stage)).length;
     const offered = mine.filter((l) => OFFER_STAGES.has(l.stage)).length;
-    const won = mine.filter((l) => l.stage === "closed_won").length;
+    const won = mine.filter((l) => l.stage === "closed_paid").length;
     const seats = targets[c.id] ?? null;
     const yieldFrac = yieldRate > 0 ? yieldRate / 100 : 0;
     const projectedFill = won + open * yieldFrac;
@@ -551,7 +551,7 @@ export async function fetchFounderCommand(
 
   const wonDateList = allLeads
     .filter((l) => {
-      if (l.stage !== "closed_won") return false;
+      if (l.stage !== "closed_paid") return false;
       if (focus?.id) return l.cohort_id === focus.id;
       return true;
     })

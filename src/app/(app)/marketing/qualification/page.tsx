@@ -21,7 +21,7 @@ export default async function MarketingQualificationPage({
   return (
     <MarketingPageShell
       title="Lead qualification"
-      description="AQL (Acceptance Quality Limit) — intent + financial check · DQ reason funnel"
+      description="Intent + financial check · DQ reason funnel"
       basePath="/marketing/qualification"
       section="leads"
     >
@@ -50,7 +50,7 @@ export default async function MarketingQualificationPage({
                 <th className="eyebrow px-3 py-2">Date</th>
                 <th className="eyebrow px-3 py-2">Intent</th>
                 <th className="eyebrow px-3 py-2">Financial</th>
-                <th className="eyebrow px-3 py-2">AQL</th>
+                <th className="eyebrow px-3 py-2">Qualified</th>
                 <th className="eyebrow px-3 py-2">Campaign</th>
                 <th className="eyebrow px-3 py-2">Status</th>
               </tr>

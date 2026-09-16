@@ -45,6 +45,18 @@ export default async function AdminConfigPage() {
           "amount" in (manualSpendRaw as object)
         ? Number((manualSpendRaw as { amount: number }).amount) || 0
         : 0;
+  const leadScoreWeightsRaw = map.lead_score_weights;
+  const leadScoreWeights =
+    leadScoreWeightsRaw && typeof leadScoreWeightsRaw === "object"
+      ? (leadScoreWeightsRaw as Record<string, number>)
+      : {
+          interest: 1.5,
+          engagement: 1,
+          fit: 1,
+          timing: 1,
+          source: 0.8,
+          calling: 1.2,
+        };
 
   return (
     <div>
@@ -52,7 +64,7 @@ export default async function AdminConfigPage() {
         eyebrow="Admin · Config"
         title="System"
         accent="Config"
-        description="Courses, cohorts, counselors, loan vendors, fee templates, WA/email triggers, and per-program sequences."
+        description="Courses, cohorts, counselors, loan vendors, fee templates, lead scoring, WA/email triggers, and per-program sequences."
       />
       <SettingsClient
         courses={courses ?? []}
@@ -61,6 +73,7 @@ export default async function AdminConfigPage() {
         daysBetween={daysBetween}
         defaultInstallmentCount={defaultInstallmentCount}
         manualMonthlyAdSpend={manualMonthlyAdSpend}
+        leadScoreWeights={leadScoreWeights}
         googleMeetConfigured={isGoogleCalendarConfigured()}
         triggerRules={triggerRules}
         counselors={(counselors as import("@/types/database").AppUser[]) ?? []}

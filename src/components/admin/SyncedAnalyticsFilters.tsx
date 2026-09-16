@@ -68,6 +68,10 @@ export function SyncedAnalyticsFilters({
     else q.delete("course");
     if (local.cohort) q.set("cohort", local.cohort);
     else q.delete("cohort");
+    if (local.counselor) q.set("counselor", local.counselor);
+    else q.delete("counselor");
+    if (local.panelist) q.set("panelist", local.panelist);
+    else q.delete("panelist");
     if (stype === "cohort") {
       if (local.cohort) q.set("rangeCohort", local.cohort);
       else q.delete("rangeCohort");

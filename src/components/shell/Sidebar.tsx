@@ -23,6 +23,7 @@ import {
   Upload,
   Share2,
   Globe,
+  Bot,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -45,11 +46,14 @@ const counselorNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
+  { href: "/admin/monthly", label: "All months", icon: CalendarDays },
   { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
   { href: "/admin/panel", label: "Panel", icon: GraduationCap },
+  { href: "/admin/counselor", label: "Counselor", icon: UserCircle2 },
   { href: "/admin/payments", label: "Payments", icon: IndianRupee },
   { href: "/admin/users", label: "Users & Roles", icon: Users },
   { href: "/admin/config", label: "System Config", icon: Cog },
+  { href: "/admin/ai-chat", label: "AI Chat", icon: Bot },
   { href: "/admin/marketing/connections", label: "Ad Connections", icon: Link2 },
 ];
 
@@ -108,6 +112,7 @@ const marketingNav: NavItem[] = [
     icon: Upload,
     matchPaths: ["/marketing/imports", "/marketing/campaigns"],
   },
+  { href: "/marketing/ai-chat", label: "AI Chat", icon: Bot },
 ];
 
 const interviewerNav: NavItem[] = [

@@ -100,7 +100,7 @@ export async function fetchPanelPerformance(
         db
           .from("stage_history")
           .select("lead_id, to_stage, changed_at")
-          .in("to_stage", ["offered", "closed_won"])
+          .in("to_stage", ["offered", "closed_paid"])
           .order("changed_at", { ascending: true })
           .range(from, to),
       "panel_history"
@@ -139,15 +139,15 @@ export async function fetchPanelPerformance(
     if (h.to_stage === "offered" && !offeredAt.has(h.lead_id)) {
       offeredAt.set(h.lead_id, h.changed_at);
     }
-    if (h.to_stage === "closed_won" && !wonAt.has(h.lead_id)) {
+    if (h.to_stage === "closed_paid" && !wonAt.has(h.lead_id)) {
       wonAt.set(h.lead_id, h.changed_at);
     }
   }
   for (const l of leads ?? []) {
-    if ((l.stage === "offered" || l.stage === "closed_won") && !offeredAt.has(l.id)) {
+    if ((l.stage === "offered" || l.stage === "closed_paid") && !offeredAt.has(l.id)) {
       offeredAt.set(l.id, sinceIso);
     }
-    if (l.stage === "closed_won" && !wonAt.has(l.id)) {
+    if (l.stage === "closed_paid" && !wonAt.has(l.id)) {
       wonAt.set(l.id, sinceIso);
     }
   }
@@ -195,10 +195,10 @@ export async function fetchPanelPerformance(
       const won = wonAt.get(b.lead_id);
       const reachedOffer =
         lead.stage === "offered" ||
-        lead.stage === "closed_won" ||
+        lead.stage === "closed_paid" ||
         Boolean(off && off >= bookingAt);
       const reachedWon =
-        lead.stage === "closed_won" || Boolean(won && won >= bookingAt);
+        lead.stage === "closed_paid" || Boolean(won && won >= bookingAt);
       if (reachedOffer) for (const s of buckets) s.offeredAfter += 1;
       if (reachedWon) for (const s of buckets) s.wonAfter += 1;
     }

@@ -19,7 +19,7 @@ export default async function MarketingRoiPage({
   return (
     <MarketingPageShell
       title="Campaign ROI"
-      description="Spend → leads → AQL → enrolments → revenue realised"
+      description="Spend → leads → R1 → enrolments → revenue realised"
       basePath="/marketing/roi"
       section="leads"
     >
@@ -31,7 +31,6 @@ export default async function MarketingRoiPage({
               <th className="eyebrow px-3 py-2">Channel</th>
               <th className="eyebrow px-3 py-2">Spend</th>
               <th className="eyebrow px-3 py-2">Leads</th>
-              <th className="eyebrow px-3 py-2">AQL</th>
               <th className="eyebrow px-3 py-2">R1</th>
               <th className="eyebrow px-3 py-2">Enrolled</th>
               <th className="eyebrow px-3 py-2">Revenue</th>
@@ -46,7 +45,6 @@ export default async function MarketingRoiPage({
                 <td className="px-3 py-2 text-muted">{r.channel ?? "—"}</td>
                 <td className="px-3 py-2">{formatInr(r.spend)}</td>
                 <td className="px-3 py-2">{r.leads}</td>
-                <td className="px-3 py-2">{r.aql}</td>
                 <td className="px-3 py-2">{r.r1Booked}</td>
                 <td className="px-3 py-2">{r.enrolments}</td>
                 <td className="px-3 py-2">{formatInr(r.revenue)}</td>

@@ -10,6 +10,8 @@ import {
 } from "@/lib/marketing/csv-import";
 import { computeAqlAt } from "@/lib/marketing/aql";
 import { revalidatePath } from "next/cache";
+import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 
 export type DashResult =
   | { ok: true; count?: number; id?: string }
@@ -44,6 +46,7 @@ export async function importMetaAdCsv(text: string): Promise<DashResult & { coun
   if (error) return { ok: false, error: error.message };
   revalidatePath("/marketing/ads");
   revalidatePath("/marketing/funnel");
+  invalidateMarketingCaches();
   return { ok: true, count: rows.length };
 }
 
@@ -70,6 +73,7 @@ export async function importCostCsv(text: string): Promise<DashResult & { count?
   revalidatePath("/marketing/funnel");
   revalidatePath("/marketing/pnl");
   revalidatePath("/marketing/monthly");
+  invalidateMarketingCaches();
   return { ok: true, count: rows.length };
 }
 
@@ -147,6 +151,7 @@ export async function updateLeadQualification(input: {
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/leads/${input.leadId}`);
   revalidatePath("/marketing/qualification");
+  invalidateMarketingCaches();
   return { ok: true };
 }
 
@@ -336,12 +341,102 @@ export async function createMentorTracker(input: {
   return { ok: true, id: data.id };
 }
 
-export async function createActivation(input: Record<string, unknown>): Promise<DashResult> {
+export async function createActivation(input: Record<string, unknown>): Promise<DashResult & { id?: string; attributed?: number }> {
   await requireUser(["admin", "marketing"]);
   const supabase = createClient();
-  const { error } = await supabase.from("marketing_activations").insert(input);
+  const { data, error } = await supabase
+    .from("marketing_activations")
+    .insert(input)
+    .select("id, status")
+    .single();
   if (error) return { ok: false, error: error.message };
+
+  let attributed = 0;
+  if (data?.id && data.status === "done") {
+    const { recomputeActivationAttribution } = await import(
+      "@/lib/marketing/activation-attribution"
+    );
+    const res = await recomputeActivationAttribution(data.id);
+    if (res.ok) attributed = res.count;
+  }
+
   revalidatePath("/marketing/forecast");
+  revalidatePath("/marketing/funnel");
+  invalidateMarketingCaches();
+  return { ok: true, id: data.id, attributed };
+}
+
+export async function updateActivationStatus(
+  id: string,
+  status: string
+): Promise<DashResult & { attributed?: number }> {
+  await requireUser(["admin", "marketing"]);
+  const supabase = createClient();
+  const patch: Record<string, unknown> = { status };
+  if (status === "done") {
+    patch.actual_date = new Date().toISOString().slice(0, 10);
+  }
+  const { error } = await supabase
+    .from("marketing_activations")
+    .update(patch)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  const { recomputeActivationAttribution } = await import(
+    "@/lib/marketing/activation-attribution"
+  );
+  const res = await recomputeActivationAttribution(id);
+  revalidatePath("/marketing/forecast");
+  revalidatePath("/marketing/funnel");
+  invalidateMarketingCaches();
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, attributed: res.count };
+}
+
+export async function recomputeActivationLeads(
+  monthKey?: string
+): Promise<DashResult & { updated?: number }> {
+  await requireUser(["admin", "marketing"]);
+  const mk = monthKey ?? new Date().toISOString().slice(0, 7);
+  const { recomputeMonthActivationAttribution } = await import(
+    "@/lib/marketing/activation-attribution"
+  );
+  const res = await recomputeMonthActivationAttribution(mk);
+  revalidatePath("/marketing/forecast");
+  revalidatePath("/marketing/funnel");
+  invalidateMarketingCaches();
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, updated: res.updated };
+}
+
+export async function upsertMarketingDailyNote(input: {
+  note_date: string;
+  notes: string;
+  organic_spend_inr?: number | null;
+  inorganic_spend_inr?: number | null;
+  activity_log?: string | null;
+}): Promise<DashResult> {
+  await requireUser(["admin", "marketing"]);
+  const supabase = createClient();
+  const user = await requireUser(["admin", "marketing"]);
+  const payload: Record<string, unknown> = {
+    note_date: input.note_date,
+    notes: input.notes,
+    organic_spend_inr: input.organic_spend_inr ?? null,
+    inorganic_spend_inr: input.inorganic_spend_inr ?? null,
+    updated_by: user.id,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.activity_log !== undefined) {
+    payload.activity_log = input.activity_log ?? "";
+  }
+  const { error } = await supabase.from("marketing_daily_notes").upsert(payload, {
+    onConflict: "note_date",
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/marketing/funnel");
+  revalidatePath("/marketing/dashboard");
+  invalidateMarketingCaches();
   return { ok: true };
 }
 
@@ -355,31 +450,49 @@ export async function syncForecastActuals(
   await requireUser(["admin", "marketing"]);
   const admin = createAdminClient();
   const mk = monthKey ?? new Date().toISOString().slice(0, 7);
-  const from = `${mk}-01T00:00:00.000Z`;
+  const fromIso = `${mk}-01T00:00:00.000Z`;
   const lastDay = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
-  const to = `${mk}-${String(lastDay).padStart(2, "0")}T23:59:59.999Z`;
+  const toIso = `${mk}-${String(lastDay).padStart(2, "0")}T23:59:59.999Z`;
   const fromDate = `${mk}-01`;
   const toDate = `${mk}-${String(lastDay).padStart(2, "0")}`;
 
-  const [{ data: forecasts }, { data: leads }, { data: spendRows }] = await Promise.all([
+  const [{ data: forecasts }, leads, spendRows] = await Promise.all([
     admin.from("marketing_forecasts").select("*").eq("month_key", mk),
-    admin
-      .from("leads")
-      .select("id, source, utm_source, utm_medium, created_at")
-      .gte("created_at", from)
-      .lte("created_at", to),
-    admin
-      .from("ad_spend_daily")
-      .select("spend, date")
-      .gte("date", fromDate)
-      .lte("date", toDate),
+    fetchAllPages<{
+      id: string;
+      source: string | null;
+      utm_source: string | null;
+      utm_medium: string | null;
+      created_at: string;
+    }>(
+      (rangeFrom, rangeTo) =>
+        admin
+          .from("leads")
+          .select("id, source, utm_source, utm_medium, created_at")
+          .gte("created_at", fromIso)
+          .lte("created_at", toIso)
+          .order("created_at", { ascending: true })
+          .range(rangeFrom, rangeTo),
+      "leads.forecastSync"
+    ),
+    fetchAllPages<{ spend: number; date: string }>(
+      (rangeFrom, rangeTo) =>
+        admin
+          .from("ad_spend_daily")
+          .select("spend, date")
+          .gte("date", fromDate)
+          .lte("date", toDate)
+          .order("date", { ascending: true })
+          .range(rangeFrom, rangeTo),
+      "ad_spend_daily.forecastSync"
+    ),
   ]);
 
-  const metaSpend = (spendRows ?? []).reduce((s, r) => s + Number(r.spend || 0), 0);
+  const metaSpend = spendRows.reduce((s, r) => s + Number(r.spend || 0), 0);
 
   const channelLeads = (channel: string) => {
     const c = channel.toLowerCase();
-    return (leads ?? []).filter((l) => {
+    return leads.filter((l) => {
       const src = `${l.source ?? ""} ${l.utm_source ?? ""} ${l.utm_medium ?? ""}`.toLowerCase();
       if (c.includes("meta") || c.includes("facebook") || c.includes("instagram paid")) {
         return (

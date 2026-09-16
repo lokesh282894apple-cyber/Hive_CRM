@@ -21,7 +21,6 @@ import { cohortNumberMap } from "@/lib/cohorts/display";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
 import type { AppUser, Cohort, Course } from "@/types/database";
-import { differenceInDays } from "date-fns";
 import { LayoutGrid, List, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -55,11 +54,55 @@ export function LeadsWorkspace({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [qLocal, setQLocal] = useState(filters.q);
+  const [uniqueDaysLocal, setUniqueDaysLocal] = useState(
+    filters.uniqueDays != null ? String(filters.uniqueDays) : ""
+  );
+  const [minCallsLocal, setMinCallsLocal] = useState(
+    filters.minCalls != null ? String(filters.minCalls) : ""
+  );
+  const [noCallDaysLocal, setNoCallDaysLocal] = useState(
+    filters.callNotLoggedDays != null
+      ? String(filters.callNotLoggedDays)
+      : filters.callNotLoggedHours != null && filters.callNotLoggedHours >= 24
+        ? String(Math.ceil(filters.callNotLoggedHours / 24))
+        : ""
+  );
+  const [minStageCallsLocal, setMinStageCallsLocal] = useState(
+    filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
+  );
   const prefsKey = isAdmin ? "hive-admin-leads-filters" : "hive-leads-filters";
 
   useEffect(() => {
     setQLocal(filters.q);
   }, [filters.q]);
+
+  useEffect(() => {
+    setUniqueDaysLocal(filters.uniqueDays != null ? String(filters.uniqueDays) : "");
+  }, [filters.uniqueDays]);
+
+  useEffect(() => {
+    setMinCallsLocal(filters.minCalls != null ? String(filters.minCalls) : "");
+  }, [filters.minCalls]);
+
+  useEffect(() => {
+    setMinStageCallsLocal(
+      filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
+    );
+  }, [filters.minCallsSinceStage]);
+
+  useEffect(() => {
+    if (filters.callNotLoggedHours != null && filters.callNotLoggedHours < 24) {
+      setNoCallDaysLocal("");
+      return;
+    }
+    setNoCallDaysLocal(
+      filters.callNotLoggedDays != null
+        ? String(filters.callNotLoggedDays)
+        : filters.callNotLoggedHours != null
+          ? String(Math.ceil(filters.callNotLoggedHours / 24))
+          : ""
+    );
+  }, [filters.callNotLoggedDays, filters.callNotLoggedHours]);
 
   // Restore saved prefs when URL has no filter params
   useEffect(() => {
@@ -106,6 +149,97 @@ export function LeadsWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qLocal]);
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next =
+        noCallDaysLocal.trim() === "" ? null : Number(noCallDaysLocal);
+      if (next != null && (!Number.isFinite(next) || next < 0)) return;
+      const asHours = next == null ? null : next * 24;
+      if (
+        (asHours == null && filters.callNotLoggedHours == null) ||
+        asHours === filters.callNotLoggedHours
+      ) {
+        return;
+      }
+      pushFilters({
+        callNotLoggedHours: asHours,
+        callNotLoggedDays: next,
+        page: 1,
+      });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noCallDaysLocal]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = uniqueDaysLocal.trim() === "" ? null : Number(uniqueDaysLocal);
+      if (
+        (next == null && filters.uniqueDays == null) ||
+        next === filters.uniqueDays
+      ) {
+        return;
+      }
+      if (next != null && (!Number.isFinite(next) || next < 0)) return;
+      pushFilters({ uniqueDays: next, page: 1 });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uniqueDaysLocal]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = minCallsLocal.trim() === "" ? null : Number(minCallsLocal);
+      if (
+        (next == null && filters.minCalls == null) ||
+        next === filters.minCalls
+      ) {
+        return;
+      }
+      if (next != null && (!Number.isFinite(next) || next < 0)) return;
+      pushFilters({ minCalls: next, page: 1 });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minCallsLocal]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next =
+        minStageCallsLocal.trim() === "" ? null : Number(minStageCallsLocal);
+      if (
+        (next == null && filters.minCallsSinceStage == null) ||
+        next === filters.minCallsSinceStage
+      ) {
+        return;
+      }
+      if (next != null && (!Number.isFinite(next) || next < 0)) return;
+      pushFilters({ minCallsSinceStage: next, page: 1 });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minStageCallsLocal]);
+
+  function applyMetricFilters() {
+    const days =
+      noCallDaysLocal.trim() === "" ? null : Number(noCallDaysLocal);
+    const uDays =
+      uniqueDaysLocal.trim() === "" ? null : Number(uniqueDaysLocal);
+    const minC = minCallsLocal.trim() === "" ? null : Number(minCallsLocal);
+    const minStage =
+      minStageCallsLocal.trim() === "" ? null : Number(minStageCallsLocal);
+    pushFilters({
+      callNotLoggedHours:
+        days != null && Number.isFinite(days) ? days * 24 : null,
+      callNotLoggedDays: days != null && Number.isFinite(days) ? days : null,
+      uniqueDays: uDays != null && Number.isFinite(uDays) ? uDays : null,
+      minCalls: minC != null && Number.isFinite(minC) ? minC : null,
+      minCallsSinceStage:
+        minStage != null && Number.isFinite(minStage) ? minStage : null,
+      page: 1,
+    });
+  }
+
   function pushFilters(patch: Partial<LeadsFilterParams>) {
     const next = filtersToSearchParams(
       { ...filters, ...patch },
@@ -115,6 +249,14 @@ export function LeadsWorkspace({
       router.push(`${basePath || pathname}?${next.toString()}`);
     });
   }
+
+  const NO_CALL_PRESETS: { label: string; hours: number }[] = [
+    { label: "<1h", hours: 1 },
+    { label: "<12h", hours: 12 },
+    { label: "<1d", hours: 24 },
+    { label: "<2d", hours: 48 },
+    { label: "<3d", hours: 72 },
+  ];
 
   const filteredCohorts = useMemo(
     () =>
@@ -137,15 +279,38 @@ export function LeadsWorkspace({
     [counselors]
   );
 
-  const listTabFiltered = useMemo(() => {
-    if (filters.mode !== "list") return leads;
-    // List stage tabs are additional client refine when group is broad
-    return leads;
-  }, [leads, filters.mode]);
+  const metricFilteredLeads = useMemo(() => {
+    let rows = leads;
+    if (filters.uniqueDays != null && Number.isFinite(filters.uniqueDays)) {
+      rows = rows.filter(
+        (l) => (l.cardMetrics?.uniqueDays ?? 0) <= filters.uniqueDays!
+      );
+    }
+    if (filters.minCalls != null && Number.isFinite(filters.minCalls)) {
+      rows = rows.filter(
+        (l) => (l.cardMetrics?.totalCalls ?? 0) >= filters.minCalls!
+      );
+    }
+    if (
+      filters.minCallsSinceStage != null &&
+      Number.isFinite(filters.minCallsSinceStage)
+    ) {
+      rows = rows.filter(
+        (l) =>
+          (l.cardMetrics?.callsSinceStage ?? 0) >= filters.minCallsSinceStage!
+      );
+    }
+    return rows;
+  }, [
+    leads,
+    filters.uniqueDays,
+    filters.minCalls,
+    filters.minCallsSinceStage,
+  ]);
 
   const [listTab, setListTab] = useState<(typeof LEAD_LIST_TABS)[number]["id"]>("all");
   const displayList = useMemo(() => {
-    let rows = listTabFiltered;
+    let rows = filters.mode === "list" ? metricFilteredLeads : metricFilteredLeads;
     if (listTab !== "all") {
       const tabDef = LEAD_LIST_TABS.find((t) => t.id === listTab)!;
       rows = rows.filter((l) => tabDef.stages.includes(l.stage as Stage));
@@ -156,12 +321,6 @@ export function LeadsWorkspace({
       } else if (listTab === "offer_call_done") {
         rows = rows.filter((l) => l.offer_call_status === "done");
       }
-    }
-    if (filters.uniqueDays != null && Number.isFinite(filters.uniqueDays)) {
-      rows = rows.filter((l) => (l.cardMetrics?.uniqueDays ?? 0) === filters.uniqueDays);
-    }
-    if (filters.minCalls != null && Number.isFinite(filters.minCalls)) {
-      rows = rows.filter((l) => (l.cardMetrics?.totalCalls ?? 0) >= filters.minCalls!);
     }
     const interviewTab =
       listTab === "no_show" ||
@@ -177,7 +336,7 @@ export function LeadsWorkspace({
       );
     }
     return rows;
-  }, [listTabFiltered, listTab, filters.uniqueDays, filters.minCalls]);
+  }, [metricFilteredLeads, listTab, filters.mode]);
 
   const hasMorePages =
     filters.mode === "list" && filters.page * LIST_PAGE_SIZE < totalEstimate;
@@ -353,49 +512,89 @@ export function LeadsWorkspace({
             Stale {STALE_LEAD_DAYS}d+
           </label>
 
-          <select
-            className="input-field w-auto py-1.5 text-xs"
-            value={filters.callNotLoggedHours ?? ""}
-            onChange={(e) =>
-              pushFilters({
-                callNotLoggedHours: e.target.value ? Number(e.target.value) : null,
-                page: 1,
-              })
-            }
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+              No call
+            </span>
+            {NO_CALL_PRESETS.map((p) => {
+              const active = filters.callNotLoggedHours === p.hours;
+              return (
+                <button
+                  key={p.hours}
+                  type="button"
+                  className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
+                    active
+                      ? "border-navy bg-navy text-white"
+                      : "border-border bg-white text-navy"
+                  }`}
+                  onClick={() =>
+                    pushFilters({
+                      callNotLoggedHours: active ? null : p.hours,
+                      callNotLoggedDays:
+                        active || p.hours < 24 ? null : Math.ceil(p.hours / 24),
+                      page: 1,
+                    })
+                  }
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            No call (days)
+            <input
+              className="input-field w-20 py-1.5 text-xs"
+              type="number"
+              min={0}
+              step={1}
+              placeholder="N"
+              title="Leads with no call logged for at least N days"
+              value={noCallDaysLocal}
+              onChange={(e) => setNoCallDaysLocal(e.target.value)}
+            />
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            Unique days ≤
+            <input
+              className="input-field w-20 py-1.5 text-xs"
+              type="number"
+              min={0}
+              placeholder="N"
+              value={uniqueDaysLocal}
+              onChange={(e) => setUniqueDaysLocal(e.target.value)}
+            />
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            Min calls
+            <input
+              className="input-field w-20 py-1.5 text-xs"
+              type="number"
+              min={0}
+              placeholder="N"
+              value={minCallsLocal}
+              onChange={(e) => setMinCallsLocal(e.target.value)}
+            />
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            Min calls since stage
+            <input
+              className="input-field w-20 py-1.5 text-xs"
+              type="number"
+              min={0}
+              placeholder="N"
+              value={minStageCallsLocal}
+              onChange={(e) => setMinStageCallsLocal(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary text-xs"
+            onClick={applyMetricFilters}
           >
-            <option value="">Call not logged</option>
-            <option value="1">≥ 1 hour</option>
-            <option value="12">≥ 12 hours</option>
-            <option value="24">≥ 1 day</option>
-            <option value="48">≥ 2 days</option>
-            <option value="72">≥ 3 days</option>
-          </select>
-          <input
-            className="input-field w-28 py-1.5 text-xs"
-            type="number"
-            min={0}
-            placeholder="Unique days"
-            value={filters.uniqueDays ?? ""}
-            onChange={(e) =>
-              pushFilters({
-                uniqueDays: e.target.value === "" ? null : Number(e.target.value),
-                page: 1,
-              })
-            }
-          />
-          <input
-            className="input-field w-28 py-1.5 text-xs"
-            type="number"
-            min={0}
-            placeholder="Min calls"
-            value={filters.minCalls ?? ""}
-            onChange={(e) =>
-              pushFilters({
-                minCalls: e.target.value === "" ? null : Number(e.target.value),
-                page: 1,
-              })
-            }
-          />
+            Apply filters
+          </button>
 
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -459,7 +658,7 @@ export function LeadsWorkspace({
 
       {filters.mode === "board" ? (
         <PipelineBoard
-          leads={leads}
+          leads={metricFilteredLeads}
           isAdmin={isAdmin}
           showClaim={showClaim}
           cohortNums={cohortNums}
@@ -485,7 +684,7 @@ export function LeadsWorkspace({
                     <th className="eyebrow px-4 py-3">Work</th>
                     <th className="eyebrow px-4 py-3">Interview / deadline</th>
                     <th className="eyebrow px-4 py-3">Grade</th>
-                    <th className="eyebrow px-4 py-3">Last touch</th>
+                    <th className="eyebrow px-4 py-3">First touch</th>
                     {isAdmin || showClaim ? (
                       <th className="eyebrow px-4 py-3">Owner</th>
                     ) : null}
@@ -505,10 +704,6 @@ export function LeadsWorkspace({
                   ) : (
                     displayList.map((l) => {
                       const stale = isStale(l);
-                      const days = differenceInDays(
-                        new Date(),
-                        new Date(l.last_contacted_at ?? l.created_at)
-                      );
                       const attr = attributionByLead[l.id];
                       const sourceLabel =
                         attr?.campaign_name || l.source || "—";
@@ -604,15 +799,14 @@ export function LeadsWorkspace({
                               : "—"}
                           </td>
                           <td className="px-4 py-3">
-                            <span
-                              className={cn(
-                                "text-xs",
-                                stale
-                                  ? "font-semibold text-warning"
-                                  : "text-muted"
-                              )}
-                            >
-                              {days === 0 ? "Today" : `${days}d ago`}
+                            <span className="block max-w-[140px] truncate text-xs text-muted">
+                              {attr?.channel_name ||
+                                attr?.campaign_name ||
+                                l.source ||
+                                "Direct / unattributed"}
+                            </span>
+                            <span className="text-[11px] text-muted">
+                              {formatDate(l.created_at)}
                             </span>
                           </td>
                           {isAdmin || showClaim ? (

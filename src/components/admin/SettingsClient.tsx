@@ -14,7 +14,7 @@ import type { AppUser, Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
 
-type Tab = "courses" | "counselors" | "vendors" | "fees" | "triggers" | "sequences";
+type Tab = "courses" | "counselors" | "vendors" | "fees" | "scoring" | "triggers" | "sequences";
 
 export function SettingsClient({
   courses,
@@ -28,6 +28,14 @@ export function SettingsClient({
   counselors = [],
   counselorAllocs = [],
   sequences = [],
+  leadScoreWeights = {
+    interest: 1.5,
+    engagement: 1,
+    fit: 1,
+    timing: 1,
+    source: 0.8,
+    calling: 1.2,
+  },
 }: {
   courses: Course[];
   cohorts: Cohort[];
@@ -40,6 +48,7 @@ export function SettingsClient({
   counselors?: AppUser[];
   counselorAllocs?: { user_id: string; course_id: string }[];
   sequences?: import("@/app/actions/sequences").SequenceWithSteps[];
+  leadScoreWeights?: Record<string, number>;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -85,6 +94,7 @@ export function SettingsClient({
             ["counselors", "Counselors"],
             ["vendors", "Loan Vendors"],
             ["fees", "Fee Templates"],
+            ["scoring", "Lead scoring"],
             ["triggers", "WA + Email triggers"],
             ["sequences", "Program sequences"],
           ] as const
@@ -299,6 +309,61 @@ export function SettingsClient({
           </div>
           <button type="submit" className="btn-primary" disabled={pending}>
             Save fee settings
+          </button>
+        </form>
+      ) : null}
+
+      {tab === "scoring" ? (
+        <form
+          className="panel max-w-lg space-y-4 p-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            wrap(async () => {
+              const keys = [
+                "interest",
+                "engagement",
+                "fit",
+                "timing",
+                "source",
+                "calling",
+              ] as const;
+              const value: Record<string, number> = { ...leadScoreWeights };
+              for (const key of keys) {
+                value[key] = Number(fd.get(key) || 0);
+              }
+              return updateAppSetting("lead_score_weights", value);
+            });
+          }}
+        >
+          <p className="eyebrow">Lead score weights</p>
+          <p className="text-sm text-muted">
+            Multipliers for conversion likelihood pillars (`app_settings.lead_score_weights`).
+          </p>
+          {(
+            [
+              ["interest", "Interest"],
+              ["engagement", "Engagement"],
+              ["fit", "Fit"],
+              ["timing", "Timing"],
+              ["source", "Source"],
+              ["calling", "Calling"],
+            ] as const
+          ).map(([key, label]) => (
+            <div key={key}>
+              <label className="label-field">{label}</label>
+              <input
+                name={key}
+                type="number"
+                step="0.1"
+                min={0}
+                className="input-field"
+                defaultValue={leadScoreWeights[key] ?? 1}
+              />
+            </div>
+          ))}
+          <button type="submit" className="btn-primary" disabled={pending}>
+            Save score weights
           </button>
         </form>
       ) : null}

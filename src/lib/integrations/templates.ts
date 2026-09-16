@@ -26,8 +26,8 @@ export function triggerKeyForStage(stage: string): string | null {
     "r3_no_show",
     "yet_to_offer",
     "offered",
-    "closed_won",
-    "closed_lost",
+    "closed_paid",
+    "closed_deferred",
   ];
   if (direct.includes(stage)) return stage;
   if (stage === "lead_created" || stage === "in_funnel") return "new_lead";
