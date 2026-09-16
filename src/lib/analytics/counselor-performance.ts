@@ -44,6 +44,9 @@ export type CounselorDashboard = {
   totals: { calling: CounselorCallingStats; pipeline: CounselorPipelineStats };
 };
 
+/** Keep PostgREST `.in()` URLs under the request-size limit. */
+const IN_CHUNK = 120;
+
 function emptyCalling(): CounselorCallingStats {
   return {
     allocatedLeads: 0,
@@ -73,6 +76,12 @@ function dayKey(iso: string) {
   return iso.slice(0, 10);
 }
 
+function chunkIds(ids: string[], size = IN_CHUNK): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
 export async function fetchCounselorDashboard(
   supabase: SupabaseClient,
   filters: CounselorDashFilters = {}
@@ -80,8 +89,7 @@ export async function fetchCounselorDashboard(
   const since = filters.overall
     ? "2000-01-01T00:00:00.000Z"
     : filters.sinceIso ?? new Date(Date.now() - 30 * 86400000).toISOString();
-  const until =
-    filters.untilExclusiveIso ?? new Date().toISOString();
+  const until = filters.untilExclusiveIso ?? new Date().toISOString();
 
   const { data: counselors } = await supabase
     .from("users")
@@ -98,7 +106,8 @@ export async function fetchCounselorDashboard(
   }>(async (from, to) => {
     let q = supabase
       .from("leads")
-      .select("id, lead_allocated_to, stage, created_at");
+      .select("id, lead_allocated_to, stage, created_at")
+      .order("created_at", { ascending: true });
     if (filters.courseId) q = q.eq("course_id", filters.courseId);
     if (filters.cohortId) q = q.eq("cohort_id", filters.cohortId);
     if (filters.counselorId) q = q.eq("lead_allocated_to", filters.counselorId);
@@ -106,41 +115,56 @@ export async function fetchCounselorDashboard(
   }, "counselor-leads");
 
   const leadIds = leads.map((l) => l.id);
-  const calls =
-    leadIds.length === 0
-      ? []
-      : await fetchAllPages<{
-          lead_id: string;
-          counselor_id: string;
-          logged_at: string;
-          duration: number | null;
-          outcome: string | null;
-        }>((from, to) =>
-          supabase
+  const leadIdChunks = chunkIds(leadIds);
+
+  type CallRow = {
+    lead_id: string;
+    counselor_id: string;
+    logged_at: string;
+    duration: number | null;
+    outcome: string | null;
+  };
+  type HistoryRow = {
+    lead_id: string;
+    to_stage: string;
+    changed_at: string;
+  };
+
+  const calls: CallRow[] = [];
+  const history: HistoryRow[] = [];
+
+  for (const chunk of leadIdChunks) {
+    const [callPage, histPage] = await Promise.all([
+      fetchAllPages<CallRow>(
+        (from, to) => {
+          let q = supabase
             .from("call_logs")
             .select("lead_id, counselor_id, logged_at, duration, outcome")
-            .in("lead_id", leadIds.slice(0, 2000))
+            .in("lead_id", chunk)
             .gte("logged_at", since)
             .lt("logged_at", until)
-            .range(from, to)
-        );
-
-  const history =
-    leadIds.length === 0
-      ? []
-      : await fetchAllPages<{
-          lead_id: string;
-          to_stage: string;
-          changed_at: string;
-        }>((from, to) =>
+            .order("logged_at", { ascending: true });
+          if (filters.counselorId) q = q.eq("counselor_id", filters.counselorId);
+          return q.range(from, to);
+        },
+        "counselor-calls"
+      ),
+      fetchAllPages<HistoryRow>(
+        (from, to) =>
           supabase
             .from("stage_history")
             .select("lead_id, to_stage, changed_at")
-            .in("lead_id", leadIds.slice(0, 2000))
+            .in("lead_id", chunk)
             .gte("changed_at", since)
             .lt("changed_at", until)
-            .range(from, to)
-        );
+            .order("changed_at", { ascending: true })
+            .range(from, to),
+        "counselor-history"
+      ),
+    ]);
+    calls.push(...callPage);
+    history.push(...histPage);
+  }
 
   const rangeDays = Math.max(
     1,
@@ -186,23 +210,6 @@ export async function fetchCounselorDashboard(
     }
     row.pipeline.allocated = mine.length;
     row.calling.allocatedLeads = mine.length;
-    for (const l of mine) {
-      if (l.stage.startsWith("r1_")) row.pipeline.r1Booked += 1;
-      if (l.stage === "r1_confirmed" || l.stage === "r2_booked" || l.stage.startsWith("r2_") || l.stage.startsWith("r3_") || l.stage === "offered" || l.stage === "yet_to_offer" || l.stage.startsWith("closed_")) {
-        if (l.stage === "r1_confirmed" || !l.stage.startsWith("r1_")) {
-          /* conducted approx via history below */
-        }
-      }
-      if (l.stage.startsWith("r2_")) row.pipeline.r2Booked += 1;
-      if (l.stage.startsWith("r3_")) row.pipeline.r3Booked += 1;
-      if (
-        l.stage === "offered" ||
-        l.stage === "yet_to_offer" ||
-        l.stage.startsWith("closed_")
-      ) {
-        row.pipeline.offer += 1;
-      }
-    }
   }
 
   // Pipeline from stage history (more accurate for period activity)
@@ -228,23 +235,19 @@ export async function fetchCounselorDashboard(
   }
 
   const leadOwner = new Map(leads.map((l) => [l.id, l.lead_allocated_to]));
-  const resetPipelineCounts = () => {
-    for (const row of Array.from(byCounselor.values())) {
-      row.pipeline.r1Booked = 0;
-      row.pipeline.r1Conducted = 0;
-      row.pipeline.r2Booked = 0;
-      row.pipeline.r3Booked = 0;
-      row.pipeline.offer = 0;
-    }
-  };
-  resetPipelineCounts();
+  for (const row of Array.from(byCounselor.values())) {
+    row.pipeline.r1Booked = 0;
+    row.pipeline.r1Conducted = 0;
+    row.pipeline.r2Booked = 0;
+    row.pipeline.r3Booked = 0;
+    row.pipeline.offer = 0;
+  }
   const bump = (set: Set<string>, field: keyof CounselorPipelineStats) => {
     for (const lid of Array.from(set)) {
       const oid = leadOwner.get(lid);
       if (!oid) continue;
       const row = byCounselor.get(oid);
-      if (!row) continue;
-      if (field === "allocated") continue;
+      if (!row || field === "allocated") continue;
       row.pipeline[field] += 1;
     }
   };
