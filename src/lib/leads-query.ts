@@ -30,6 +30,8 @@ export type LeadsFilterParams = {
   callNotLoggedDays: number | null;
   /** Max unique call days (≤ N) */
   uniqueDays: number | null;
+  /** Max unique/total calls (≤ N) on card metrics */
+  uniqueCalls: number | null;
   minCalls: number | null;
   /** Min calls logged since entering current stage */
   minCallsSinceStage: number | null;
@@ -86,6 +88,7 @@ export function parseLeadsSearchParams(
       return null;
     })(),
     uniqueDays: get("uDays") ? Number(get("uDays")) : null,
+    uniqueCalls: get("uCalls") ? Number(get("uCalls")) : null,
     minCalls: get("minCalls") ? Number(get("minCalls")) : null,
     minCallsSinceStage: get("minStageCalls")
       ? Number(get("minStageCalls"))
@@ -252,6 +255,7 @@ export function filtersToSearchParams(
     sp.delete("noCallH");
   }
   if (filters.uniqueDays !== undefined) setOrDel("uDays", filters.uniqueDays);
+  if (filters.uniqueCalls !== undefined) setOrDel("uCalls", filters.uniqueCalls);
   if (filters.minCalls !== undefined) setOrDel("minCalls", filters.minCalls);
   if (filters.minCallsSinceStage !== undefined) {
     setOrDel("minStageCalls", filters.minCallsSinceStage);

@@ -30,6 +30,20 @@ export type CounselorPipelineStats = {
   r2Booked: number;
   r3Booked: number;
   offer: number;
+  /** Offered in period who reached closed_paid */
+  convertedAfterOffer: number;
+  /** Offered in period who did not convert */
+  notConvertedAfterOffer: number;
+  notConvertedAfterOfferPct: number | null;
+};
+
+export type CounselorFunnelPct = {
+  bookedPct: number | null;
+  conductedPct: number | null;
+  r2Pct: number | null;
+  r3Pct: number | null;
+  offeredPct: number | null;
+  convertedPct: number | null;
 };
 
 export type CounselorRow = {
@@ -42,6 +56,8 @@ export type CounselorRow = {
 export type CounselorDashboard = {
   rows: CounselorRow[];
   totals: { calling: CounselorCallingStats; pipeline: CounselorPipelineStats };
+  /** Present when a single counselor filter is applied — % of allocated */
+  funnelOfAllocated: CounselorFunnelPct | null;
 };
 
 function emptyCalling(): CounselorCallingStats {
@@ -66,7 +82,15 @@ function emptyPipeline(): CounselorPipelineStats {
     r2Booked: 0,
     r3Booked: 0,
     offer: 0,
+    convertedAfterOffer: 0,
+    notConvertedAfterOffer: 0,
+    notConvertedAfterOfferPct: null,
   };
+}
+
+function pctOf(n: number, d: number): number | null {
+  if (d <= 0) return null;
+  return Number(((n / d) * 100).toFixed(1));
 }
 
 function dayKey(iso: string) {
@@ -206,6 +230,7 @@ async function fetchCounselorDashboardUncached(
   const r2Booked = new Set<string>();
   const r3Booked = new Set<string>();
   const offered = new Set<string>();
+  const converted = new Set<string>();
   for (const h of scopedHistory) {
     if (h.to_stage === "r1_booked") r1Booked.add(h.lead_id);
     if (
@@ -220,6 +245,7 @@ async function fetchCounselorDashboardUncached(
     if (h.to_stage === "offered" || h.to_stage === "yet_to_offer") {
       offered.add(h.lead_id);
     }
+    if (h.to_stage === "closed_paid") converted.add(h.lead_id);
   }
 
   const leadOwner = new Map(leads.map((l) => [l.id, l.lead_allocated_to]));
@@ -229,14 +255,24 @@ async function fetchCounselorDashboardUncached(
     row.pipeline.r2Booked = 0;
     row.pipeline.r3Booked = 0;
     row.pipeline.offer = 0;
+    row.pipeline.convertedAfterOffer = 0;
+    row.pipeline.notConvertedAfterOffer = 0;
+    row.pipeline.notConvertedAfterOfferPct = null;
   }
   const bump = (set: Set<string>, field: keyof CounselorPipelineStats) => {
     for (const lid of Array.from(set)) {
       const oid = leadOwner.get(lid);
       if (!oid) continue;
       const row = byCounselor.get(oid);
-      if (!row || field === "allocated") continue;
-      row.pipeline[field] += 1;
+      if (
+        !row ||
+        field === "allocated" ||
+        field === "convertedAfterOffer" ||
+        field === "notConvertedAfterOffer" ||
+        field === "notConvertedAfterOfferPct"
+      )
+        continue;
+      (row.pipeline[field] as number) += 1;
     }
   };
   bump(r1Booked, "r1Booked");
@@ -245,6 +281,21 @@ async function fetchCounselorDashboardUncached(
   bump(r3Booked, "r3Booked");
   bump(offered, "offer");
 
+  for (const lid of Array.from(offered)) {
+    const oid = leadOwner.get(lid);
+    if (!oid) continue;
+    const row = byCounselor.get(oid);
+    if (!row) continue;
+    if (converted.has(lid)) row.pipeline.convertedAfterOffer += 1;
+    else row.pipeline.notConvertedAfterOffer += 1;
+  }
+  for (const row of Array.from(byCounselor.values())) {
+    const offeredN = row.pipeline.offer;
+    row.pipeline.notConvertedAfterOfferPct = pctOf(
+      row.pipeline.notConvertedAfterOffer,
+      offeredN
+    );
+  }
   const callsByCounselor = new Map<string, typeof scopedCalls>();
   for (const c of scopedCalls) {
     const arr = callsByCounselor.get(c.counselor_id) ?? [];
@@ -307,7 +358,13 @@ async function fetchCounselorDashboardUncached(
     totals.pipeline.r2Booked += r.pipeline.r2Booked;
     totals.pipeline.r3Booked += r.pipeline.r3Booked;
     totals.pipeline.offer += r.pipeline.offer;
+    totals.pipeline.convertedAfterOffer += r.pipeline.convertedAfterOffer;
+    totals.pipeline.notConvertedAfterOffer += r.pipeline.notConvertedAfterOffer;
   }
+  totals.pipeline.notConvertedAfterOfferPct = pctOf(
+    totals.pipeline.notConvertedAfterOffer,
+    totals.pipeline.offer
+  );
   totals.calling.avgCallsPerLead =
     totals.calling.allocatedLeads > 0
       ? Number(
@@ -321,7 +378,22 @@ async function fetchCounselorDashboardUncached(
     (totals.calling.totalCalls / rangeMonths).toFixed(2)
   );
 
-  return { rows, totals };
+  const funnelOfAllocated: CounselorFunnelPct | null = filters.counselorId
+    ? (() => {
+        const p = totals.pipeline;
+        const d = p.allocated;
+        return {
+          bookedPct: pctOf(p.r1Booked, d),
+          conductedPct: pctOf(p.r1Conducted, d),
+          r2Pct: pctOf(p.r2Booked, d),
+          r3Pct: pctOf(p.r3Booked, d),
+          offeredPct: pctOf(p.offer, d),
+          convertedPct: pctOf(p.convertedAfterOffer, d),
+        };
+      })()
+    : null;
+
+  return { rows, totals, funnelOfAllocated };
 }
 
 export async function fetchCounselorDashboard(

@@ -154,6 +154,51 @@ export default async function AdminCounselorPage({
         <StatCard label="Offer" value={t.pipeline.offer} />
       </div>
 
+      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          label="Offered → converted"
+          value={t.pipeline.convertedAfterOffer}
+        />
+        <StatCard
+          label="Offered → not converted"
+          value={t.pipeline.notConvertedAfterOffer}
+        />
+        <StatCard
+          label="Not converted %"
+          value={
+            t.pipeline.notConvertedAfterOfferPct != null
+              ? `${t.pipeline.notConvertedAfterOfferPct}%`
+              : "—"
+          }
+        />
+      </div>
+
+      {dash.funnelOfAllocated ? (
+        <section className="mb-6 panel p-5">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-muted">
+            Funnel vs allocated
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {(
+              [
+                ["→ Booked", dash.funnelOfAllocated.bookedPct],
+                ["→ Conducted", dash.funnelOfAllocated.conductedPct],
+                ["→ R2", dash.funnelOfAllocated.r2Pct],
+                ["→ R3", dash.funnelOfAllocated.r3Pct],
+                ["→ Offered", dash.funnelOfAllocated.offeredPct],
+                ["→ Converted", dash.funnelOfAllocated.convertedPct],
+              ] as const
+            ).map(([label, v]) => (
+              <StatCard
+                key={label}
+                label={label}
+                value={v != null ? `${v}%` : "—"}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="panel overflow-hidden">
         <div className="border-b border-border px-5 py-3">
           <p className="eyebrow">Per counselor</p>
@@ -177,6 +222,8 @@ export default async function AdminCounselorPage({
                 <th className="eyebrow px-4 py-3">R2</th>
                 <th className="eyebrow px-4 py-3">R3</th>
                 <th className="eyebrow px-4 py-3">Offer</th>
+                <th className="eyebrow px-4 py-3">Offer→conv</th>
+                <th className="eyebrow px-4 py-3">Not conv %</th>
               </tr>
             </thead>
             <tbody>
@@ -203,6 +250,12 @@ export default async function AdminCounselorPage({
                   <td className="px-4 py-3">{r.pipeline.r2Booked}</td>
                   <td className="px-4 py-3">{r.pipeline.r3Booked}</td>
                   <td className="px-4 py-3">{r.pipeline.offer}</td>
+                  <td className="px-4 py-3">{r.pipeline.convertedAfterOffer}</td>
+                  <td className="px-4 py-3">
+                    {r.pipeline.notConvertedAfterOfferPct != null
+                      ? `${r.pipeline.notConvertedAfterOfferPct}%`
+                      : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>

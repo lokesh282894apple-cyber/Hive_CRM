@@ -2,9 +2,12 @@ import { requireUser } from "@/lib/auth";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 import { NavProgress } from "@/components/shell/NavProgress";
+import { AiChatWidget } from "@/components/shell/AiChatWidget";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const showAi =
+    user.role === "admin" || user.role === "marketing";
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[#F7F8FC]">
@@ -14,6 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <TopBar />
         <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">{children}</main>
       </div>
+      <AiChatWidget enabled={showAi} />
     </div>
   );
 }

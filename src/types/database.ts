@@ -180,6 +180,17 @@ export type FeeRecord = {
   payer_name?: string | null;
   revenue_amount?: number | null;
   payment_status?: string | null;
+  gross_fee_with_gst?: number | null;
+  net_fee_without_gst?: number | null;
+  scholarship_offered?: string | null;
+  nikhil_remark?: string | null;
+  deal_stage?: string | null;
+  deal_substage?: string | null;
+  payment_method_email_sent?: boolean;
+  response_deadline?: string | null;
+  program_onboarding_call_done?: boolean;
+  drop_email?: boolean;
+  active_deadline?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -194,6 +205,12 @@ export type Installment = {
   status: InstallmentStatus;
   /** Set when amount_realised increases — used for monthly revenue realised */
   paid_at?: string | null;
+  line_type?: string | null;
+  mode_of_payment?: string | null;
+  amount_hit_bank?: number | null;
+  deductions?: number | null;
+  date_hit_bank?: string | null;
+  payment_status?: string | null;
 };
 
 export type LoanVendor = {
@@ -212,6 +229,10 @@ export type Loan = {
   deadline_to_hit: string | null;
   amount_realised: number;
   loan_vendor_id: string | null;
+  doc_submission_deadline?: string | null;
+  remaining_fee_15d_deadline?: string | null;
+  loan_completion_deadline?: string | null;
+  disbursement_date?: string | null;
   created_at: string;
   updated_at: string;
 };

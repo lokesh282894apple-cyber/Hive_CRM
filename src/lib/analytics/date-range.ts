@@ -59,6 +59,20 @@ export function yearBounds(year: number): { from: string; to: string } {
   return { from: `${year}-01-01`, to: `${year}-12-31` };
 }
 
+/** Indian financial year Apr–Mar. fyStartYear = calendar year of April (e.g. 2025 → FY25-26). */
+export function financialYearBounds(fyStartYear: number): { from: string; to: string } {
+  return {
+    from: `${fyStartYear}-04-01`,
+    to: `${fyStartYear + 1}-03-31`,
+  };
+}
+
+export function currentFyStartYear(d = new Date()): number {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  return m >= 4 ? y : y - 1;
+}
+
 export const MONTH_SHORT = [
   "Jan",
   "Feb",

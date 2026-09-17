@@ -1,4 +1,10 @@
-export const ROLES = ["admin", "counselor", "interviewer", "marketing"] as const;
+export const ROLES = [
+  "admin",
+  "counselor",
+  "interviewer",
+  "marketing",
+  "program",
+] as const;
 export type Role = (typeof ROLES)[number];
 
 export const STAGES = [
@@ -553,8 +559,14 @@ export type GradeTier = (typeof GRADE_TIERS)[number];
 export const INSTALLMENT_STATUSES = ["pending", "partial", "paid", "overdue"] as const;
 export type InstallmentStatus = (typeof INSTALLMENT_STATUSES)[number];
 
+/** Nikhil Fee Tracker loan pipeline (+ legacy codes still readable). */
 export const LOAN_STAGES = [
   "docs_to_share",
+  "loan_in_process",
+  "loan_approved",
+  "loan_approved_hit_bank",
+  "drop_email",
+  // legacy (mapped on read/write)
   "docs_shared",
   "sent_to_vendor",
   "approved",
@@ -565,13 +577,41 @@ export const LOAN_STAGES = [
 export type LoanStage = (typeof LOAN_STAGES)[number];
 
 export const LOAN_STAGE_LABELS: Record<LoanStage, string> = {
-  docs_to_share: "Loan Document Submitted",
-  docs_shared: "Loan Processed",
-  sent_to_vendor: "Loan Processed Received",
+  docs_to_share: "Documents to be shared",
+  loan_in_process: "Loan In Process",
+  loan_approved: "Loan Approved",
+  loan_approved_hit_bank: "Loan Approved - Hit the bank",
+  drop_email: "Drop Email",
+  docs_shared: "Loan In Process",
+  sent_to_vendor: "Loan In Process",
   approved: "Loan Approved",
-  disbursed_pending: "Disbursed Pending",
-  disbursed_hit_bank: "Disbursed — Hit Bank",
+  disbursed_pending: "Loan Approved",
+  disbursed_hit_bank: "Loan Approved - Hit the bank",
 };
+
+export const FEE_LINE_TYPES = [
+  "admission_fee",
+  "loan",
+  "one_shot",
+  "installment",
+] as const;
+export type FeeLineType = (typeof FEE_LINE_TYPES)[number];
+
+export const FEE_PAYMENT_STATUSES = ["Paid", "Yet to Pay"] as const;
+export type FeePaymentStatus = (typeof FEE_PAYMENT_STATUSES)[number];
+
+export const FEE_DEAL_STAGES = [
+  "awaiting_method",
+  "method_chosen",
+  "deadlines_pending",
+  "deadlines_set",
+  "in_collection",
+  "drop_email",
+] as const;
+export type FeeDealStage = (typeof FEE_DEAL_STAGES)[number];
+
+/** Default admission fee line (INR) when a student converts. */
+export const DEFAULT_ADMISSION_FEE_INR = 50_000;
 
 export const AVAILABILITY_STATUSES = ["free", "booked"] as const;
 
@@ -588,6 +628,7 @@ export function homeForRole(role: Role): string {
   if (role === "admin") return "/admin/analytics";
   if (role === "interviewer") return "/interviewer/interviews";
   if (role === "marketing") return "/marketing/dashboard";
+  if (role === "program") return "/program/fees";
   return "/dashboard";
 }
 

@@ -51,9 +51,9 @@ const adminNav: NavItem[] = [
   { href: "/admin/panel", label: "Panel", icon: GraduationCap },
   { href: "/admin/counselor", label: "Counselor", icon: UserCircle2 },
   { href: "/admin/payments", label: "Payments", icon: IndianRupee },
+  { href: "/program/fees", label: "Fee & Loan", icon: IndianRupee },
   { href: "/admin/users", label: "Users & Roles", icon: Users },
   { href: "/admin/config", label: "System Config", icon: Cog },
-  { href: "/admin/ai-chat", label: "AI Chat", icon: Bot },
   { href: "/admin/marketing/connections", label: "Ad Connections", icon: Link2 },
 ];
 
@@ -112,12 +112,15 @@ const marketingNav: NavItem[] = [
     icon: Upload,
     matchPaths: ["/marketing/imports", "/marketing/campaigns"],
   },
-  { href: "/marketing/ai-chat", label: "AI Chat", icon: Bot },
 ];
 
 const interviewerNav: NavItem[] = [
   { href: "/interviewer/interviews", label: "Interviews", icon: GraduationCap },
   { href: "/interviewer/availability", label: "Availability", icon: Calendar },
+];
+
+const programNav: NavItem[] = [
+  { href: "/program/fees", label: "Fee & Loan Tracker", icon: IndianRupee },
 ];
 
 function navItemActive(pathname: string, item: NavItem): boolean {
@@ -140,6 +143,7 @@ function navForRole(role: Role): NavItem[] {
   if (role === "admin") return adminNav;
   if (role === "interviewer") return interviewerNav;
   if (role === "marketing") return marketingNav;
+  if (role === "program") return programNav;
   return counselorNav;
 }
 
@@ -160,7 +164,11 @@ export function Sidebar({
           HiveSchool
         </p>
         <p className="mt-1 text-lg font-semibold tracking-tight">
-          {role === "marketing" ? "Marketing" : "Admissions"}
+          {role === "marketing"
+            ? "Marketing"
+            : role === "program"
+              ? "Program"
+              : "Admissions"}
         </p>
       </div>
 

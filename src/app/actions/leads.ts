@@ -126,6 +126,16 @@ export async function updateLeadStage(
     console.error("[dispatchStageTriggers]", err);
   }
   touchLeadPaths(leadId);
+
+  if (stage === "closed_paid") {
+    try {
+      const { ensureConvertedFeeScaffold } = await import("@/app/actions/program-fees");
+      await ensureConvertedFeeScaffold(leadId);
+    } catch (err) {
+      console.error("[ensureConvertedFeeScaffold]", err);
+    }
+  }
+
   return { ok: true };
 }
 

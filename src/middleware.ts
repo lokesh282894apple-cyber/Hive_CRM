@@ -32,6 +32,7 @@ function homeForRole(role: string | null) {
   if (role === "admin") return "/admin/analytics";
   if (role === "interviewer") return "/interviewer/interviews";
   if (role === "marketing") return "/marketing/dashboard";
+  if (role === "program") return "/program/fees";
   return "/dashboard";
 }
 
@@ -155,6 +156,14 @@ export async function middleware(request: NextRequest) {
     }
 
     if (
+      path.startsWith("/program") &&
+      role !== "program" &&
+      role !== "admin"
+    ) {
+      return redirectTo(request, homeForRole(role));
+    }
+
+    if (
       (path.startsWith("/dashboard") ||
         path.startsWith("/leads") ||
         path.startsWith("/attention") ||
@@ -171,6 +180,16 @@ export async function middleware(request: NextRequest) {
       role === "marketing"
     ) {
       return redirectTo(request, "/marketing/dashboard");
+    }
+
+    if (
+      (path.startsWith("/dashboard") ||
+        path.startsWith("/leads") ||
+        path.startsWith("/attention") ||
+        path.startsWith("/messages")) &&
+      role === "program"
+    ) {
+      return redirectTo(request, "/program/fees");
     }
 
     return response;
