@@ -2,7 +2,12 @@
 
 import { requireUser } from "@/lib/auth";
 import type { Stage } from "@/lib/constants";
-import { isBookingRequiredStage, STAGES, STAGE_TRANSITIONS } from "@/lib/constants";
+import {
+  isBookingRequiredStage,
+  STAGES,
+  STAGE_TRANSITIONS,
+  stageRequiresReason,
+} from "@/lib/constants";
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -99,16 +104,27 @@ export async function updateLeadStage(
     }
   }
 
-  const { error } = await supabase.from("leads").update({ stage }).eq("id", leadId);
+  const reason = notes?.trim() || "";
+  if (stageRequiresReason(stage) && !reason) {
+    return { ok: false, error: "Custom stage requires a typed reason" };
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      stage,
+      stage_reason: reason || null,
+    })
+    .eq("id", leadId);
   if (error) return { ok: false, error: error.message };
 
-  if (notes) {
+  if (reason) {
     await supabase.from("stage_history").insert({
       lead_id: leadId,
       from_stage: lead.stage,
       to_stage: stage,
       changed_by: user.id,
-      notes,
+      notes: reason,
     });
   }
 

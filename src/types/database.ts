@@ -77,6 +77,8 @@ export type Lead = {
   score_auto_reasons?: import("@/lib/leads/score").ScoreReason[] | null;
   lead_allocated_to: string | null;
   stage: Stage;
+  /** Free-text reason for Custom (and optional notes on other stage moves) */
+  stage_reason?: string | null;
   created_at: string;
   updated_at: string;
   last_contacted_at: string | null;

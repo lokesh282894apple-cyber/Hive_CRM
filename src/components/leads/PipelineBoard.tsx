@@ -10,6 +10,7 @@ import {
   STAGE_TRANSITIONS,
   STALE_LEAD_DAYS,
   columnsForDensity,
+  stageRequiresReason,
   type BoardColumnDef,
   type BoardDensity,
   type Stage,
@@ -64,7 +65,10 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
   const isNurture = stage === "call_logged_nurturing" || stage === "dnp";
   const isInterview =
     stage.startsWith("r1_") || stage.startsWith("r2_") || stage.startsWith("r3_");
-  const isOffer = stage === "offered" || stage === "yet_to_offer";
+  const isOffer =
+    stage === "offered" ||
+    stage === "yet_to_offer" ||
+    stage === "offered_accepted";
   const isClosed =
     stage === "closed_paid" ||
     stage === "closed_deferred" ||
@@ -648,6 +652,13 @@ export function PipelineBoard({
 
       if (!sameStage && (BOOKING_REQUIRED_STAGES as readonly string[]).includes(nextStage)) {
         openBookingDialog(lead, nextStage);
+        return;
+      }
+
+      if (!sameStage && stageRequiresReason(nextStage)) {
+        setError(
+          "Custom stage needs a typed reason — open the lead and set stage there."
+        );
         return;
       }
 

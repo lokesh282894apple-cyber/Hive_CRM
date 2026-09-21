@@ -31,7 +31,7 @@ const ROUND_BOOKED: Record<InterviewRound, Stage> = {
 const OUTCOME_STAGE: Record<InterviewRound, Partial<Record<InterviewOutcome, Stage>>> = {
   R1: { confirmed: "r1_confirmed", reject: "r1_reject", tbb: "r2_booked" },
   R2: { confirmed: "r2_tbb", reject: "r2_reject", tbb: "r3_booked" },
-  R3: { confirmed: "r3_tbb", tbb: "yet_to_offer" },
+  R3: { confirmed: "r3_tbb", reject: "r3_reject", tbb: "yet_to_offer" },
 };
 
 export async function addAvailabilitySlot(formData: FormData): Promise<ActionResult> {

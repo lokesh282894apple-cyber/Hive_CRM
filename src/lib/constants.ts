@@ -15,6 +15,12 @@ export const STAGES = [
   "dnp",
   "no_show",
   "reschedule",
+  "retarget_next_batch",
+  "admission_team_rejected",
+  "comps",
+  "trash_lead",
+  "intent",
+  "custom",
   "r1_booked",
   "r1_confirmed",
   "r1_reject",
@@ -27,13 +33,17 @@ export const STAGES = [
   "r2_reschedule",
   "r3_booked",
   "r3_tbb",
+  "r3_reject",
   "r3_no_show",
   "r3_reschedule",
   "yet_to_offer",
   "offered",
+  "offered_accepted",
+  "student_reject",
   "closed_paid",
   "closed_deferred",
   "closed_refund",
+  "closed_lost",
 ] as const;
 
 export type Stage = (typeof STAGES)[number];
@@ -43,6 +53,12 @@ export const PRIMARY_PRE_INTERVIEW_STAGES = [
   "new_lead",
   "call_logged_nurturing",
   "dnp",
+  "retarget_next_batch",
+  "admission_team_rejected",
+  "comps",
+  "trash_lead",
+  "intent",
+  "custom",
 ] as const satisfies readonly Stage[];
 
 /** Legacy pre-interview stages — kept for existing leads, hidden in primary UI. */
@@ -53,6 +69,19 @@ export const LEGACY_PRE_INTERVIEW_STAGES = [
   "reschedule",
 ] as const satisfies readonly Stage[];
 
+/** All pre-interview stages (student_reject is not offered from these). */
+export const PRE_INTERVIEW_STAGES = [
+  ...PRIMARY_PRE_INTERVIEW_STAGES,
+  ...LEGACY_PRE_INTERVIEW_STAGES,
+] as const satisfies readonly Stage[];
+
+/** Stages that require a free-text reason when selected. */
+export const STAGES_REQUIRING_REASON = ["custom"] as const satisfies readonly Stage[];
+
+export function stageRequiresReason(stage: string): boolean {
+  return (STAGES_REQUIRING_REASON as readonly string[]).includes(stage);
+}
+
 export const STAGE_LABELS: Record<Stage, string> = {
   lead_created: "Lead Created",
   in_funnel: "In-Funnel",
@@ -61,6 +90,12 @@ export const STAGE_LABELS: Record<Stage, string> = {
   dnp: "DNP",
   no_show: "No Show",
   reschedule: "Reschedule",
+  retarget_next_batch: "Retarget Next Batch",
+  admission_team_rejected: "Admission Team Rejected",
+  comps: "Comps",
+  trash_lead: "Trash Lead",
+  intent: "Intent",
+  custom: "Custom",
   r1_booked: "R1 Booked",
   r1_confirmed: "R1 Confirmed",
   r1_reject: "R1 Reject",
@@ -73,79 +108,246 @@ export const STAGE_LABELS: Record<Stage, string> = {
   r2_reschedule: "R2 Reschedule",
   r3_booked: "R3 Booked",
   r3_tbb: "R3 TBB",
+  r3_reject: "R3 Reject",
   r3_no_show: "R3 No Show",
   r3_reschedule: "R3 Reschedule",
   yet_to_offer: "Yet to Offer",
   offered: "Offered",
+  offered_accepted: "Offered – Accepted",
+  student_reject: "Student Reject",
   closed_paid: "Closed – Paid",
   closed_deferred: "Closed – Deferred",
   closed_refund: "Closed – Refund",
+  closed_lost: "Closed – Lost",
 };
 
-/** Soft-allowed transitions for counselor UI. Admin can set any stage. closed_deferred is global. */
+/** Soft-allowed transitions for counselor UI. Admin can set any stage. */
 export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   lead_created: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
     "r1_booked",
     "closed_deferred",
+    "closed_lost",
   ],
   in_funnel: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
     "r1_booked",
     "closed_deferred",
+    "closed_lost",
   ],
-  new_lead: ["call_logged_nurturing", "dnp", "r1_booked", "closed_deferred"],
-  call_logged_nurturing: ["new_lead", "dnp", "r1_booked", "closed_deferred"],
-  dnp: ["new_lead", "call_logged_nurturing", "r1_booked", "closed_deferred"],
+  new_lead: [
+    "call_logged_nurturing",
+    "dnp",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  call_logged_nurturing: [
+    "new_lead",
+    "dnp",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  dnp: [
+    "new_lead",
+    "call_logged_nurturing",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
+  ],
   no_show: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
     "r1_booked",
     "closed_deferred",
+    "closed_lost",
   ],
   reschedule: [
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "comps",
+    "trash_lead",
+    "intent",
+    "custom",
     "r1_booked",
     "closed_deferred",
+    "closed_lost",
+  ],
+  retarget_next_batch: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "intent",
+    "custom",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  admission_team_rejected: ["new_lead", "closed_deferred", "closed_lost"],
+  comps: [
+    "new_lead",
+    "call_logged_nurturing",
+    "intent",
+    "custom",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  trash_lead: ["new_lead", "closed_lost"],
+  intent: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "custom",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  custom: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
+    "intent",
+    "r1_booked",
+    "closed_deferred",
+    "closed_lost",
   ],
   r1_booked: [
     "r1_confirmed",
     "r1_reject",
     "r1_no_show",
     "r1_reschedule",
+    "student_reject",
     "closed_deferred",
+    "closed_lost",
   ],
-  r1_confirmed: ["r2_booked", "closed_deferred"],
-  r1_reject: ["closed_deferred"],
-  r1_no_show: ["r1_booked", "r1_reschedule", "closed_deferred"],
-  r1_reschedule: ["r1_booked", "closed_deferred"],
+  r1_confirmed: ["r2_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r1_reject: ["student_reject", "closed_deferred", "closed_lost"],
+  r1_no_show: [
+    "r1_booked",
+    "r1_reschedule",
+    "student_reject",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  r1_reschedule: ["r1_booked", "student_reject", "closed_deferred", "closed_lost"],
   r2_booked: [
     "r2_tbb",
     "r2_reject",
     "r2_no_show",
     "r2_reschedule",
+    "student_reject",
     "closed_deferred",
+    "closed_lost",
   ],
-  r2_tbb: ["r3_booked", "closed_deferred"],
-  r2_reject: ["closed_deferred"],
-  r2_no_show: ["r2_booked", "r2_reschedule", "closed_deferred"],
-  r2_reschedule: ["r2_booked", "closed_deferred"],
-  r3_booked: ["r3_tbb", "r3_no_show", "r3_reschedule", "closed_deferred"],
-  r3_tbb: ["yet_to_offer", "closed_deferred"],
-  r3_no_show: ["r3_booked", "r3_reschedule", "closed_deferred"],
-  r3_reschedule: ["r3_booked", "closed_deferred"],
-  yet_to_offer: ["offered", "closed_deferred", "closed_refund"],
-  offered: ["closed_paid", "closed_deferred", "closed_refund"],
+  r2_tbb: ["r3_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r2_reject: ["student_reject", "closed_deferred", "closed_lost"],
+  r2_no_show: [
+    "r2_booked",
+    "r2_reschedule",
+    "student_reject",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  r2_reschedule: ["r2_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r3_booked: [
+    "r3_tbb",
+    "r3_reject",
+    "r3_no_show",
+    "r3_reschedule",
+    "student_reject",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  r3_tbb: [
+    "yet_to_offer",
+    "r3_reject",
+    "student_reject",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  r3_reject: ["student_reject", "closed_deferred", "closed_lost"],
+  r3_no_show: [
+    "r3_booked",
+    "r3_reschedule",
+    "student_reject",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  r3_reschedule: ["r3_booked", "student_reject", "closed_deferred", "closed_lost"],
+  yet_to_offer: [
+    "offered",
+    "offered_accepted",
+    "student_reject",
+    "closed_deferred",
+    "closed_refund",
+    "closed_lost",
+  ],
+  offered: [
+    "offered_accepted",
+    "closed_paid",
+    "student_reject",
+    "closed_deferred",
+    "closed_refund",
+    "closed_lost",
+  ],
+  offered_accepted: [
+    "closed_paid",
+    "student_reject",
+    "closed_deferred",
+    "closed_refund",
+    "closed_lost",
+  ],
+  student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   closed_paid: [],
   closed_deferred: ["new_lead", "call_logged_nurturing"],
   closed_refund: ["new_lead", "call_logged_nurturing"],
+  closed_lost: ["new_lead", "call_logged_nurturing"],
 };
 
 export const LEAD_LIST_TABS = [
@@ -191,7 +393,10 @@ export const LEAD_LIST_TABS = [
 /** Stages treated as “open pipeline” (exclude closed by default). */
 export const OPEN_STAGES = STAGES.filter(
   (s) =>
-    s !== "closed_paid" && s !== "closed_deferred" && s !== "closed_refund"
+    s !== "closed_paid" &&
+    s !== "closed_deferred" &&
+    s !== "closed_refund" &&
+    s !== "closed_lost"
 ) as Stage[];
 
 export const STAGE_GROUPS = [
@@ -207,6 +412,12 @@ export const STAGE_GROUPS = [
       "new_lead",
       "call_logged_nurturing",
       "dnp",
+      "retarget_next_batch",
+      "admission_team_rejected",
+      "comps",
+      "trash_lead",
+      "intent",
+      "custom",
       "lead_created",
       "in_funnel",
       "no_show",
@@ -226,12 +437,12 @@ export const STAGE_GROUPS = [
   {
     id: "r3",
     label: "R3",
-    stages: ["r3_booked", "r3_tbb", "r3_no_show", "r3_reschedule"] as Stage[],
+    stages: ["r3_booked", "r3_tbb", "r3_reject", "r3_no_show", "r3_reschedule"] as Stage[],
   },
   {
     id: "offer",
     label: "Offer",
-    stages: ["yet_to_offer", "offered"] as Stage[],
+    stages: ["yet_to_offer", "offered", "offered_accepted"] as Stage[],
   },
   {
     id: "offer_call_not_booked",
@@ -330,6 +541,60 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     section: "Pre-interview",
   },
   {
+    id: "retarget_next_batch",
+    label: "Retarget Next Batch",
+    hint: "Hold for a later cohort",
+    stages: ["retarget_next_batch"],
+    dropStage: "retarget_next_batch",
+    accent: "warning",
+    section: "Pre-interview",
+  },
+  {
+    id: "admission_team_rejected",
+    label: "Admission Team Rejected",
+    hint: "Rejected by admissions",
+    stages: ["admission_team_rejected"],
+    dropStage: "admission_team_rejected",
+    accent: "red",
+    section: "Pre-interview",
+  },
+  {
+    id: "comps",
+    label: "Comps",
+    hint: "Competitive / comps track",
+    stages: ["comps"],
+    dropStage: "comps",
+    accent: "periwinkle",
+    section: "Pre-interview",
+  },
+  {
+    id: "trash_lead",
+    label: "Trash Lead",
+    hint: "Discarded lead",
+    stages: ["trash_lead"],
+    dropStage: "trash_lead",
+    accent: "gray",
+    section: "Pre-interview",
+  },
+  {
+    id: "intent",
+    label: "Intent",
+    hint: "Intent signal / follow-up",
+    stages: ["intent"],
+    dropStage: "intent",
+    accent: "periwinkle",
+    section: "Pre-interview",
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    hint: "Custom status · requires typed reason",
+    stages: ["custom"],
+    dropStage: "custom",
+    accent: "gray",
+    section: "Pre-interview",
+  },
+  {
     id: "r1",
     label: "Round 1",
     hint: "Booked → Confirmed → …",
@@ -350,8 +615,8 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
   {
     id: "r3",
     label: "Round 3",
-    hint: "Booked → TBB → …",
-    stages: ["r3_booked", "r3_tbb", "r3_no_show", "r3_reschedule"],
+    hint: "Booked → TBB → Reject → …",
+    stages: ["r3_booked", "r3_tbb", "r3_reject", "r3_no_show", "r3_reschedule"],
     dropStage: "r3_booked",
     accent: "blue",
     section: "Interviews",
@@ -396,6 +661,24 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     offerCallStatus: "done",
   },
   {
+    id: "offered_accepted",
+    label: "Offered – Accepted",
+    hint: "Offer accepted · pending close",
+    stages: ["offered_accepted"],
+    dropStage: "offered_accepted",
+    accent: "gold",
+    section: "Close",
+  },
+  {
+    id: "student_reject",
+    label: "Student Reject",
+    hint: "Candidate declined (post pre-interview)",
+    stages: ["student_reject"],
+    dropStage: "student_reject",
+    accent: "red",
+    section: "Close",
+  },
+  {
     id: "closed_paid",
     label: "Closed – Paid",
     hint: "Converted · paid",
@@ -422,13 +705,32 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     accent: "red",
     section: "Close",
   },
+  {
+    id: "closed_lost",
+    label: "Closed – Lost",
+    hint: "Closed · lost",
+    stages: ["closed_lost"],
+    dropStage: "closed_lost",
+    accent: "red",
+    section: "Close",
+  },
 ];
 
 function accentForStage(stage: Stage): BoardColumnDef["accent"] {
-  if (stage === "closed_paid") return "green";
-  if (stage === "closed_refund" || stage.includes("reject")) return "red";
+  if (stage === "closed_paid" || stage === "offered_accepted") return "green";
+  if (
+    stage === "closed_refund" ||
+    stage === "closed_lost" ||
+    stage === "student_reject" ||
+    stage === "admission_team_rejected" ||
+    stage === "trash_lead" ||
+    stage.includes("reject")
+  ) {
+    return "red";
+  }
   if (
     stage === "closed_deferred" ||
+    stage === "retarget_next_batch" ||
     stage.includes("no_show") ||
     stage === "dnp"
   ) {
@@ -442,21 +744,19 @@ function accentForStage(stage: Stage): BoardColumnDef["accent"] {
 }
 
 function sectionForStage(stage: Stage): string {
-  if (
-    stage === "lead_created" ||
-    stage === "new_lead" ||
-    stage === "call_logged_nurturing" ||
-    stage === "in_funnel" ||
-    stage === "dnp" ||
-    stage === "no_show" ||
-    stage === "reschedule"
-  ) {
+  if ((PRE_INTERVIEW_STAGES as readonly string[]).includes(stage)) {
     return "Pre-interview";
   }
   if (stage.startsWith("r1_")) return "Round 1";
   if (stage.startsWith("r2_")) return "Round 2";
   if (stage.startsWith("r3_")) return "Round 3";
-  if (stage === "yet_to_offer" || stage === "offered") return "Offer";
+  if (
+    stage === "yet_to_offer" ||
+    stage === "offered" ||
+    stage === "offered_accepted"
+  ) {
+    return "Offer";
+  }
   return "Closed";
 }
 
@@ -493,6 +793,7 @@ export const CLOSED_STAGES = [
   "closed_paid",
   "closed_deferred",
   "closed_refund",
+  "closed_lost",
 ] as const satisfies readonly Stage[];
 
 export function isClosedStage(stage: string): boolean {
@@ -639,9 +940,31 @@ export const CAMPAIGN_SOURCE_TYPES = ["paid_ad", "influencer", "organic"] as con
 export type CampaignSourceType = (typeof CAMPAIGN_SOURCE_TYPES)[number];
 
 export function stageTone(stage: Stage): "green" | "yellow" | "red" | "gray" | "blue" {
-  if (stage === "closed_paid") return "green";
-  if (stage === "closed_deferred" || stage.includes("reject")) return "red";
-  if (stage.includes("no_show") || stage === "dnp") return "yellow";
-  if (stage.includes("booked") || stage.includes("confirmed") || stage === "offered") return "blue";
+  if (stage === "closed_paid" || stage === "offered_accepted") return "green";
+  if (
+    stage === "closed_deferred" ||
+    stage === "closed_lost" ||
+    stage === "student_reject" ||
+    stage === "admission_team_rejected" ||
+    stage === "trash_lead" ||
+    stage.includes("reject")
+  ) {
+    return "red";
+  }
+  if (
+    stage.includes("no_show") ||
+    stage === "dnp" ||
+    stage === "retarget_next_batch"
+  ) {
+    return "yellow";
+  }
+  if (
+    stage.includes("booked") ||
+    stage.includes("confirmed") ||
+    stage === "offered" ||
+    stage === "yet_to_offer"
+  ) {
+    return "blue";
+  }
   return "gray";
 }

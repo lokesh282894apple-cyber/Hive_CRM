@@ -16,6 +16,7 @@ import {
   STAGE_LABELS,
   STAGE_TRANSITIONS,
   STAGES,
+  stageRequiresReason,
   type InterviewRound,
   type Stage,
 } from "@/lib/constants";
@@ -105,6 +106,7 @@ export function LeadDetailClient({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>(lead.stage);
+  const [stageReason, setStageReason] = useState(lead.stage_reason ?? "");
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
 
@@ -138,6 +140,7 @@ export function LeadDetailClient({
       lead.stage,
       ...(STAGE_TRANSITIONS[lead.stage] ?? []),
       "closed_deferred" as Stage,
+      "closed_lost" as Stage,
     ])
   )).filter((s) => !bookingRequired.has(s) || s === lead.stage);
 
@@ -177,8 +180,16 @@ export function LeadDetailClient({
   }
 
   function onStageChange() {
+    if (stageRequiresReason(stage) && !stageReason.trim()) {
+      setError("Custom stage requires a typed reason");
+      return;
+    }
     startTransition(async () => {
-      const res = await updateLeadStage(lead.id, stage);
+      const res = await updateLeadStage(
+        lead.id,
+        stage,
+        stageReason.trim() || undefined
+      );
       if (!res.ok) setError(res.error);
       else {
         setError(null);
@@ -595,10 +606,32 @@ export function LeadDetailClient({
                   </option>
                 ))}
               </select>
+              {(stageRequiresReason(stage) ||
+                (lead.stage === "custom" && lead.stage_reason)) && (
+                <div className="mt-3">
+                  <label className="label-field">
+                    {stageRequiresReason(stage)
+                      ? "Custom reason (required)"
+                      : "Stage reason"}
+                  </label>
+                  <textarea
+                    className="input-field mt-1 min-h-[72px] text-sm"
+                    value={stageReason}
+                    onChange={(e) => setStageReason(e.target.value)}
+                    placeholder="Type the reason…"
+                    required={stageRequiresReason(stage)}
+                  />
+                </div>
+              )}
               <button
                 type="button"
                 className="btn-primary mt-3 w-full"
-                disabled={pending || stage === lead.stage}
+                disabled={
+                  pending ||
+                  (stage === lead.stage &&
+                    stageReason.trim() === (lead.stage_reason ?? "").trim()) ||
+                  (stageRequiresReason(stage) && !stageReason.trim())
+                }
                 onClick={onStageChange}
               >
                 Update stage

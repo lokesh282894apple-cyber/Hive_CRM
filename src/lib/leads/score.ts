@@ -252,13 +252,23 @@ export function stageBaseRate(stage: string): number {
     r2_reschedule: 0.4,
     r3_booked: 0.58,
     r3_tbb: 0.55,
+    r3_reject: 0.08,
     r3_no_show: 0.18,
     r3_reschedule: 0.48,
     yet_to_offer: 0.6,
     offered: 0.72,
+    offered_accepted: 0.85,
+    student_reject: 0.03,
     closed_paid: 0.97,
     closed_deferred: 0.04,
     closed_refund: 0.02,
+    closed_lost: 0.02,
+    retarget_next_batch: 0.15,
+    admission_team_rejected: 0.02,
+    comps: 0.2,
+    trash_lead: 0.01,
+    intent: 0.25,
+    custom: 0.12,
   };
   return table[s] ?? 0.12;
 }

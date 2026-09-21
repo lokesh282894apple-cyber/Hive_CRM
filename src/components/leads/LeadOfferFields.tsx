@@ -31,7 +31,10 @@ export function LeadOfferFields({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [intent, setIntent] = useState(lead.counselor_intent_check ?? "");
-  const isOffer = lead.stage === "offered" || lead.stage === "yet_to_offer";
+  const isOffer =
+    lead.stage === "offered" ||
+    lead.stage === "yet_to_offer" ||
+    lead.stage === "offered_accepted";
 
   useEffect(() => {
     setIntent(lead.counselor_intent_check ?? "");
