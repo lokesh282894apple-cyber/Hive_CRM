@@ -136,7 +136,7 @@ export async function previewBulkAssign(
     if (rows.length < pageSize) break;
   }
 
-  const byOwnerList = [...byOwner.entries()]
+  const byOwnerList = Array.from(byOwner.entries())
     .map(([id, count]) => ({
       id,
       name: id ? nameById.get(id) ?? "Unknown" : "Unassigned",
@@ -183,7 +183,7 @@ export async function applyBulkAssign(
   });
 
   const chunk = 200;
-  for (const [counselorId, leadIds] of buckets) {
+  for (const [counselorId, leadIds] of Array.from(buckets.entries())) {
     for (let i = 0; i < leadIds.length; i += chunk) {
       const slice = leadIds.slice(i, i + chunk);
       const { error: uErr } = await admin
