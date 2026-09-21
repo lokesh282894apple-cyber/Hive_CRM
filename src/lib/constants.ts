@@ -80,8 +80,11 @@ export const ADMISSION_REJECTION_REASONS = [
   "Less than 3rd Year",
 ] as const;
 
+export const ADMISSION_REJECTION_CUSTOM_OPTION = "Custom" as const;
+
 export type AdmissionRejectionReason =
-  (typeof ADMISSION_REJECTION_REASONS)[number];
+  | (typeof ADMISSION_REJECTION_REASONS)[number]
+  | typeof ADMISSION_REJECTION_CUSTOM_OPTION;
 
 export function stageRequiresReason(stage: string): boolean {
   return (
@@ -94,8 +97,17 @@ export function stageRequiresPresetReason(stage: string): boolean {
   return stage === "admission_team_rejected";
 }
 
+/** Preset reasons, or any non-empty custom free-text reason. */
 export function isValidAdmissionRejectionReason(reason: string): boolean {
-  return (ADMISSION_REJECTION_REASONS as readonly string[]).includes(reason);
+  const trimmed = reason.trim();
+  if (!trimmed) return false;
+  if ((ADMISSION_REJECTION_REASONS as readonly string[]).includes(trimmed)) {
+    return true;
+  }
+  // Custom free-text (must not be the bare "Custom" label)
+  return (
+    trimmed !== ADMISSION_REJECTION_CUSTOM_OPTION && trimmed.length >= 2
+  );
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {

@@ -1,7 +1,10 @@
 "use client";
 
 import { updateLeadStage } from "@/app/actions/leads";
-import { ADMISSION_REJECTION_REASONS } from "@/lib/constants";
+import {
+  ADMISSION_REJECTION_CUSTOM_OPTION,
+  ADMISSION_REJECTION_REASONS,
+} from "@/lib/constants";
 import { X } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
@@ -20,9 +23,13 @@ export function AdmissionRejectDialog({
   onRejected: (reason: string) => void;
 }) {
   const [mounted, setMounted] = useState(false);
-  const [reason, setReason] = useState("");
+  const [preset, setPreset] = useState("");
+  const [customText, setCustomText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const isCustom = preset === ADMISSION_REJECTION_CUSTOM_OPTION;
+  const resolvedReason = isCustom ? customText.trim() : preset;
 
   useEffect(() => {
     setMounted(true);
@@ -30,7 +37,8 @@ export function AdmissionRejectDialog({
 
   useEffect(() => {
     if (!open) return;
-    setReason("");
+    setPreset("");
+    setCustomText("");
     setError(null);
   }, [open, leadId]);
 
@@ -68,8 +76,8 @@ export function AdmissionRejectDialog({
         <label className="label-field">Reason of Rejection *</label>
         <select
           className="input-field mt-1"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          value={preset}
+          onChange={(e) => setPreset(e.target.value)}
           autoFocus
         >
           <option value="">Select reason…</option>
@@ -78,7 +86,21 @@ export function AdmissionRejectDialog({
               {r}
             </option>
           ))}
+          <option value={ADMISSION_REJECTION_CUSTOM_OPTION}>Custom</option>
         </select>
+
+        {isCustom ? (
+          <div className="mt-3">
+            <label className="label-field">Custom reason *</label>
+            <textarea
+              className="input-field mt-1 min-h-[88px] text-sm"
+              value={customText}
+              onChange={(e) => setCustomText(e.target.value)}
+              placeholder="Type the rejection reason…"
+              autoFocus
+            />
+          </div>
+        ) : null}
 
         {error ? (
           <p className="mt-3 text-sm text-red-600">{error}</p>
@@ -91,12 +113,21 @@ export function AdmissionRejectDialog({
           <button
             type="button"
             className="btn-primary"
-            disabled={pending || !reason}
+            disabled={
+              pending ||
+              !preset ||
+              (isCustom && customText.trim().length < 2)
+            }
             onClick={() => {
-              if (!reason) {
+              if (!preset) {
                 setError("Pick a reason of rejection");
                 return;
               }
+              if (isCustom && customText.trim().length < 2) {
+                setError("Type a custom reason");
+                return;
+              }
+              const reason = resolvedReason;
               startTransition(async () => {
                 const res = await updateLeadStage(
                   leadId,
