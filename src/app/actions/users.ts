@@ -108,7 +108,7 @@ export async function setCounselorScopes(
   return { ok: true };
 }
 
-/** Soft-remove a user: deactivate so they can't be used, but keep lead assignments intact. */
+/** Soft-remove a user: deactivate, ban login, and unassign their leads (leads are kept). */
 export async function deleteUserAccount(userId: string): Promise<ActionResult> {
   const me = await requireUser(["admin"]);
   if (userId === me.id) {
@@ -124,21 +124,25 @@ export async function deleteUserAccount(userId: string): Promise<ActionResult> {
   if (tErr) return { ok: false, error: tErr.message };
   if (!target) return { ok: false, error: "User not found." };
 
-  // Do NOT touch leads — assignments stay on this user until manually reassigned.
+  // Unassign only — never delete lead rows.
+  const { error: leadErr } = await admin
+    .from("leads")
+    .update({ lead_allocated_to: null })
+    .eq("lead_allocated_to", userId);
+  if (leadErr) return { ok: false, error: leadErr.message };
+
   const { error: profileErr } = await admin
     .from("users")
     .update({ active: false })
     .eq("id", userId);
   if (profileErr) return { ok: false, error: profileErr.message };
 
-  // Drop counselor scopes so they stop receiving auto-allocation.
   await admin.from("counselor_scope").delete().eq("user_id", userId);
   await admin.from("counselor_program_alloc").delete().eq("user_id", userId);
 
-  // Ban login without deleting the auth/profile row (keeps lead_allocated_to FKs valid).
   try {
     await admin.auth.admin.updateUserById(userId, {
-      ban_duration: "876000h", // ~100 years
+      ban_duration: "876000h",
     });
   } catch {
     // Non-fatal: profile already inactive

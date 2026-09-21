@@ -196,7 +196,7 @@ export function UsersClient({
                       onClick={() => {
                         if (
                           !confirm(
-                            `Remove ${u.name} (${u.email})?\n\nThey will be deactivated and can't log in.\nLeads assigned to them are kept and stay assigned.`
+                            `Remove ${u.name} (${u.email})?\n\nThey will be deactivated.\nTheir leads stay in the CRM but become unassigned so you can reassign them.`
                           )
                         ) {
                           return;
