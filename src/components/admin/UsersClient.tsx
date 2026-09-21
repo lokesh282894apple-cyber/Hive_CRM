@@ -1,6 +1,6 @@
 "use client";
 
-import { createUserAccount, setCounselorScopes, updateUserProfile } from "@/app/actions/users";
+import { createUserAccount, deleteUserAccount, setCounselorScopes, updateUserProfile } from "@/app/actions/users";
 import { ROLES, type Role } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/Primitives";
 import type { AppUser, Cohort, CounselorScope, Course } from "@/types/database";
@@ -188,6 +188,30 @@ export function UsersClient({
                       }
                     >
                       {u.active ? "Deactivate" : "Activate"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost block text-xs text-danger"
+                      disabled={pending}
+                      onClick={() => {
+                        if (
+                          !confirm(
+                            `Permanently delete ${u.name} (${u.email})?\nTheir leads will become unassigned.`
+                          )
+                        ) {
+                          return;
+                        }
+                        startTransition(async () => {
+                          const res = await deleteUserAccount(u.id);
+                          if (!res.ok) setError(res.error);
+                          else {
+                            setError(null);
+                            router.refresh();
+                          }
+                        });
+                      }}
+                    >
+                      Delete
                     </button>
                     {u.role === "counselor" ? (
                       <button

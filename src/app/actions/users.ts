@@ -107,3 +107,46 @@ export async function setCounselorScopes(
   revalidatePath("/admin/users");
   return { ok: true };
 }
+
+/** Permanently remove a user (auth + profile). Unassigns their leads first. */
+export async function deleteUserAccount(userId: string): Promise<ActionResult> {
+  const me = await requireUser(["admin"]);
+  if (userId === me.id) {
+    return { ok: false, error: "You cannot delete your own account." };
+  }
+
+  const admin = createAdminClient();
+  const { data: target, error: tErr } = await admin
+    .from("users")
+    .select("id, name, email, role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (tErr) return { ok: false, error: tErr.message };
+  if (!target) return { ok: false, error: "User not found." };
+
+  // Free leads owned by this user
+  const { error: leadErr } = await admin
+    .from("leads")
+    .update({ lead_allocated_to: null })
+    .eq("lead_allocated_to", userId);
+  if (leadErr) return { ok: false, error: leadErr.message };
+
+  await admin.from("counselor_scope").delete().eq("user_id", userId);
+  await admin.from("counselor_program_alloc").delete().eq("user_id", userId);
+
+  const { error: profileErr } = await admin.from("users").delete().eq("id", userId);
+  if (profileErr) return { ok: false, error: profileErr.message };
+
+  const { error: authErr } = await admin.auth.admin.deleteUser(userId);
+  if (authErr) {
+    return {
+      ok: false,
+      error: `Profile removed but auth delete failed: ${authErr.message}`,
+    };
+  }
+
+  revalidatePath("/admin/users");
+  revalidatePath("/admin/assign");
+  revalidatePath("/admin/leads");
+  return { ok: true };
+}
