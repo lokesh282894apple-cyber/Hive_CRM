@@ -657,7 +657,9 @@ export function PipelineBoard({
 
       if (!sameStage && stageRequiresReason(nextStage)) {
         setError(
-          "Custom stage needs a typed reason — open the lead and set stage there."
+          nextStage === "admission_team_rejected"
+            ? "Admission Team Rejected needs a rejection reason — open the lead and pick one."
+            : "This stage needs a typed reason — open the lead and set stage there."
         );
         return;
       }

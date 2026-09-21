@@ -16,7 +16,9 @@ import {
   STAGE_LABELS,
   STAGE_TRANSITIONS,
   STAGES,
+  ADMISSION_REJECTION_REASONS,
   stageRequiresReason,
+  stageRequiresPresetReason,
   type InterviewRound,
   type Stage,
 } from "@/lib/constants";
@@ -194,7 +196,11 @@ export function LeadDetailClient({
       stageRequiresReason(stage) ||
       !!funnel?.reasonRequiredSlugs.includes(stage);
     if (needsReason && !stageReason.trim()) {
-      setError("This stage requires a typed reason");
+      setError(
+        stageRequiresPresetReason(stage)
+          ? "Pick a reason of rejection"
+          : "This stage requires a typed reason"
+      );
       return;
     }
     startTransition(async () => {
@@ -611,7 +617,18 @@ export function LeadDetailClient({
               <select
                 className="input-field mt-3"
                 value={stage}
-                onChange={(e) => setStage(e.target.value as Stage)}
+                onChange={(e) => {
+                  const next = e.target.value as Stage;
+                  setStage(next);
+                  if (
+                    stageRequiresPresetReason(next) &&
+                    !ADMISSION_REJECTION_REASONS.includes(
+                      stageReason as (typeof ADMISSION_REJECTION_REASONS)[number]
+                    )
+                  ) {
+                    setStageReason("");
+                  }
+                }}
               >
                 {stageOptions.map((s) => (
                   <option key={s} value={s}>
@@ -619,9 +636,26 @@ export function LeadDetailClient({
                   </option>
                 ))}
               </select>
-              {(stageRequiresReason(stage) ||
+              {stageRequiresPresetReason(stage) ? (
+                <div className="mt-3">
+                  <label className="label-field">Reason of Rejection *</label>
+                  <select
+                    className="input-field mt-1"
+                    value={stageReason}
+                    onChange={(e) => setStageReason(e.target.value)}
+                    required
+                  >
+                    <option value="">Select reason…</option>
+                    {ADMISSION_REJECTION_REASONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : stageRequiresReason(stage) ||
                 funnel?.reasonRequiredSlugs.includes(stage) ||
-                (lead.stage === "custom" && lead.stage_reason)) && (
+                (lead.stage === "custom" && lead.stage_reason) ? (
                 <div className="mt-3">
                   <label className="label-field">
                     {stageRequiresReason(stage) ||
@@ -640,7 +674,7 @@ export function LeadDetailClient({
                     }
                   />
                 </div>
-              )}
+              ) : null}
               <button
                 type="button"
                 className="btn-primary mt-3 w-full"

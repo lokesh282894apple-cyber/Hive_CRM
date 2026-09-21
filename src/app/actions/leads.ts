@@ -7,6 +7,8 @@ import {
   STAGES,
   STAGE_TRANSITIONS,
   stageRequiresReason,
+  stageRequiresPresetReason,
+  isValidAdmissionRejectionReason,
 } from "@/lib/constants";
 import { getFunnelConfig } from "@/lib/funnel/config";
 import { recomputeLeadScore } from "@/lib/leads/score";
@@ -115,7 +117,15 @@ export async function updateLeadStage(
   const needsReason =
     stageRequiresReason(stage) || funnel.reasonRequiredSlugs.includes(stage);
   if (needsReason && !reason) {
-    return { ok: false, error: "This stage requires a typed reason" };
+    return {
+      ok: false,
+      error: stageRequiresPresetReason(stage)
+        ? "Pick a reason of rejection before marking Admission Team Rejected"
+        : "This stage requires a typed reason",
+    };
+  }
+  if (stageRequiresPresetReason(stage) && !isValidAdmissionRejectionReason(reason)) {
+    return { ok: false, error: "Invalid rejection reason" };
   }
 
   const { error } = await supabase

@@ -78,8 +78,32 @@ export const PRE_INTERVIEW_STAGES = [
 /** Stages that require a free-text reason when selected. */
 export const STAGES_REQUIRING_REASON = ["custom"] as const satisfies readonly Stage[];
 
+/** Admission Team Rejected — fixed rejection reasons (not separate stages). */
+export const ADMISSION_REJECTION_REASONS = [
+  "Comms - couldnt speak english",
+  "Comms Very Bad, Intent decent",
+  "Comms Avg, Intent Low",
+  "Wrong info",
+  "Very High Experience",
+  "Less than 3rd Year",
+] as const;
+
+export type AdmissionRejectionReason =
+  (typeof ADMISSION_REJECTION_REASONS)[number];
+
 export function stageRequiresReason(stage: string): boolean {
-  return (STAGES_REQUIRING_REASON as readonly string[]).includes(stage);
+  return (
+    (STAGES_REQUIRING_REASON as readonly string[]).includes(stage) ||
+    stage === "admission_team_rejected"
+  );
+}
+
+export function stageRequiresPresetReason(stage: string): boolean {
+  return stage === "admission_team_rejected";
+}
+
+export function isValidAdmissionRejectionReason(reason: string): boolean {
+  return (ADMISSION_REJECTION_REASONS as readonly string[]).includes(reason);
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {

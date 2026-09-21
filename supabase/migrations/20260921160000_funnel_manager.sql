@@ -94,7 +94,7 @@ insert into funnel_stages (
   ('no_show', 'No Show', 'pre_interview', 31, 'yellow', false, true, false, false, false),
   ('reschedule', 'Reschedule', 'pre_interview', 32, 'yellow', false, true, false, false, false),
   ('retarget_next_batch', 'Retarget Next Batch', 'pre_interview', 40, 'yellow', false, true, false, false, true),
-  ('admission_team_rejected', 'Admission Team Rejected', 'pre_interview', 50, 'red', false, true, false, false, true),
+  ('admission_team_rejected', 'Admission Team Rejected', 'pre_interview', 50, 'red', false, true, true, false, true),
   ('comps', 'Comps', 'pre_interview', 60, 'gray', false, true, false, false, true),
   ('trash_lead', 'Trash Lead', 'pre_interview', 70, 'red', false, true, false, false, true),
   ('intent', 'Intent', 'pre_interview', 80, 'blue', false, true, false, false, true),
