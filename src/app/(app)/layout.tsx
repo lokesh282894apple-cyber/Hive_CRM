@@ -3,13 +3,18 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 import { NavProgress } from "@/components/shell/NavProgress";
 import { AiChatWidget } from "@/components/shell/AiChatWidget";
+import { FunnelProvider } from "@/components/funnel/FunnelProvider";
+import { getFunnelConfig } from "@/lib/funnel/config";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const showAi =
-    user.role === "admin" || user.role === "marketing";
+  const showAi = user.role === "admin" || user.role === "marketing";
+  const funnel =
+    user.role === "admin" || user.role === "counselor"
+      ? await getFunnelConfig()
+      : null;
 
-  return (
+  const body = (
     <div className="flex h-dvh overflow-hidden bg-[#F7F8FC]">
       <NavProgress />
       <Sidebar role={user.role} userName={user.name} />
@@ -20,4 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <AiChatWidget enabled={showAi} />
     </div>
   );
+
+  if (!funnel) return body;
+  return <FunnelProvider value={funnel}>{body}</FunnelProvider>;
 }

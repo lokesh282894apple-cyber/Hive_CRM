@@ -8,6 +8,7 @@ import {
   STAGE_TRANSITIONS,
   stageRequiresReason,
 } from "@/lib/constants";
+import { getFunnelConfig } from "@/lib/funnel/config";
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -73,15 +74,19 @@ export async function createLead(
 
 export async function updateLeadStage(
   leadId: string,
-  stage: Stage,
+  stage: Stage | string,
   notes?: string
 ): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
+  const funnel = await getFunnelConfig();
+  const known = new Set([...STAGES, ...funnel.activeSlugs]);
+  if (!known.has(stage)) return { ok: false, error: "Invalid stage" };
 
-  if (!STAGES.includes(stage)) return { ok: false, error: "Invalid stage" };
-
-  if (isBookingRequiredStage(stage)) {
+  if (
+    isBookingRequiredStage(stage as Stage) ||
+    funnel.bookingRequiredSlugs.includes(stage)
+  ) {
     return {
       ok: false,
       error:
@@ -98,15 +103,19 @@ export async function updateLeadStage(
   if (!lead) return { ok: false, error: "Lead not found" };
 
   if (user.role !== "admin") {
-    const allowed = STAGE_TRANSITIONS[lead.stage as Stage] ?? [];
+    const allowedFromDb = funnel.transitions[lead.stage] ?? [];
+    const allowedFromConst = STAGE_TRANSITIONS[lead.stage as Stage] ?? [];
+    const allowed = allowedFromDb.length ? allowedFromDb : allowedFromConst;
     if (!allowed.includes(stage)) {
       return { ok: false, error: `Cannot move from ${lead.stage} to ${stage}` };
     }
   }
 
   const reason = notes?.trim() || "";
-  if (stageRequiresReason(stage) && !reason) {
-    return { ok: false, error: "Custom stage requires a typed reason" };
+  const needsReason =
+    stageRequiresReason(stage) || funnel.reasonRequiredSlugs.includes(stage);
+  if (needsReason && !reason) {
+    return { ok: false, error: "This stage requires a typed reason" };
   }
 
   const { error } = await supabase
@@ -136,7 +145,7 @@ export async function updateLeadStage(
     const { dispatchStageTriggers } = await import("@/lib/integrations/dispatch");
     await dispatchStageTriggers(createAdminClient(), {
       leadId,
-      stage,
+      stage: stage as Stage,
     });
   } catch (err) {
     console.error("[dispatchStageTriggers]", err);

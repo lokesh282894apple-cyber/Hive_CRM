@@ -20,6 +20,7 @@ import {
   type InterviewRound,
   type Stage,
 } from "@/lib/constants";
+import { useFunnel } from "@/components/funnel/FunnelProvider";
 import { StageBadge } from "@/components/ui/Primitives";
 import {
   LeadMarketingTab,
@@ -127,22 +128,31 @@ export function LeadDetailClient({
     [counselors]
   );
 
-  const bookingRequired = new Set<Stage>([
-    "r1_booked",
-    "r2_booked",
-    "r3_booked",
-    "r1_reschedule",
-    "r2_reschedule",
-    "r3_reschedule",
-  ]);
-  const stageOptions = (isAdmin ? [...STAGES] : Array.from(
-    new Set([
-      lead.stage,
-      ...(STAGE_TRANSITIONS[lead.stage] ?? []),
-      "closed_deferred" as Stage,
-      "closed_lost" as Stage,
-    ])
-  )).filter((s) => !bookingRequired.has(s) || s === lead.stage);
+  const funnel = useFunnel();
+  const stageLabel = (s: string) =>
+    funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
+  const allStageSlugs = funnel?.activeSlugs?.length
+    ? funnel.activeSlugs
+    : [...STAGES];
+  const bookingRequired = new Set<string>(
+    funnel?.bookingRequiredSlugs?.length
+      ? funnel.bookingRequiredSlugs
+      : ["r1_booked", "r2_booked", "r3_booked", "r1_reschedule", "r2_reschedule", "r3_reschedule"]
+  );
+  const stageOptions = (
+    isAdmin
+      ? allStageSlugs
+      : Array.from(
+          new Set([
+            lead.stage,
+            ...((funnel?.transitions[lead.stage] ??
+              STAGE_TRANSITIONS[lead.stage]) ??
+              []),
+            "closed_deferred",
+            "closed_lost",
+          ])
+        )
+  ).filter((s) => !bookingRequired.has(s) || s === lead.stage);
 
   const upcomingInterview = useMemo(() => {
     const ts = Date.now();
@@ -180,8 +190,11 @@ export function LeadDetailClient({
   }
 
   function onStageChange() {
-    if (stageRequiresReason(stage) && !stageReason.trim()) {
-      setError("Custom stage requires a typed reason");
+    const needsReason =
+      stageRequiresReason(stage) ||
+      !!funnel?.reasonRequiredSlugs.includes(stage);
+    if (needsReason && !stageReason.trim()) {
+      setError("This stage requires a typed reason");
       return;
     }
     startTransition(async () => {
@@ -602,16 +615,18 @@ export function LeadDetailClient({
               >
                 {stageOptions.map((s) => (
                   <option key={s} value={s}>
-                    {STAGE_LABELS[s]}
+                    {stageLabel(s)}
                   </option>
                 ))}
               </select>
               {(stageRequiresReason(stage) ||
+                funnel?.reasonRequiredSlugs.includes(stage) ||
                 (lead.stage === "custom" && lead.stage_reason)) && (
                 <div className="mt-3">
                   <label className="label-field">
-                    {stageRequiresReason(stage)
-                      ? "Custom reason (required)"
+                    {stageRequiresReason(stage) ||
+                    funnel?.reasonRequiredSlugs.includes(stage)
+                      ? "Reason (required)"
                       : "Stage reason"}
                   </label>
                   <textarea
@@ -619,7 +634,10 @@ export function LeadDetailClient({
                     value={stageReason}
                     onChange={(e) => setStageReason(e.target.value)}
                     placeholder="Type the reason…"
-                    required={stageRequiresReason(stage)}
+                    required={
+                      stageRequiresReason(stage) ||
+                      !!funnel?.reasonRequiredSlugs.includes(stage)
+                    }
                   />
                 </div>
               )}
@@ -630,7 +648,9 @@ export function LeadDetailClient({
                   pending ||
                   (stage === lead.stage &&
                     stageReason.trim() === (lead.stage_reason ?? "").trim()) ||
-                  (stageRequiresReason(stage) && !stageReason.trim())
+                  ((stageRequiresReason(stage) ||
+                    !!funnel?.reasonRequiredSlugs.includes(stage)) &&
+                    !stageReason.trim())
                 }
                 onClick={onStageChange}
               >
