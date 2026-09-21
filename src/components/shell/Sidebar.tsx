@@ -23,7 +23,6 @@ import {
   Upload,
   Share2,
   Globe,
-  Bot,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
