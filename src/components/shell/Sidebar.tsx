@@ -24,6 +24,7 @@ import {
   Upload,
   Share2,
   Globe,
+  UserPlus,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -48,6 +49,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
   { href: "/admin/monthly", label: "All months", icon: CalendarDays },
   { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
+  { href: "/admin/assign", label: "Bulk Assign", icon: UserPlus },
   { href: "/admin/funnel", label: "Funnel Manager", icon: GitBranch },
   { href: "/admin/panel", label: "Panel", icon: GraduationCap },
   { href: "/admin/counselor", label: "Counselor", icon: UserCircle2 },

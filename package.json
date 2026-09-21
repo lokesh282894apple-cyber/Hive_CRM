@@ -10,6 +10,7 @@
     "seed:admin": "node --env-file=.env.local scripts/seed-admin.mjs",
     "seed:mock": "node --env-file=.env.local scripts/seed-mock-data.mjs",
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
+    "leads:bulk-assign": "node --env-file=.env.local scripts/bulk-assign-leads.mjs",
     "google:oauth": "node --env-file=.env.local scripts/google-oauth-refresh.mjs"
   },
   "dependencies": {
