@@ -196,7 +196,7 @@ export function UsersClient({
                       onClick={() => {
                         if (
                           !confirm(
-                            `Permanently delete ${u.name} (${u.email})?\nTheir leads will become unassigned.`
+                            `Remove ${u.name} (${u.email})?\n\nThey will be deactivated and can't log in.\nLeads assigned to them are kept and stay assigned.`
                           )
                         ) {
                           return;
@@ -211,7 +211,7 @@ export function UsersClient({
                         });
                       }}
                     >
-                      Delete
+                      Remove
                     </button>
                     {u.role === "counselor" ? (
                       <button
