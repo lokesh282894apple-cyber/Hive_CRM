@@ -456,6 +456,48 @@ export function LeadsWorkspace({
             })}
           </select>
 
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            From
+            <input
+              className="input-field w-auto py-1.5 text-xs"
+              type="date"
+              value={filters.createdFrom ?? ""}
+              onChange={(e) =>
+                pushFilters({
+                  createdFrom: e.target.value || null,
+                  page: 1,
+                })
+              }
+              title="Leads created on or after this date"
+            />
+          </label>
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+            To
+            <input
+              className="input-field w-auto py-1.5 text-xs"
+              type="date"
+              value={filters.createdTo ?? ""}
+              onChange={(e) =>
+                pushFilters({
+                  createdTo: e.target.value || null,
+                  page: 1,
+                })
+              }
+              title="Leads created on or before this date"
+            />
+          </label>
+          {(filters.createdFrom || filters.createdTo) && (
+            <button
+              type="button"
+              className="rounded-pill border border-border px-2 py-1 text-[11px] font-medium text-muted hover:text-navy"
+              onClick={() =>
+                pushFilters({ createdFrom: null, createdTo: null, page: 1 })
+              }
+            >
+              Clear dates
+            </button>
+          )}
+
           <label className="inline-flex items-center gap-1.5 rounded-pill border border-border px-3 py-1.5 text-xs font-medium text-navy">
             <input
               type="checkbox"

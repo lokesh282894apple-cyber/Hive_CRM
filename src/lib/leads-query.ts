@@ -35,6 +35,10 @@ export type LeadsFilterParams = {
   minCalls: number | null;
   /** Min calls logged since entering current stage */
   minCallsSinceStage: number | null;
+  /** Inclusive created_at start (YYYY-MM-DD) */
+  createdFrom: string | null;
+  /** Inclusive created_at end (YYYY-MM-DD) */
+  createdTo: string | null;
 };
 
 export type ScopePair = { course_id: string; cohort_id: string };
@@ -60,6 +64,11 @@ export function parseLeadsSearchParams(
 
   const mode = get("view") === "list" ? "list" : "board";
   const page = Math.max(1, Number(get("page") || 1) || 1);
+
+  const parseDay = (raw?: string | null) => {
+    if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+    return raw;
+  };
 
   return {
     ownership: get("owner") || defaults.ownership,
@@ -93,6 +102,8 @@ export function parseLeadsSearchParams(
     minCallsSinceStage: get("minStageCalls")
       ? Number(get("minStageCalls"))
       : null,
+    createdFrom: parseDay(get("from")),
+    createdTo: parseDay(get("to")),
   };
 }
 
@@ -173,6 +184,13 @@ export function applyLeadsFilters(
 
   if (filters.courseId) query = query.eq("course_id", filters.courseId);
   if (filters.cohortId) query = query.eq("cohort_id", filters.cohortId);
+
+  if (filters.createdFrom) {
+    query = query.gte("created_at", `${filters.createdFrom}T00:00:00.000`);
+  }
+  if (filters.createdTo) {
+    query = query.lte("created_at", `${filters.createdTo}T23:59:59.999`);
+  }
 
   const stages = stagesForGroup(filters.stageGroup);
   if (stages.length < STAGES.length) {
@@ -260,6 +278,8 @@ export function filtersToSearchParams(
   if (filters.minCallsSinceStage !== undefined) {
     setOrDel("minStageCalls", filters.minCallsSinceStage);
   }
+  if (filters.createdFrom !== undefined) setOrDel("from", filters.createdFrom);
+  if (filters.createdTo !== undefined) setOrDel("to", filters.createdTo);
   if (filters.page !== undefined) {
     if (filters.page <= 1) sp.delete("page");
     else sp.set("page", String(filters.page));
