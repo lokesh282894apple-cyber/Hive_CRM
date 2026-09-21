@@ -2,6 +2,7 @@
 
 import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
 import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
+import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
 import {
   BOARD_COLUMN_CAP,
   BOARD_WIP_WARN,
@@ -489,6 +490,10 @@ export function PipelineBoard({
     leadName: string;
     targetStage: Stage;
   } | null>(null);
+  const [admissionReject, setAdmissionReject] = useState<{
+    leadId: string;
+    leadName: string;
+  } | null>(null);
   const [dndReady, setDndReady] = useState(false);
   const lastOverId = useRef<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -617,6 +622,11 @@ export function PipelineBoard({
     });
   }
 
+  function openAdmissionRejectDialog(lead: LeadWithRelations) {
+    setError(null);
+    setAdmissionReject({ leadId: lead.id, leadName: lead.name });
+  }
+
   function onDragEnd(e: DragEndEvent) {
     setActiveId(null);
     try {
@@ -655,12 +665,13 @@ export function PipelineBoard({
         return;
       }
 
+      if (!sameStage && nextStage === "admission_team_rejected") {
+        openAdmissionRejectDialog(lead);
+        return;
+      }
+
       if (!sameStage && stageRequiresReason(nextStage)) {
-        setError(
-          nextStage === "admission_team_rejected"
-            ? "Admission Team Rejected needs a rejection reason — open the lead and pick one."
-            : "This stage needs a typed reason — open the lead and set stage there."
-        );
+        setError("This stage needs a reason — open the lead to set it.");
         return;
       }
 
@@ -841,6 +852,30 @@ export function PipelineBoard({
               )
             );
             setBooking(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {admissionReject ? (
+        <AdmissionRejectDialog
+          open
+          leadId={admissionReject.leadId}
+          leadName={admissionReject.leadName}
+          onClose={() => setAdmissionReject(null)}
+          onRejected={(reason) => {
+            setItems((prev) =>
+              prev.map((l) =>
+                l.id === admissionReject.leadId
+                  ? {
+                      ...l,
+                      stage: "admission_team_rejected",
+                      stage_reason: reason,
+                    }
+                  : l
+              )
+            );
+            setAdmissionReject(null);
             router.refresh();
           }}
         />

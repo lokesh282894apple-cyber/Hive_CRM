@@ -16,12 +16,12 @@ import {
   STAGE_LABELS,
   STAGE_TRANSITIONS,
   STAGES,
-  ADMISSION_REJECTION_REASONS,
   stageRequiresReason,
   stageRequiresPresetReason,
   type InterviewRound,
   type Stage,
 } from "@/lib/constants";
+import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
 import { useFunnel } from "@/components/funnel/FunnelProvider";
 import { StageBadge } from "@/components/ui/Primitives";
 import {
@@ -110,6 +110,7 @@ export function LeadDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>(lead.stage);
   const [stageReason, setStageReason] = useState(lead.stage_reason ?? "");
+  const [showAdmissionReject, setShowAdmissionReject] = useState(false);
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
 
@@ -192,6 +193,10 @@ export function LeadDetailClient({
   }
 
   function onStageChange() {
+    if (stageRequiresPresetReason(stage) && stage !== lead.stage) {
+      setShowAdmissionReject(true);
+      return;
+    }
     const needsReason =
       stageRequiresReason(stage) ||
       !!funnel?.reasonRequiredSlugs.includes(stage);
@@ -620,13 +625,8 @@ export function LeadDetailClient({
                 onChange={(e) => {
                   const next = e.target.value as Stage;
                   setStage(next);
-                  if (
-                    stageRequiresPresetReason(next) &&
-                    !ADMISSION_REJECTION_REASONS.includes(
-                      stageReason as (typeof ADMISSION_REJECTION_REASONS)[number]
-                    )
-                  ) {
-                    setStageReason("");
+                  if (stageRequiresPresetReason(next) && next !== lead.stage) {
+                    setShowAdmissionReject(true);
                   }
                 }}
               >
@@ -636,59 +636,24 @@ export function LeadDetailClient({
                   </option>
                 ))}
               </select>
-              {stageRequiresPresetReason(stage) ? (
-                <div className="mt-3">
-                  <label className="label-field">Reason of Rejection *</label>
-                  <select
-                    className="input-field mt-1"
-                    value={stageReason}
-                    onChange={(e) => setStageReason(e.target.value)}
-                    required
-                  >
-                    <option value="">Select reason…</option>
-                    {ADMISSION_REJECTION_REASONS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : stageRequiresReason(stage) ||
-                funnel?.reasonRequiredSlugs.includes(stage) ||
-                (lead.stage === "custom" && lead.stage_reason) ? (
-                <div className="mt-3">
-                  <label className="label-field">
-                    {stageRequiresReason(stage) ||
-                    funnel?.reasonRequiredSlugs.includes(stage)
-                      ? "Reason (required)"
-                      : "Stage reason"}
-                  </label>
-                  <textarea
-                    className="input-field mt-1 min-h-[72px] text-sm"
-                    value={stageReason}
-                    onChange={(e) => setStageReason(e.target.value)}
-                    placeholder="Type the reason…"
-                    required={
-                      stageRequiresReason(stage) ||
-                      !!funnel?.reasonRequiredSlugs.includes(stage)
-                    }
-                  />
-                </div>
+              {lead.stage === "admission_team_rejected" && lead.stage_reason ? (
+                <p className="mt-2 text-xs text-muted">
+                  Reason: <span className="font-medium text-navy">{lead.stage_reason}</span>
+                </p>
               ) : null}
               <button
                 type="button"
                 className="btn-primary mt-3 w-full"
                 disabled={
                   pending ||
-                  (stage === lead.stage &&
-                    stageReason.trim() === (lead.stage_reason ?? "").trim()) ||
-                  ((stageRequiresReason(stage) ||
-                    !!funnel?.reasonRequiredSlugs.includes(stage)) &&
-                    !stageReason.trim())
+                  stage === lead.stage ||
+                  (stageRequiresPresetReason(stage) && stage !== lead.stage)
                 }
                 onClick={onStageChange}
               >
-                Update stage
+                {stageRequiresPresetReason(stage) && stage !== lead.stage
+                  ? "Pick reason in popup…"
+                  : "Update stage"}
               </button>
               <div className="mt-4 grid grid-cols-2 gap-2">
                 {(["R1", "R2", "R3"] as InterviewRound[]).map((round) => (
@@ -976,6 +941,25 @@ export function LeadDetailClient({
               legacySource: lead.source,
             }
           }
+        />
+      ) : null}
+
+      {showAdmissionReject ? (
+        <AdmissionRejectDialog
+          open
+          leadId={lead.id}
+          leadName={lead.name}
+          onClose={() => {
+            setShowAdmissionReject(false);
+            setStage(lead.stage);
+          }}
+          onRejected={(reason) => {
+            setShowAdmissionReject(false);
+            setStage("admission_team_rejected");
+            setStageReason(reason);
+            setError(null);
+            router.refresh();
+          }}
         />
       ) : null}
     </div>

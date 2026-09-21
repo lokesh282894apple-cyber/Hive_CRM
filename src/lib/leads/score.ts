@@ -265,10 +265,6 @@ export function stageBaseRate(stage: string): number {
     closed_lost: 0.02,
     retarget_next_batch: 0.15,
     admission_team_rejected: 0.02,
-    comps: 0.2,
-    trash_lead: 0.01,
-    intent: 0.25,
-    custom: 0.12,
   };
   return table[s] ?? 0.12;
 }

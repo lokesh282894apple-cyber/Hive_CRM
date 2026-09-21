@@ -17,10 +17,6 @@ export const STAGES = [
   "reschedule",
   "retarget_next_batch",
   "admission_team_rejected",
-  "comps",
-  "trash_lead",
-  "intent",
-  "custom",
   "r1_booked",
   "r1_confirmed",
   "r1_reject",
@@ -55,10 +51,6 @@ export const PRIMARY_PRE_INTERVIEW_STAGES = [
   "dnp",
   "retarget_next_batch",
   "admission_team_rejected",
-  "comps",
-  "trash_lead",
-  "intent",
-  "custom",
 ] as const satisfies readonly Stage[];
 
 /** Legacy pre-interview stages — kept for existing leads, hidden in primary UI. */
@@ -76,7 +68,7 @@ export const PRE_INTERVIEW_STAGES = [
 ] as const satisfies readonly Stage[];
 
 /** Stages that require a free-text reason when selected. */
-export const STAGES_REQUIRING_REASON = ["custom"] as const satisfies readonly Stage[];
+export const STAGES_REQUIRING_REASON: readonly Stage[] = [];
 
 /** Admission Team Rejected — fixed rejection reasons (not separate stages). */
 export const ADMISSION_REJECTION_REASONS = [
@@ -116,10 +108,6 @@ export const STAGE_LABELS: Record<Stage, string> = {
   reschedule: "Reschedule",
   retarget_next_batch: "Retarget Next Batch",
   admission_team_rejected: "Admission Team Rejected",
-  comps: "Comps",
-  trash_lead: "Trash Lead",
-  intent: "Intent",
-  custom: "Custom",
   r1_booked: "R1 Booked",
   r1_confirmed: "R1 Confirmed",
   r1_reject: "R1 Reject",
@@ -153,10 +141,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -167,10 +151,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -180,10 +160,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -193,10 +169,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -206,10 +178,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "call_logged_nurturing",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -220,10 +188,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -234,10 +198,6 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
-    "comps",
-    "trash_lead",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
@@ -246,41 +206,11 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "new_lead",
     "call_logged_nurturing",
     "dnp",
-    "intent",
-    "custom",
     "r1_booked",
     "closed_deferred",
     "closed_lost",
   ],
   admission_team_rejected: ["new_lead", "closed_deferred", "closed_lost"],
-  comps: [
-    "new_lead",
-    "call_logged_nurturing",
-    "intent",
-    "custom",
-    "r1_booked",
-    "closed_deferred",
-    "closed_lost",
-  ],
-  trash_lead: ["new_lead", "closed_lost"],
-  intent: [
-    "new_lead",
-    "call_logged_nurturing",
-    "dnp",
-    "custom",
-    "r1_booked",
-    "closed_deferred",
-    "closed_lost",
-  ],
-  custom: [
-    "new_lead",
-    "call_logged_nurturing",
-    "dnp",
-    "intent",
-    "r1_booked",
-    "closed_deferred",
-    "closed_lost",
-  ],
   r1_booked: [
     "r1_confirmed",
     "r1_reject",
@@ -438,10 +368,6 @@ export const STAGE_GROUPS = [
       "dnp",
       "retarget_next_batch",
       "admission_team_rejected",
-      "comps",
-      "trash_lead",
-      "intent",
-      "custom",
       "lead_created",
       "in_funnel",
       "no_show",
@@ -583,42 +509,6 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     section: "Pre-interview",
   },
   {
-    id: "comps",
-    label: "Comps",
-    hint: "Competitive / comps track",
-    stages: ["comps"],
-    dropStage: "comps",
-    accent: "periwinkle",
-    section: "Pre-interview",
-  },
-  {
-    id: "trash_lead",
-    label: "Trash Lead",
-    hint: "Discarded lead",
-    stages: ["trash_lead"],
-    dropStage: "trash_lead",
-    accent: "gray",
-    section: "Pre-interview",
-  },
-  {
-    id: "intent",
-    label: "Intent",
-    hint: "Intent signal / follow-up",
-    stages: ["intent"],
-    dropStage: "intent",
-    accent: "periwinkle",
-    section: "Pre-interview",
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    hint: "Custom status · requires typed reason",
-    stages: ["custom"],
-    dropStage: "custom",
-    accent: "gray",
-    section: "Pre-interview",
-  },
-  {
     id: "r1",
     label: "Round 1",
     hint: "Booked → Confirmed → …",
@@ -747,7 +637,6 @@ function accentForStage(stage: Stage): BoardColumnDef["accent"] {
     stage === "closed_lost" ||
     stage === "student_reject" ||
     stage === "admission_team_rejected" ||
-    stage === "trash_lead" ||
     stage.includes("reject")
   ) {
     return "red";
@@ -970,7 +859,6 @@ export function stageTone(stage: Stage): "green" | "yellow" | "red" | "gray" | "
     stage === "closed_lost" ||
     stage === "student_reject" ||
     stage === "admission_team_rejected" ||
-    stage === "trash_lead" ||
     stage.includes("reject")
   ) {
     return "red";
