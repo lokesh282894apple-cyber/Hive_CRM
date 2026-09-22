@@ -74,7 +74,7 @@ export const getAdmissionsBase = cache(
     if (courseId) leadsQ = leadsQ.eq("course_id", courseId);
     if (cohortId) leadsQ = leadsQ.eq("cohort_id", cohortId);
 
-    const [leadsRes, history, bookings, attrs, coursesRes, counselorsRes, cohortsRes] =
+    const [leadsRes, history, bookings, attrs, coursesRes, counselorsRes, cohortsRes, scopeRes] =
       await Promise.all([
         leadsQ.order("created_at", { ascending: false }).limit(8000),
         fetchAllPages<BaseHistory>(
@@ -111,9 +111,24 @@ export const getAdmissionsBase = cache(
           .from("cohorts")
           .select("id, name, course_id, start_date, active")
           .eq("active", true),
+        counselorId
+          ? db
+              .from("counselor_scope")
+              .select("cohort_id")
+              .eq("user_id", counselorId)
+          : Promise.resolve({ data: null as { cohort_id: string }[] | null }),
       ]);
 
-    const leads = (leadsRes.data ?? []) as BaseLead[];
+    let leads = (leadsRes.data ?? []) as BaseLead[];
+    // Align counselor dashboard "Open leads" with /leads Kanban scope
+    if (counselorId) {
+      const cohortIds = new Set((scopeRes.data ?? []).map((s) => s.cohort_id));
+      if (cohortIds.size === 0) {
+        leads = [];
+      } else {
+        leads = leads.filter((l) => !l.cohort_id || cohortIds.has(l.cohort_id));
+      }
+    }
     const leadIdSet = new Set(leads.map((l) => l.id));
 
     const historyF = filtered

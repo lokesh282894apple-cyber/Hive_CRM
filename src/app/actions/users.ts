@@ -35,6 +35,7 @@ export async function createUserAccount(input: {
     role: input.role,
     active: true,
     must_change_password: true,
+    admin_temp_password: input.password,
   });
   if (profileError) {
     return { ok: false, error: profileError.message };
@@ -152,5 +153,35 @@ export async function deleteUserAccount(userId: string): Promise<ActionResult> {
   revalidatePath("/admin/users");
   revalidatePath("/admin/assign");
   revalidatePath("/admin/leads");
+  return { ok: true };
+}
+
+/** Set or rotate a temp password; stored for admin visibility until the user changes it. */
+export async function resetUserTempPassword(input: {
+  userId: string;
+  password: string;
+}): Promise<ActionResult> {
+  await requireUser(["admin"]);
+  const password = input.password.trim();
+  if (password.length < 8) {
+    return { ok: false, error: "Password must be at least 8 characters." };
+  }
+
+  const admin = createAdminClient();
+  const { error: authError } = await admin.auth.admin.updateUserById(input.userId, {
+    password,
+  });
+  if (authError) return { ok: false, error: authError.message };
+
+  const { error } = await admin
+    .from("users")
+    .update({
+      admin_temp_password: password,
+      must_change_password: true,
+    })
+    .eq("id", input.userId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/admin/users");
   return { ok: true };
 }

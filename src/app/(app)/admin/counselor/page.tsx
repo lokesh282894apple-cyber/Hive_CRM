@@ -136,7 +136,16 @@ export default async function AdminCounselorPage({
         Calling activity
       </p>
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Allocated leads" value={t.calling.allocatedLeads} />
+        <StatCard
+          label="Allocated · created in range"
+          value={t.calling.createdInRangeAllocated}
+          hint="Same idea as Admission Analytics Total leads, but only assigned counselors — always ≤ Total for the same dates"
+        />
+        <StatCard
+          label="Open pipeline (stock)"
+          value={t.calling.allocatedLeads}
+          hint="Current open allocated leads (all ages). Can be higher than Analytics Total if older leads are still open"
+        />
         <StatCard label="Total calls" value={t.calling.totalCalls} />
         <StatCard label="Unique leads called" value={t.calling.uniqueCalls} />
         <StatCard label="Avg calls / lead" value={t.calling.avgCallsPerLead} />
@@ -164,18 +173,27 @@ export default async function AdminCounselorPage({
       </div>
 
       <p className="mb-2 text-xs font-semibold uppercase tracking-eyebrow text-muted">
-        Pipeline
+        Pipeline (entered stage in date range — not current Kanban columns)
       </p>
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <StatCard label="Allocated" value={t.pipeline.allocated} />
-        <StatCard label="Nurturing" value={t.pipeline.nurturing} />
-        <StatCard label="R1 booked" value={t.pipeline.r1Booked} />
-        <StatCard label="R1 conducted" value={t.pipeline.r1Conducted} />
-        <StatCard label="R2 booked" value={t.pipeline.r2Booked} />
-        <StatCard label="R3 booked" value={t.pipeline.r3Booked} />
-        <StatCard label="Offer" value={t.pipeline.offer} />
-        <StatCard label="Student reject" value={t.pipeline.studentReject} />
-        <StatCard label="Hive reject" value={t.pipeline.hiveReject} />
+        <StatCard
+          label="Allocated · created in range"
+          value={t.pipeline.createdInRangeAllocated}
+          hint="Assigned + created in the date bar — compare to Analytics Total"
+        />
+        <StatCard
+          label="Open pipeline (stock)"
+          value={t.pipeline.allocated}
+          hint="Current open stock (not limited to date bar)"
+        />
+        <StatCard label="Nurturing (in range)" value={t.pipeline.nurturing} />
+        <StatCard label="R1 booked (in range)" value={t.pipeline.r1Booked} />
+        <StatCard label="R1 conducted (in range)" value={t.pipeline.r1Conducted} />
+        <StatCard label="R2 booked (in range)" value={t.pipeline.r2Booked} />
+        <StatCard label="R3 booked (in range)" value={t.pipeline.r3Booked} />
+        <StatCard label="Offer (in range)" value={t.pipeline.offer} />
+        <StatCard label="Student reject (in range)" value={t.pipeline.studentReject} />
+        <StatCard label="Hive reject (in range)" value={t.pipeline.hiveReject} />
       </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -232,7 +250,8 @@ export default async function AdminCounselorPage({
             <thead className="border-b border-border bg-[#F7F8FC]">
               <tr>
                 <th className="eyebrow px-4 py-3">Counselor</th>
-                <th className="eyebrow px-4 py-3">Leads</th>
+                <th className="eyebrow px-4 py-3">Open stock</th>
+                <th className="eyebrow px-4 py-3">Created in range</th>
                 <th className="eyebrow px-4 py-3">Calls</th>
                 <th className="eyebrow px-4 py-3">Calls/lead</th>
                 <th className="eyebrow px-4 py-3">Calls/day</th>
@@ -263,6 +282,7 @@ export default async function AdminCounselorPage({
                 <tr key={r.counselorId} className="border-b border-border last:border-0">
                   <td className="px-4 py-3 font-medium text-navy">{r.name}</td>
                   <td className="px-4 py-3">{r.calling.allocatedLeads}</td>
+                  <td className="px-4 py-3">{r.calling.createdInRangeAllocated}</td>
                   <td className="px-4 py-3">{r.calling.totalCalls}</td>
                   <td className="px-4 py-3">{r.calling.avgCallsPerLead}</td>
                   <td className="px-4 py-3">{r.calling.avgCallsPerDay}</td>

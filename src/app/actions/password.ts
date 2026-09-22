@@ -16,7 +16,7 @@ export async function clearMustChangePassword(): Promise<
   const admin = createAdminClient();
   const { error } = await admin
     .from("users")
-    .update({ must_change_password: false })
+    .update({ must_change_password: false, admin_temp_password: null })
     .eq("id", user.id);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/");

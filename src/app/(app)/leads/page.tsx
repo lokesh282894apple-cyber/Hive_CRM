@@ -50,9 +50,7 @@ export default async function LeadsPage({
   let dataQuery = supabase.from("leads").select(LEAD_LIST_SELECT);
   dataQuery = applyLeadsFilters(dataQuery, filterOpts);
 
-  const needExactCount = filters.mode === "list";
-  const countPromise = needExactCount
-    ? (() => {
+  const countPromise = (() => {
         let countQuery = supabase
           .from("leads")
           .select("id", { count: "exact", head: true });
@@ -61,8 +59,7 @@ export default async function LeadsPage({
           paginate: false,
         });
         return countQuery;
-      })()
-    : Promise.resolve({ count: null as number | null });
+      })();
 
   const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
 

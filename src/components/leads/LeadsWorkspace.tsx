@@ -937,12 +937,18 @@ export function LeadsWorkspace({
         <span>
           Showing <strong className="text-navy">{leads.length}</strong>
           {filters.mode === "board" ? (
-            <> (capped board fetch)</>
+            <>
+              {totalEstimate > leads.length
+                ? ` of ${totalEstimate} matching (board loads first ${leads.length})`
+                : totalEstimate > 0
+                  ? ` · ${totalEstimate} matching`
+                  : null}
+            </>
           ) : (
             <>
               {" "}
               · page {filters.page}
-              {totalEstimate > 0 ? ` · ~${totalEstimate}+ match` : null}
+              {totalEstimate > 0 ? ` · ${totalEstimate} matching` : null}
             </>
           )}
         </span>

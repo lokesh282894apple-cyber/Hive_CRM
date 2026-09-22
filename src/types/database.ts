@@ -16,6 +16,9 @@ export type AppUser = {
   role: Role;
   active: boolean;
   created_at: string;
+  must_change_password?: boolean;
+  /** Last admin-set temp password (ops only). Null after user changes password. */
+  admin_temp_password?: string | null;
 };
 
 export type CounselorScope = {

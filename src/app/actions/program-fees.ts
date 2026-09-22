@@ -157,19 +157,22 @@ export async function upsertFeePaymentLine(input: {
   await requireProgram();
   const supabase = createClient();
   const paid = input.payment_status === "Paid";
+  const hit = Number(input.amount_hit_bank ?? (paid ? input.amount : 0)) || 0;
+  const deductions =
+    input.deductions != null
+      ? Number(input.deductions) || 0
+      : Math.max(0, Number(input.amount) - hit);
   const row = {
     fee_record_id: input.feeRecordId,
     installment_number: input.installment_number,
     deadline: input.deadline_to_pay,
     amount_to_realise: input.amount,
-    amount_realised: paid
-      ? input.amount_hit_bank ?? input.amount
-      : input.amount_hit_bank ?? 0,
+    amount_realised: paid ? hit : 0,
     status: paid ? "paid" : "pending",
     line_type: input.line_type,
     mode_of_payment: input.mode_of_payment,
-    amount_hit_bank: input.amount_hit_bank ?? (paid ? input.amount : 0),
-    deductions: input.deductions ?? 0,
+    amount_hit_bank: hit,
+    deductions,
     date_hit_bank: input.date_hit_bank ?? null,
     payment_status: input.payment_status,
     paid_at: paid ? new Date().toISOString() : null,
@@ -182,6 +185,29 @@ export async function upsertFeePaymentLine(input: {
     const { error } = await supabase.from("installments").insert(row);
     if (error) return { ok: false, error: error.message };
   }
+
+  // Recompute fee remaining from realised / hit-bank totals
+  const { data: all } = await supabase
+    .from("installments")
+    .select("amount_realised, amount_hit_bank, amount_to_realise, payment_status")
+    .eq("fee_record_id", input.feeRecordId);
+  const { data: fee } = await supabase
+    .from("fee_records")
+    .select("total_fee, net_fee_without_gst")
+    .eq("id", input.feeRecordId)
+    .maybeSingle();
+  const owed =
+    Number(fee?.net_fee_without_gst) || Number(fee?.total_fee) || 0;
+  const realisedSum = (all ?? []).reduce((s, r) => {
+    const hitBank = Number(r.amount_hit_bank) || 0;
+    if (hitBank > 0) return s + hitBank;
+    return s + (Number(r.amount_realised) || 0);
+  }, 0);
+  await supabase
+    .from("fee_records")
+    .update({ remaining_fee: Math.max(0, owed - realisedSum) })
+    .eq("id", input.feeRecordId);
+
   touch();
   return { ok: true };
 }

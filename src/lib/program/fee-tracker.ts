@@ -64,6 +64,10 @@ export async function fetchFeeTrackerStudents(
     paymentMode?: string | null;
     dropEmail?: boolean | null;
     onboarding?: "done" | "not" | null;
+    dealStage?: string | null;
+    loanStage?: string | null;
+    fromDate?: string | null;
+    toDate?: string | null;
   } = {}
 ): Promise<FeeTrackerStudent[]> {
   let feeQ = db.from("fee_records").select("*").order("updated_at", { ascending: false });
@@ -72,6 +76,7 @@ export async function fetchFeeTrackerStudents(
   if (filters.dropEmail === false) feeQ = feeQ.eq("drop_email", false);
   if (filters.onboarding === "done") feeQ = feeQ.eq("program_onboarding_call_done", true);
   if (filters.onboarding === "not") feeQ = feeQ.eq("program_onboarding_call_done", false);
+  if (filters.dealStage) feeQ = feeQ.eq("deal_stage", filters.dealStage);
 
   const { data: fees } = await feeQ;
   if (!fees?.length) return [];
@@ -112,6 +117,13 @@ export async function fetchFeeTrackerStudents(
     if (filters.cohortId && lead.cohort_id !== filters.cohortId) continue;
     const feeLines = linesByFee.get(fee.id) ?? [];
     const loan = loanByFee.get(fee.id) ?? null;
+    if (filters.loanStage) {
+      if (!loan || loan.stage !== filters.loanStage) continue;
+    }
+    // Soft date filter when PostgREST or-clause is too loose
+    const anchor = String(fee.fee_set_at || fee.created_at || "").slice(0, 10);
+    if (filters.fromDate && anchor && anchor < filters.fromDate) continue;
+    if (filters.toDate && anchor && anchor > filters.toDate) continue;
     out.push({
       fee,
       lead: {

@@ -37,19 +37,16 @@ export default async function AdminLeadsPage({
   let dataQuery = supabase.from("leads").select(LEAD_LIST_SELECT);
   dataQuery = applyLeadsFilters(dataQuery, filterOpts);
 
-  const needExactCount = filters.mode === "list";
-  const countPromise = needExactCount
-    ? (() => {
-        let countQuery = supabase
-          .from("leads")
-          .select("id", { count: "exact", head: true });
-        countQuery = applyLeadsFilters(countQuery, {
-          ...filterOpts,
-          paginate: false,
-        });
-        return countQuery;
-      })()
-    : Promise.resolve({ count: null as number | null });
+  const countPromise = (() => {
+    let countQuery = supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true });
+    countQuery = applyLeadsFilters(countQuery, {
+      ...filterOpts,
+      paginate: false,
+    });
+    return countQuery;
+  })();
 
   const [
     { data: leadsRaw },

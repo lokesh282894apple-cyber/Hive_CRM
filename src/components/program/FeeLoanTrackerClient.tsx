@@ -60,15 +60,15 @@ export function FeeLoanTrackerClient({
   students,
   revenue,
   monthKey,
-  courses,
-  cohorts,
   filters,
+  demo = false,
 }: {
   students: FeeTrackerStudent[];
   revenue: FeeRevenueMonth;
   monthKey: string;
-  courses: { id: string; name: string }[];
-  cohorts: { id: string; name: string; course_id: string }[];
+  courses?: { id: string; name: string }[];
+  cohorts?: { id: string; name: string; course_id: string }[];
+  demo?: boolean;
   filters: {
     tab: string;
     courseId: string;
@@ -76,6 +76,15 @@ export function FeeLoanTrackerClient({
     paymentMode: string;
     dropEmail: string;
     onboarding: string;
+    dealStage?: string;
+    loanStage?: string;
+    from?: string;
+    to?: string;
+    stype?: string;
+    year?: string;
+    month?: string;
+    overall?: string;
+    demo?: string;
   };
 }) {
   const router = useRouter();
@@ -135,9 +144,14 @@ export function FeeLoanTrackerClient({
                 ? "drop"
                 : k === "onboarding"
                   ? "onboard"
-                  : k;
+                  : k === "dealStage"
+                    ? "deal"
+                    : k === "loanStage"
+                      ? "loan"
+                      : k;
       sp.set(key, v);
     }
+    if (demo && !sp.has("demo")) sp.set("demo", "1");
     router.push(`/program/fees?${sp.toString()}`);
   }
 
@@ -170,77 +184,6 @@ export function FeeLoanTrackerClient({
           </button>
         ))}
       </div>
-
-      <form
-        className="flex flex-wrap items-end gap-3 rounded-2xl border border-border bg-white px-4 py-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          pushFilter({
-            courseId: String(fd.get("course") || ""),
-            cohortId: String(fd.get("cohort") || ""),
-            paymentMode: String(fd.get("mode") || ""),
-            dropEmail: String(fd.get("drop") || ""),
-            onboarding: String(fd.get("onboard") || ""),
-            tab,
-          });
-        }}
-      >
-        <label className="text-xs">
-          <span className="mb-1 block text-muted">Course</span>
-          <select name="course" defaultValue={filters.courseId} className="input-field py-1.5 text-sm">
-            <option value="">All</option>
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs">
-          <span className="mb-1 block text-muted">Cohort</span>
-          <select name="cohort" defaultValue={filters.cohortId} className="input-field py-1.5 text-sm">
-            <option value="">All</option>
-            {cohorts
-              .filter((c) => !filters.courseId || c.course_id === filters.courseId)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </label>
-        <label className="text-xs">
-          <span className="mb-1 block text-muted">Payment mode</span>
-          <select name="mode" defaultValue={filters.paymentMode} className="input-field py-1.5 text-sm">
-            <option value="">All</option>
-            {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).map((m) => (
-              <option key={m} value={m}>
-                {PAYMENT_MODE_LABELS[m]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs">
-          <span className="mb-1 block text-muted">Drop Email</span>
-          <select name="drop" defaultValue={filters.dropEmail} className="input-field py-1.5 text-sm">
-            <option value="">All</option>
-            <option value="1">Drop Email only</option>
-            <option value="0">Not Drop Email</option>
-          </select>
-        </label>
-        <label className="text-xs">
-          <span className="mb-1 block text-muted">Onboarding call</span>
-          <select name="onboard" defaultValue={filters.onboarding} className="input-field py-1.5 text-sm">
-            <option value="">All</option>
-            <option value="done">Done</option>
-            <option value="not">Not done</option>
-          </select>
-        </label>
-        <button type="submit" className="btn-primary text-xs">
-          Apply
-        </button>
-      </form>
 
       {msg ? <p className="text-sm text-red-600">{msg}</p> : null}
 
@@ -480,6 +423,10 @@ export function FeeLoanTrackerClient({
                               pending={pending}
                               onSave={(fn) => {
                                 setMsg(null);
+                                if (demo) {
+                                  setMsg("Demo data is read-only — edits are not saved.");
+                                  return;
+                                }
                                 startTransition(async () => {
                                   const res = await fn();
                                   if (!res.ok) setMsg(res.error);
@@ -510,6 +457,10 @@ export function FeeLoanTrackerClient({
           pending={pending}
           onMove={(feeRecordId, stage, extra) => {
             setMsg(null);
+            if (demo) {
+              setMsg("Demo data is read-only — edits are not saved.");
+              return;
+            }
             startTransition(async () => {
               const res = await updateLoanStatus({
                 feeRecordId,
@@ -529,6 +480,10 @@ export function FeeLoanTrackerClient({
           pending={pending}
           onSave={(fn) => {
             setMsg(null);
+            if (demo) {
+              setMsg("Demo data is read-only — edits are not saved.");
+              return;
+            }
             startTransition(async () => {
               const res = await fn();
               if (!res.ok) setMsg(res.error);
@@ -1062,6 +1017,21 @@ function StudentEditor({
 }) {
   const s = student;
   const bal = computeFeeBalance(s.fee, s.lines);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [hitBank, setHitBank] = useState("");
+  const [hitDate, setHitDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  function startPay(line: FeeTrackerStudent["lines"][number]) {
+    setPayingId(line.id);
+    const existing = Number(line.amount_hit_bank) || 0;
+    setHitBank(String(existing > 0 ? existing : line.amount_to_realise));
+    setHitDate(
+      line.date_hit_bank
+        ? String(line.date_hit_bank).slice(0, 10)
+        : new Date().toISOString().slice(0, 10)
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-4 rounded-xl border border-border bg-white px-3 py-2 text-xs">
@@ -1200,8 +1170,9 @@ function StudentEditor({
           <tr className="text-muted">
             <th className="py-1">Type</th>
             <th>Mode</th>
-            <th>Amount</th>
+            <th>Expected</th>
             <th>Hit bank</th>
+            <th>Deduction</th>
             <th>Deadline</th>
             <th>Status</th>
             <th />
@@ -1211,51 +1182,133 @@ function StudentEditor({
           {s.lines.map((line) => {
             const ui = feeLineUiStatus(line);
             const tone = deadlineTone(line.deadline, { terminal: ui === "Paid" });
+            const expected = Number(line.amount_to_realise) || 0;
+            const hit = Number(line.amount_hit_bank) || Number(line.amount_realised) || 0;
+            const deduction =
+              Number(line.deductions) || (ui === "Paid" ? Math.max(0, expected - hit) : 0);
+            const isPaying = payingId === line.id;
+            const draftHit = Number(hitBank) || 0;
+            const draftDeduction = Math.max(0, expected - draftHit);
+
             return (
-              <tr key={line.id} className="border-t border-border/60">
-                <td className="py-1">{line.line_type}</td>
-                <td>{line.mode_of_payment}</td>
-                <td>{formatCurrency(line.amount_to_realise)}</td>
-                <td>{formatCurrency(Number(line.amount_hit_bank) || 0)}</td>
-                <td>
-                  <span
-                    className={cn(
-                      "rounded px-1.5 py-0.5 font-semibold",
-                      deadlineToneClass(tone)
+              <Fragment key={line.id}>
+                <tr className="border-t border-border/60">
+                  <td className="py-1">{line.line_type}</td>
+                  <td>{line.mode_of_payment}</td>
+                  <td>{formatCurrency(expected)}</td>
+                  <td>{formatCurrency(hit)}</td>
+                  <td className={deduction > 0 ? "text-amber-800" : ""}>
+                    {deduction > 0 ? formatCurrency(deduction) : "—"}
+                  </td>
+                  <td>
+                    <span
+                      className={cn(
+                        "rounded px-1.5 py-0.5 font-semibold",
+                        deadlineToneClass(tone)
+                      )}
+                    >
+                      {formatDate(line.deadline)}
+                    </span>
+                  </td>
+                  <td>
+                    <StatusBadge tone={feeLineStatusTone(ui)} label={ui} />
+                  </td>
+                  <td>
+                    {ui === "Paid" ? (
+                      <button
+                        type="button"
+                        className="font-semibold text-periwinkle"
+                        disabled={pending}
+                        onClick={() => startPay(line)}
+                      >
+                        Edit received
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="font-semibold text-periwinkle"
+                        disabled={pending}
+                        onClick={() => startPay(line)}
+                      >
+                        Mark paid
+                      </button>
                     )}
-                  >
-                    {formatDate(line.deadline)}
-                  </span>
-                </td>
-                <td>
-                  <StatusBadge tone={feeLineStatusTone(ui)} label={ui} />
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    className="font-semibold text-periwinkle"
-                    disabled={pending || ui === "Paid"}
-                    onClick={() =>
-                      onSave(() =>
-                        upsertFeePaymentLine({
-                          id: line.id,
-                          feeRecordId: s.fee.id,
-                          line_type: line.line_type ?? "installment",
-                          mode_of_payment: line.mode_of_payment ?? "In-House EMI's",
-                          installment_number: line.installment_number,
-                          amount: line.amount_to_realise,
-                          amount_hit_bank: line.amount_to_realise,
-                          deadline_to_pay: line.deadline,
-                          payment_status: "Paid",
-                          date_hit_bank: new Date().toISOString().slice(0, 10),
-                        })
-                      )
-                    }
-                  >
-                    Mark paid
-                  </button>
-                </td>
-              </tr>
+                  </td>
+                </tr>
+                {isPaying ? (
+                  <tr className="border-t border-border/40 bg-amber-50/60">
+                    <td colSpan={8} className="px-2 py-3">
+                      <div className="flex flex-wrap items-end gap-3">
+                        <p className="w-full text-[11px] text-muted">
+                          Expected {formatCurrency(expected)}. Enter what actually hit the bank
+                          after taxes / transfer deductions.
+                        </p>
+                        <label className="text-xs font-semibold text-navy">
+                          Amount hit bank (₹)
+                          <input
+                            type="number"
+                            className="input-field mt-1 block w-36 py-1.5 text-sm"
+                            value={hitBank}
+                            onChange={(e) => setHitBank(e.target.value)}
+                            min={0}
+                            step="1"
+                          />
+                        </label>
+                        <label className="text-xs font-semibold text-muted">
+                          Deduction (auto)
+                          <input
+                            type="text"
+                            readOnly
+                            className="input-field mt-1 block w-36 bg-white/70 py-1.5 text-sm"
+                            value={formatCurrency(draftDeduction)}
+                          />
+                        </label>
+                        <label className="text-xs font-semibold text-navy">
+                          Date hit bank
+                          <input
+                            type="date"
+                            className="input-field mt-1 block py-1.5 text-sm"
+                            value={hitDate}
+                            onChange={(e) => setHitDate(e.target.value)}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="btn-primary text-xs"
+                          disabled={pending || !hitBank || draftHit < 0}
+                          onClick={() => {
+                            onSave(() =>
+                              upsertFeePaymentLine({
+                                id: line.id,
+                                feeRecordId: s.fee.id,
+                                line_type: line.line_type ?? "installment",
+                                mode_of_payment: line.mode_of_payment ?? "In-House EMI's",
+                                installment_number: line.installment_number,
+                                amount: expected,
+                                amount_hit_bank: draftHit,
+                                deductions: draftDeduction,
+                                deadline_to_pay: line.deadline,
+                                payment_status: "Paid",
+                                date_hit_bank: hitDate || null,
+                              })
+                            );
+                            setPayingId(null);
+                          }}
+                        >
+                          Confirm paid
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost border border-border text-xs"
+                          onClick={() => setPayingId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             );
           })}
         </tbody>

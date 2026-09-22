@@ -308,7 +308,14 @@ export async function generateInstallments(input: {
 export async function recordInstallmentPayment(
   installmentId: string,
   leadId: string,
-  amountRealised: number
+  amountRealised: number,
+  opts?: {
+    amountHitBank?: number;
+    deductions?: number;
+    dateHitBank?: string | null;
+    /** When true, mark line Paid even if hit bank < expected (transfer deductions). */
+    markPaid?: boolean;
+  }
 ): Promise<ActionResult> {
   await requireUser(["counselor", "admin"]);
   const supabase = createClient();
@@ -320,16 +327,38 @@ export async function recordInstallmentPayment(
     .single();
   if (!inst) return { ok: false, error: "Installment not found" };
 
-  const status = installmentStatus(inst.amount_to_realise, amountRealised, inst.deadline);
+  const due = Number(inst.amount_to_realise) || 0;
+  const hit =
+    opts?.amountHitBank != null ? Number(opts.amountHitBank) : Number(amountRealised) || 0;
+  const deductions =
+    opts?.deductions != null
+      ? Number(opts.deductions) || 0
+      : Math.max(0, due - hit);
+  const markPaid =
+    opts?.markPaid === true || hit >= due || (hit > 0 && deductions >= 0 && hit + deductions >= due);
+
+  const status = markPaid
+    ? "paid"
+    : installmentStatus(due, hit, inst.deadline);
   const prevRealised = Number(inst.amount_realised) || 0;
   const patch: Record<string, unknown> = {
-    amount_realised: amountRealised,
+    amount_realised: hit,
+    amount_hit_bank: hit,
+    deductions,
     status,
+    payment_status: markPaid ? "Paid" : "Yet to Pay",
   };
-  if (amountRealised > prevRealised) {
+  if (opts?.dateHitBank !== undefined) {
+    patch.date_hit_bank = opts.dateHitBank;
+  } else if (hit > 0 && !inst.date_hit_bank) {
+    patch.date_hit_bank = new Date().toISOString().slice(0, 10);
+  }
+  if (hit > prevRealised) {
     patch.paid_at = new Date().toISOString();
-  } else if (amountRealised <= 0) {
+  } else if (hit <= 0) {
     patch.paid_at = null;
+    patch.payment_status = "Yet to Pay";
+    patch.status = installmentStatus(due, 0, inst.deadline);
   }
   const { error } = await supabase
     .from("installments")
@@ -339,23 +368,28 @@ export async function recordInstallmentPayment(
 
   const { data: all } = await supabase
     .from("installments")
-    .select("amount_realised")
+    .select("amount_realised, amount_hit_bank")
     .eq("fee_record_id", inst.fee_record_id);
-  const realisedSum = (all ?? []).reduce((s, r) => s + Number(r.amount_realised), 0);
+  const realisedSum = (all ?? []).reduce((s, r) => {
+    const h = Number(r.amount_hit_bank) || Number(r.amount_realised) || 0;
+    return s + h;
+  }, 0);
 
   const { data: fee } = await supabase
     .from("fee_records")
-    .select("total_fee")
+    .select("total_fee, net_fee_without_gst")
     .eq("id", inst.fee_record_id)
     .single();
 
+  const owed = Number(fee?.net_fee_without_gst) || Number(fee?.total_fee ?? 0);
   await supabase
     .from("fee_records")
-    .update({ remaining_fee: recomputeRemaining(Number(fee?.total_fee ?? 0), realisedSum) })
+    .update({ remaining_fee: recomputeRemaining(owed, realisedSum) })
     .eq("id", inst.fee_record_id);
 
   revalidatePath(`/leads/${leadId}/fees`);
   revalidatePath(`/leads/${leadId}`);
+  revalidatePath(`/program/fees`);
   return { ok: true };
 }
 

@@ -3,41 +3,134 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { fetchPaymentsDashboard } from "@/lib/analytics/payments";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
-import { cohortDisplayLabel } from "@/lib/cohorts/display";
+import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
+import { resolveStructuredRange } from "@/lib/analytics/date-range";
+import { DateRangeBar } from "@/components/admin/DateRangeBar";
+import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { PAYMENT_MODE_LABELS } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { HubspotImportClient } from "@/components/admin/HubspotImportClient";
+import {
+  buildDemoFeeTrackerStudents,
+  demoPaymentsDashboard,
+  filterDemoStudents,
+} from "@/lib/program/fee-tracker-demo";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 export default async function AdminPaymentsPage({
   searchParams,
 }: {
-  searchParams: {
-    cohort?: string;
-    course?: string;
-    createdFrom?: string;
-    createdTo?: string;
-  };
+  searchParams: Record<string, string | undefined>;
 }) {
   await requireUser(["admin"]);
   const supabase = createClient();
-  const courseId = searchParams.course || null;
-  const cohortId = searchParams.cohort || null;
-  const createdFrom = searchParams.createdFrom || null;
-  const createdTo = searchParams.createdTo || null;
 
-  const [data, courses, cohorts] = await Promise.all([
-    fetchPaymentsDashboard(supabase, {
-      courseId,
-      cohortId,
-      createdFrom,
-      createdTo,
-    }),
-    getAllCourses(),
-    getAllCohorts(),
-  ]);
-
+  const [courses, cohorts] = await Promise.all([getAllCourses(), getAllCohorts()]);
   const courseMap = new Map(courses.map((c) => [c.id, c.name]));
+
+  const stypeRaw =
+    searchParams.stype ||
+    (searchParams.type === "cohort" || searchParams.type === "year"
+      ? searchParams.type
+      : null);
+  const dateRange = resolveStructuredRange({
+    search: {
+      ...searchParams,
+      stype: stypeRaw,
+      rangeCohort:
+        searchParams.rangeCohort ||
+        (stypeRaw === "cohort" ? searchParams.cohort : null) ||
+        null,
+    },
+    cohorts,
+  });
+  const { fromDate, toDate } = dateRange;
+
+  const rangeCohortRow = dateRange.rangeCohortId
+    ? cohorts.find((c) => c.id === dateRange.rangeCohortId)
+    : null;
+  const cohortId =
+    searchParams.cohort ||
+    (dateRange.selectionType === "cohort" ? dateRange.rangeCohortId : null) ||
+    null;
+  const cohortRow = cohortId
+    ? cohorts.find((c) => c.id === cohortId) ?? rangeCohortRow
+    : null;
+  const courseId = searchParams.course || cohortRow?.course_id || null;
+  const paymentMode = searchParams.mode || "";
+  const forceDemo = searchParams.demo === "1";
+
+  const needsCohortParam = !searchParams.cohort && Boolean(dateRange.rangeCohortId);
+  const needsCourseParam = !searchParams.course && Boolean(courseId);
+  const needsTypeFix = Boolean(searchParams.type);
+  if (
+    dateRange.selectionType === "cohort" &&
+    dateRange.rangeCohortId &&
+    (needsCohortParam || needsCourseParam || needsTypeFix)
+  ) {
+    const q = new URLSearchParams();
+    q.set("stype", "cohort");
+    q.set("year", String(dateRange.year));
+    q.set("rangeCohort", dateRange.rangeCohortId);
+    q.set("cohort", cohortId || dateRange.rangeCohortId);
+    if (courseId) q.set("course", courseId);
+    if (dateRange.month)
+      q.set("month", dateRange.month === "entire" ? "entire" : dateRange.month);
+    q.set("from", fromDate);
+    q.set("to", toDate);
+    if (paymentMode) q.set("mode", paymentMode);
+    if (forceDemo) q.set("demo", "1");
+    redirect(`/admin/payments?${q.toString()}`);
+  }
+
+  let data = await fetchPaymentsDashboard(supabase, {
+    courseId,
+    cohortId,
+    createdFrom: dateRange.overall ? null : fromDate,
+    createdTo: dateRange.overall ? null : toDate,
+  });
+
+  if (paymentMode) {
+    const cards = data.cards.filter((c) => c.paymentMode === paymentMode);
+    const leadIds = new Set(cards.map((c) => c.leadId));
+    data = {
+      ...data,
+      cards,
+      loans: data.loans.filter((l) => leadIds.has(l.leadId)),
+    };
+  }
+
+  let usingDemo = false;
+  if (forceDemo || data.cards.length === 0) {
+    usingDemo = true;
+    const demoStudents = filterDemoStudents(
+      buildDemoFeeTrackerStudents(
+        courses.map((c) => ({ id: c.id, name: c.name })),
+        cohorts.map((c) => ({ id: c.id, name: c.name, course_id: c.course_id }))
+      ),
+      {
+        courseId,
+        cohortId,
+        paymentMode: paymentMode || null,
+      }
+    );
+    data = demoPaymentsDashboard(demoStudents);
+  }
+
+  const years = uniqueCohortYears(cohorts);
+  const filteredCohorts = cohorts.filter((c) =>
+    courseId ? c.course_id === courseId : true
+  );
+  const dateCohorts = cohorts.map((c) => ({
+    id: c.id,
+    label: cohortDisplayLabel(c, cohorts, {
+      courseName: courseMap.get(c.course_id),
+      includeCourse: true,
+    }),
+    year: c.year ?? null,
+    courseId: c.course_id,
+  }));
 
   return (
     <div className="space-y-6">
@@ -50,59 +143,82 @@ export default async function AdminPaymentsPage({
 
       <HubspotImportClient defaultTarget="fees" />
 
-      <form className="panel flex flex-wrap items-end gap-3 p-4">
-        <label className="text-xs font-semibold text-muted">
-          Course
-          <select name="course" className="input-field mt-1" defaultValue={courseId ?? ""}>
-            <option value="">All courses</option>
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs font-semibold text-muted">
-          Cohort
-          <select name="cohort" className="input-field mt-1" defaultValue={cohortId ?? ""}>
-            <option value="">All cohorts</option>
-            {cohorts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {cohortDisplayLabel(c, cohorts, {
-                  courseName: courseMap.get(c.course_id),
-                  includeCourse: true,
-                })}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs font-semibold text-muted">
-          Created from
-          <input
-            type="date"
-            name="createdFrom"
-            className="input-field mt-1"
-            defaultValue={createdFrom ?? ""}
-          />
-        </label>
-        <label className="text-xs font-semibold text-muted">
-          Created to
-          <input
-            type="date"
-            name="createdTo"
-            className="input-field mt-1"
-            defaultValue={createdTo ?? ""}
-          />
-        </label>
-        <button type="submit" className="btn-primary text-xs">
-          Apply
-        </button>
-        {(createdFrom || createdTo || courseId || cohortId) && (
-          <Link href="/admin/payments" className="btn-ghost border border-border text-xs">
-            Clear
+      {usingDemo ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <span className="font-semibold">Demo data</span> — sample payers for layout preview.
+          Not written to the database.{" "}
+          <Link href="/admin/payments" className="font-semibold underline">
+            Exit demo
           </Link>
-        )}
-      </form>
+        </div>
+      ) : (
+        <p className="text-xs text-muted">
+          <Link href="/admin/payments?demo=1" className="font-semibold text-periwinkle hover:underline">
+            Load demo data
+          </Link>{" "}
+          to preview this page with sample students.
+        </p>
+      )}
+
+      <DateRangeBar
+        range={dateRange}
+        years={years}
+        cohorts={dateCohorts}
+        showOverall
+        pathname="/admin/payments"
+      />
+
+      <SyncedAnalyticsFilters
+        action="/admin/payments"
+        stype={dateRange.selectionType}
+        className="panel flex flex-wrap items-end gap-3 p-4 sm:p-5"
+        values={{
+          course: courseId ?? "",
+          cohort: cohortId ?? "",
+        }}
+        courseOptions={courses.map((c) => ({ id: c.id, label: c.name }))}
+        cohortOptions={filteredCohorts.map((c) => ({
+          id: c.id,
+          label: cohortDisplayLabel(c, cohorts, {
+            courseName: courseMap.get(c.course_id),
+            includeCourse: !courseId,
+          }),
+        }))}
+      >
+        <input type="hidden" name="stype" value={dateRange.selectionType} />
+        <input type="hidden" name="year" value={String(dateRange.year)} />
+        {dateRange.rangeCohortId ? (
+          <input type="hidden" name="rangeCohort" value={dateRange.rangeCohortId} />
+        ) : null}
+        {dateRange.month ? (
+          <input
+            type="hidden"
+            name="month"
+            value={dateRange.month === "entire" ? "entire" : dateRange.month}
+          />
+        ) : null}
+        <input type="hidden" name="from" value={fromDate} />
+        <input type="hidden" name="to" value={toDate} />
+        {dateRange.overall ? <input type="hidden" name="overall" value="1" /> : null}
+        {forceDemo ? <input type="hidden" name="demo" value="1" /> : null}
+        <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
+          Payment mode
+          <select
+            name="mode"
+            defaultValue={paymentMode}
+            className="input-field mt-1 py-2 text-sm font-medium"
+          >
+            <option value="">All modes</option>
+            {(Object.keys(PAYMENT_MODE_LABELS) as (keyof typeof PAYMENT_MODE_LABELS)[]).map(
+              (m) => (
+                <option key={m} value={m}>
+                  {PAYMENT_MODE_LABELS[m]}
+                </option>
+              )
+            )}
+          </select>
+        </label>
+      </SyncedAnalyticsFilters>
 
       <section className="panel overflow-hidden">
         <div className="border-b border-border px-5 py-3">

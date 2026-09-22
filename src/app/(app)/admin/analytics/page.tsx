@@ -291,6 +291,7 @@ export default async function AdminAnalyticsPage({
             <p className="mt-1 text-2xl font-semibold tabular-nums">
               {funnel.leadTotals.total}
             </p>
+            <p className="mt-1 text-[11px] opacity-70">Created in selected period</p>
           </Link>
           <Link
             href={`/admin/analytics${buildQuery({ ...baseParams, attribution: "organic" })}`}

@@ -573,21 +573,32 @@ export function FeesClient({
           ) : null}
 
           <div className="panel overflow-hidden">
+            <p className="border-b border-border px-4 py-2 text-xs text-muted">
+              Expected vs what actually hit the bank — deductions (TDS / transfer charges) are
+              auto-calculated when you confirm paid.
+            </p>
             <table className="w-full text-left text-sm">
               <thead className="border-b border-border bg-navy/[0.02]">
                 <tr>
                   <th className="eyebrow px-4 py-3">#</th>
                   <th className="eyebrow px-4 py-3">Deadline</th>
-                  <th className="eyebrow px-4 py-3">To realise</th>
-                  <th className="eyebrow px-4 py-3">Realised</th>
+                  <th className="eyebrow px-4 py-3">Expected</th>
+                  <th className="eyebrow px-4 py-3">Hit bank</th>
+                  <th className="eyebrow px-4 py-3">Deduction</th>
                   <th className="eyebrow px-4 py-3">Status</th>
-                  <th className="eyebrow px-4 py-3">Amount received</th>
+                  <th className="eyebrow px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {installments.map((inst) => {
                   const ui = feeLineUiStatus(inst);
                   const dlTone = deadlineTone(inst.deadline, { terminal: ui === "Paid" });
+                  const expected = Number(inst.amount_to_realise) || 0;
+                  const hit =
+                    Number(inst.amount_hit_bank) || Number(inst.amount_realised) || 0;
+                  const deduction =
+                    Number(inst.deductions) ||
+                    (ui === "Paid" ? Math.max(0, expected - hit) : 0);
                   return (
                   <tr key={inst.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3">{inst.installment_number}</td>
@@ -601,8 +612,26 @@ export function FeesClient({
                         {formatDate(inst.deadline)}
                       </span>
                     </td>
-                    <td className="px-4 py-3">{formatCurrency(inst.amount_to_realise)}</td>
-                    <td className="px-4 py-3">{formatCurrency(inst.amount_realised)}</td>
+                    <td className="px-4 py-3">{formatCurrency(expected)}</td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="number"
+                        className="input-field w-28 py-1.5"
+                        defaultValue={hit || ""}
+                        placeholder="Actual ₹"
+                        id={`hit-${inst.id}`}
+                        disabled={!canEditFee}
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted">
+                      {deduction > 0 ? (
+                        <span className="font-semibold text-amber-800">
+                          {formatCurrency(deduction)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <StatusBadge
                         label={ui}
@@ -610,28 +639,37 @@ export function FeesClient({
                       />
                     </td>
                     <td className="px-4 py-3">
-                      <input
-                        type="number"
-                        className="input-field w-28 py-1.5"
-                        defaultValue={inst.amount_realised}
-                        onBlur={(e) =>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-periwinkle disabled:opacity-50"
+                        disabled={pending || !canEditFee}
+                        onClick={() => {
+                          const el = document.getElementById(
+                            `hit-${inst.id}`
+                          ) as HTMLInputElement | null;
+                          const hitVal = Number(el?.value || 0);
+                          if (!Number.isFinite(hitVal) || hitVal < 0) return;
+                          const ded = Math.max(0, expected - hitVal);
                           startTransition(async () => {
-                            await recordInstallmentPayment(
-                              inst.id,
-                              leadId,
-                              Number(e.target.value)
-                            );
+                            await recordInstallmentPayment(inst.id, leadId, hitVal, {
+                              amountHitBank: hitVal,
+                              deductions: ded,
+                              markPaid: true,
+                              dateHitBank: new Date().toISOString().slice(0, 10),
+                            });
                             router.refresh();
-                          })
-                        }
-                      />
+                          });
+                        }}
+                      >
+                        {ui === "Paid" ? "Update received" : "Confirm paid"}
+                      </button>
                     </td>
                   </tr>
                   );
                 })}
                 {installments.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-muted">
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted">
                       {canEditFee
                         ? tab === "one_shot"
                           ? "No one-shot plan yet — save the deadline above."

@@ -20,7 +20,7 @@ export default async function AdminUsersPage() {
         eyebrow="Admin · Access"
         title="Users &"
         accent="Roles"
-        description="Add counselors and interviewers, set course/cohort scope, toggle active."
+        description="Add counselors and interviewers, set course/cohort scope, view/set temp passwords, toggle active."
       />
       <UsersClient
         users={users ?? []}

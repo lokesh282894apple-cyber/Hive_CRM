@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { OPEN_STAGES } from "@/lib/constants";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 import { unstable_cache } from "next/cache";
 
@@ -12,7 +13,10 @@ export type CounselorDashFilters = {
 };
 
 export type CounselorCallingStats = {
+  /** Current open allocated stock (Kanban open + scope). Not date-filtered. */
   allocatedLeads: number;
+  /** Allocated leads whose created_at falls in the selected date range (any stage). Comparable to Admission Analytics “Total leads”. */
+  createdInRangeAllocated: number;
   totalCalls: number;
   avgCallsPerLead: number;
   avgCallsPerDay: number;
@@ -36,7 +40,10 @@ export type CounselorCallingStats = {
 };
 
 export type CounselorPipelineStats = {
+  /** Current open allocated stock */
   allocated: number;
+  /** Allocated + created in selected date range */
+  createdInRangeAllocated: number;
   nurturing: number;
   r1Booked: number;
   r1Conducted: number;
@@ -82,6 +89,7 @@ export type CounselorDashboard = {
 function emptyCalling(): CounselorCallingStats {
   return {
     allocatedLeads: 0,
+    createdInRangeAllocated: 0,
     totalCalls: 0,
     avgCallsPerLead: 0,
     avgCallsPerDay: 0,
@@ -105,6 +113,7 @@ function emptyCalling(): CounselorCallingStats {
 function emptyPipeline(): CounselorPipelineStats {
   return {
     allocated: 0,
+    createdInRangeAllocated: 0,
     nurturing: 0,
     r1Booked: 0,
     r1Conducted: 0,
@@ -159,16 +168,18 @@ async function fetchCounselorDashboardUncached(
     .order("name");
 
   /** Date-scoped activity first (indexed) — avoids giant .in(lead_id) URLs. */
-  const [leads, calls, history] = await Promise.all([
+  const [leads, calls, history, scopeRows] = await Promise.all([
     fetchAllPages<{
       id: string;
       lead_allocated_to: string | null;
       stage: string;
       created_at: string;
+      cohort_id: string | null;
+      course_id: string | null;
     }>(async (from, to) => {
       let q = supabase
         .from("leads")
-        .select("id, lead_allocated_to, stage, created_at")
+        .select("id, lead_allocated_to, stage, created_at, cohort_id, course_id")
         .order("created_at", { ascending: true });
       if (filters.courseId) q = q.eq("course_id", filters.courseId);
       if (filters.cohortId) q = q.eq("cohort_id", filters.cohortId);
@@ -224,7 +235,30 @@ async function fetchCounselorDashboardUncached(
         .range(from, to),
       "counselor-history"
     ),
+    supabase
+      .from("counselor_scope")
+      .select("user_id, course_id, cohort_id")
+      .then((r) => r.data ?? []),
   ]);
+
+  const openStageSet = new Set(OPEN_STAGES as readonly string[]);
+  const scopesByCounselor = new Map<string, { cohort_id: string; course_id: string }[]>();
+  for (const s of scopeRows as { user_id: string; course_id: string; cohort_id: string }[]) {
+    const arr = scopesByCounselor.get(s.user_id) ?? [];
+    arr.push({ cohort_id: s.cohort_id, course_id: s.course_id });
+    scopesByCounselor.set(s.user_id, arr);
+  }
+
+  /** Match /leads scope: assigned cohorts + null-cohort leads. Empty scope → none. */
+  function leadVisibleToCounselor(
+    lead: { cohort_id: string | null; course_id: string | null },
+    counselorId: string
+  ) {
+    const scopes = scopesByCounselor.get(counselorId);
+    if (!scopes || scopes.length === 0) return false;
+    if (!lead.cohort_id) return true;
+    return scopes.some((s) => s.cohort_id === lead.cohort_id);
+  }
 
   const leadSet = new Set(leads.map((l) => l.id));
   const scopedCalls = calls.filter((c) => leadSet.has(c.lead_id));
@@ -252,8 +286,26 @@ async function fetchCounselorDashboardUncached(
   }
 
   const leadsByCounselor = new Map<string, typeof leads>();
+  const createdInRangeByCounselor = new Map<string, number>();
+
   for (const l of leads) {
     if (!l.lead_allocated_to) continue;
+    if (!leadVisibleToCounselor(l, l.lead_allocated_to)) continue;
+
+    // Created-in-range allocated (any stage) — comparable to Analytics “Total leads”
+    const createdAt = l.created_at || "";
+    const inRange =
+      filters.overall ||
+      (createdAt >= since && createdAt < until);
+    if (inRange) {
+      createdInRangeByCounselor.set(
+        l.lead_allocated_to,
+        (createdInRangeByCounselor.get(l.lead_allocated_to) ?? 0) + 1
+      );
+    }
+
+    // Align with Kanban default group=open (exclude closed_*)
+    if (!openStageSet.has(l.stage)) continue;
     const arr = leadsByCounselor.get(l.lead_allocated_to) ?? [];
     arr.push(l);
     leadsByCounselor.set(l.lead_allocated_to, arr);
@@ -278,6 +330,23 @@ async function fetchCounselorDashboardUncached(
     }
     row.pipeline.allocated = mine.length;
     row.calling.allocatedLeads = mine.length;
+  }
+
+  for (const [cid, n] of Array.from(createdInRangeByCounselor.entries())) {
+    let row = byCounselor.get(cid);
+    if (!row) {
+      row = {
+        counselorId: cid,
+        name: "Unknown",
+        calling: emptyCalling(),
+        pipeline: emptyPipeline(),
+        avgProfileScore: null,
+        avgIntentScore: null,
+      };
+      byCounselor.set(cid, row);
+    }
+    row.calling.createdInRangeAllocated = n;
+    row.pipeline.createdInRangeAllocated = n;
   }
 
   const r1Booked = new Set<string>();
@@ -509,6 +578,7 @@ async function fetchCounselorDashboardUncached(
   };
   for (const r of rows) {
     totals.calling.allocatedLeads += r.calling.allocatedLeads;
+    totals.calling.createdInRangeAllocated += r.calling.createdInRangeAllocated;
     totals.calling.totalCalls += r.calling.totalCalls;
     totals.calling.uniqueCalls += r.calling.uniqueCalls;
     totals.calling.uniqueCallDays += r.calling.uniqueCallDays;
@@ -519,6 +589,7 @@ async function fetchCounselorDashboardUncached(
     totals.calling.inboundAttended += r.calling.inboundAttended;
     totals.calling.outboundCalls += r.calling.outboundCalls;
     totals.pipeline.allocated += r.pipeline.allocated;
+    totals.pipeline.createdInRangeAllocated += r.pipeline.createdInRangeAllocated;
     totals.pipeline.nurturing += r.pipeline.nurturing;
     totals.pipeline.r1Booked += r.pipeline.r1Booked;
     totals.pipeline.r1Conducted += r.pipeline.r1Conducted;
@@ -598,7 +669,7 @@ export async function fetchCounselorDashboard(
   const key = filterKey(filters);
   return unstable_cache(
     () => fetchCounselorDashboardUncached(filters),
-    ["counselor-dashboard", key],
+    ["counselor-dashboard-v3-created-range", key],
     { revalidate: 60, tags: ["counselor-dashboard"] }
   )();
 }

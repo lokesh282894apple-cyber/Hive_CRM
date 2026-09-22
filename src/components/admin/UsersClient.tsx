@@ -1,12 +1,52 @@
 "use client";
 
-import { createUserAccount, deleteUserAccount, setCounselorScopes, updateUserProfile } from "@/app/actions/users";
+import {
+  createUserAccount,
+  deleteUserAccount,
+  resetUserTempPassword,
+  setCounselorScopes,
+  updateUserProfile,
+} from "@/app/actions/users";
 import { ROLES, type Role } from "@/lib/constants";
 import { viewAsHome, VIEW_AS_ROLES } from "@/lib/impersonation";
 import { StatusBadge } from "@/components/ui/Primitives";
 import type { AppUser, Cohort, CounselorScope, Course } from "@/types/database";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
+
+function PasswordCell({ password }: { password: string | null | undefined }) {
+  const [show, setShow] = useState(false);
+  if (!password) {
+    return (
+      <span className="text-xs text-muted" title="Unknown after the user changed it">
+        —
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <code className="rounded bg-navy/5 px-1.5 py-0.5 font-mono text-xs text-navy">
+        {show ? password : "••••••••"}
+      </code>
+      <button
+        type="button"
+        className="text-[11px] font-semibold text-periwinkle hover:underline"
+        onClick={() => setShow((s) => !s)}
+      >
+        {show ? "Hide" : "Show"}
+      </button>
+      <button
+        type="button"
+        className="text-[11px] font-semibold text-muted hover:underline"
+        onClick={() => {
+          void navigator.clipboard.writeText(password);
+        }}
+      >
+        Copy
+      </button>
+    </div>
+  );
+}
 
 export function UsersClient({
   users,
@@ -61,6 +101,9 @@ export function UsersClient({
         <div>
           <label className="label-field">Temp password</label>
           <input name="password" type="text" className="input-field" required minLength={8} />
+          <p className="mt-1 text-[11px] text-muted">
+            Saved for admin view until the user changes it.
+          </p>
         </div>
         <div>
           <label className="label-field">Role</label>
@@ -110,10 +153,15 @@ export function UsersClient({
       </form>
 
       <div className="panel overflow-hidden lg:col-span-3">
+        <div className="border-b border-border px-4 py-2 text-xs text-muted">
+          Password column shows the last admin-set temp password. It clears after the user
+          changes their own password (Auth never stores recoverable hashes).
+        </div>
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border bg-navy/[0.02]">
             <tr>
               <th className="eyebrow px-4 py-3">User</th>
+              <th className="eyebrow px-4 py-3">Password</th>
               <th className="eyebrow px-4 py-3">Role</th>
               <th className="eyebrow px-4 py-3">Status</th>
               <th className="eyebrow px-4 py-3">Actions</th>
@@ -127,6 +175,11 @@ export function UsersClient({
                   <td className="px-4 py-3">
                     <p className="font-medium text-navy">{u.name}</p>
                     <p className="text-xs text-muted">{u.email}</p>
+                    {u.must_change_password ? (
+                      <p className="mt-1 text-[11px] font-semibold text-amber-800">
+                        Must change password
+                      </p>
+                    ) : null}
                     {u.role === "counselor" ? (
                       <p className="mt-1 text-xs text-muted">
                         Scope:{" "}
@@ -141,6 +194,9 @@ export function UsersClient({
                           : "none"}
                       </p>
                     ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <PasswordCell password={u.admin_temp_password} />
                   </td>
                   <td className="px-4 py-3">
                     <select
@@ -173,6 +229,35 @@ export function UsersClient({
                     />
                   </td>
                   <td className="px-4 py-3 space-y-2">
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs"
+                      disabled={pending}
+                      onClick={() => {
+                        const next = prompt(
+                          `New temp password for ${u.name} (min 8 chars)`,
+                          u.admin_temp_password || ""
+                        );
+                        if (next == null) return;
+                        if (next.trim().length < 8) {
+                          setError("Password must be at least 8 characters.");
+                          return;
+                        }
+                        startTransition(async () => {
+                          const res = await resetUserTempPassword({
+                            userId: u.id,
+                            password: next.trim(),
+                          });
+                          if (!res.ok) setError(res.error);
+                          else {
+                            setError(null);
+                            router.refresh();
+                          }
+                        });
+                      }}
+                    >
+                      Set password
+                    </button>
                     <button
                       type="button"
                       className="btn-ghost text-xs"
@@ -253,7 +338,7 @@ export function UsersClient({
                           });
                         }}
                       >
-                        Edit scope
+                        Edit scope IDs
                       </button>
                     ) : null}
                   </td>
