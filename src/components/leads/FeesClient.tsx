@@ -8,8 +8,8 @@ import {
   upsertLoan,
 } from "@/app/actions/fees";
 import {
+  LOAN_PIPELINE_STAGES,
   LOAN_STAGE_LABELS,
-  LOAN_STAGES,
   PAYMENT_MODE_LABELS,
   type LoanStage,
   type PaymentMode,
@@ -27,6 +27,7 @@ import {
 import { StatusBadge } from "@/components/ui/Primitives";
 import { cn, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { FeeRecord, Installment, Loan, LoanVendor } from "@/types/database";
+import { normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
@@ -101,7 +102,9 @@ export function FeesClient({
       : Array.from({ length: defaultCount }, () => equalAmount)
   );
 
-  const [loanStage, setLoanStage] = useState<LoanStage>(loan?.stage ?? "docs_to_share");
+  const [loanStage, setLoanStage] = useState<LoanStage>(
+    normalizeLoanStage(loan?.stage ?? "docs_to_share")
+  );
   const [vendorId, setVendorId] = useState(loan?.loan_vendor_id ?? "");
 
   const stageOk = FEE_ELIGIBLE.includes(leadStage);
@@ -719,7 +722,7 @@ export function FeesClient({
               value={loanStage}
               onChange={(e) => setLoanStage(e.target.value as LoanStage)}
             >
-              {LOAN_STAGES.map((s) => (
+              {LOAN_PIPELINE_STAGES.map((s) => (
                 <option key={s} value={s}>
                   {LOAN_STAGE_LABELS[s]}
                 </option>
@@ -728,13 +731,13 @@ export function FeesClient({
           </div>
           <div>
             <label className="label-field">
-              Loan vendor {loanStage === "approved" ? "(required)" : ""}
+              Loan vendor {loanStage === "loan_approved" ? "(required)" : ""}
             </label>
             <select
               className="input-field"
               value={vendorId}
               onChange={(e) => setVendorId(e.target.value)}
-              required={loanStage === "approved"}
+              required={loanStage === "loan_approved"}
             >
               <option value="">—</option>
               {vendors

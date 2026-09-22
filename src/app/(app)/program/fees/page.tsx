@@ -18,9 +18,9 @@ import { PageHeader } from "@/components/ui/Primitives";
 import {
   FEE_DEAL_STAGE_LABELS,
   FEE_DEAL_STAGES,
+  LOAN_PIPELINE_STAGES,
   LOAN_STAGE_LABELS,
   PAYMENT_MODE_LABELS,
-  type LoanStage,
   type PaymentMode,
 } from "@/lib/constants";
 import Link from "next/link";
@@ -319,13 +319,11 @@ export default async function ProgramFeesPage({
             className="input-field mt-1 py-2 text-sm font-medium"
           >
             <option value="">All loan stages</option>
-            {(["docs_to_share", "loan_in_process", "loan_approved", "loan_approved_hit_bank", "drop_email"] as LoanStage[]).map(
-              (s) => (
-                <option key={s} value={s}>
-                  {LOAN_STAGE_LABELS[s]}
-                </option>
-              )
-            )}
+            {LOAN_PIPELINE_STAGES.map((s) => (
+              <option key={s} value={s}>
+                {LOAN_STAGE_LABELS[s]}
+              </option>
+            ))}
           </select>
         </label>
 

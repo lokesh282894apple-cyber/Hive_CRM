@@ -1,7 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   DEFAULT_ADMISSION_FEE_INR,
+  FEE_DEAL_STAGE_LABELS,
+  isFeeDealLoanStage,
+  isFeeDealStage,
   LOAN_STAGE_LABELS,
+  type FeeDealStage,
   type LoanStage,
   type PaymentMode,
 } from "@/lib/constants";
@@ -33,14 +37,63 @@ export type FeeRevenueMonth = {
 };
 
 export function normalizeLoanStage(stage: string): LoanStage {
-  if (stage === "docs_shared" || stage === "sent_to_vendor") return "loan_in_process";
+  if (
+    stage === "docs_shared" ||
+    stage === "sent_to_vendor" ||
+    stage === "loan_in_process"
+  ) {
+    return "some_docs_pending";
+  }
   if (stage === "approved" || stage === "disbursed_pending") return "loan_approved";
-  if (stage === "disbursed_hit_bank") return "loan_approved_hit_bank";
+  if (stage === "disbursed_hit_bank" || stage === "loan_approved_hit_bank") {
+    return "loan_hit_bank";
+  }
   return stage as LoanStage;
 }
 
 export function loanStageLabel(stage: string) {
   return LOAN_STAGE_LABELS[normalizeLoanStage(stage)] ?? stage;
+}
+
+/** Map legacy deal_stage values + payment_mode/loan into the swimlane board. */
+export function normalizeDealStage(
+  fee: Pick<FeeRecord, "deal_stage" | "payment_mode" | "payment_method_email_sent">,
+  loan: Pick<Loan, "stage"> | null
+): FeeDealStage {
+  const raw = fee.deal_stage ?? "";
+
+  if (raw === "drop_email") {
+    // Drop is a flag; place by mode/loan
+  } else if (isFeeDealStage(raw)) {
+    return raw;
+  } else if (
+    raw === "deadlines_pending" ||
+    raw === "deadlines_set" ||
+    raw === "in_collection"
+  ) {
+    if (fee.payment_mode === "loan") {
+      const ls = loan?.stage ? normalizeLoanStage(loan.stage) : "docs_to_share";
+      return isFeeDealLoanStage(ls) ? ls : "docs_to_share";
+    }
+    if (fee.payment_mode === "one_shot") return "one_shot";
+    if (fee.payment_mode === "direct_instalments") return "instalments";
+    return "method_chosen";
+  }
+
+  if (fee.payment_mode === "loan") {
+    const ls = loan?.stage ? normalizeLoanStage(loan.stage) : "docs_to_share";
+    if (ls === "drop_email") return "docs_to_share";
+    return isFeeDealLoanStage(ls) ? ls : "docs_to_share";
+  }
+  if (fee.payment_mode === "one_shot") return "one_shot";
+  if (fee.payment_mode === "direct_instalments") return "instalments";
+  if (fee.payment_method_email_sent) return "awaiting_method";
+  return "awaiting_method";
+}
+
+export function dealStageLabel(stage: string) {
+  if (isFeeDealStage(stage)) return FEE_DEAL_STAGE_LABELS[stage];
+  return stage;
 }
 
 function pinnedDeadlineFor(fee: FeeRecord, lines: Installment[], loan: Loan | null) {

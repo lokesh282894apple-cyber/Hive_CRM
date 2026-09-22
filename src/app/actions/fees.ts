@@ -430,8 +430,10 @@ export async function upsertLoan(input: {
 }): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin"]);
 
-  if (input.stage === "approved" && !input.loanVendorId) {
-    return { ok: false, error: "Select a loan vendor before marking approved" };
+  if (input.stage === "loan_approved" || input.stage === "approved") {
+    if (!input.loanVendorId) {
+      return { ok: false, error: "Select a loan vendor before marking approved" };
+    }
   }
 
   const supabase = createClient();

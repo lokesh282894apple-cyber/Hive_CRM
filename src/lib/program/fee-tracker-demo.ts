@@ -4,9 +4,10 @@ import type {
   PaymentCard,
   PaymentsDashboard,
 } from "@/lib/analytics/payments";
-import { LOAN_STAGE_LABELS, type LoanStage, type PaymentMode } from "@/lib/constants";
+import { LOAN_STAGE_LABELS, type PaymentMode } from "@/lib/constants";
 import { feeLineUiStatus } from "@/lib/fees/status";
 import type { FeeTrackerStudent } from "@/lib/program/fee-tracker";
+import { dealStageLabel, normalizeLoanStage } from "@/lib/program/fee-tracker";
 import type { FeeRecord, Installment, Loan } from "@/types/database";
 
 function daysFromNow(n: number): string {
@@ -40,7 +41,7 @@ function feeBase(
     net_fee_without_gst: 400_000,
     scholarship_offered: "10%",
     nikhil_remark: null,
-    deal_stage: "in_collection",
+    deal_stage: "instalments",
     payment_method_email_sent: true,
     response_deadline: daysFromNow(-2),
     program_onboarding_call_done: true,
@@ -122,7 +123,7 @@ export function buildDemoFeeTrackerStudents(
     const fee = feeBase("demo-fee-1", "demo-lead-1", {
       payment_mode: "direct_instalments",
       nikhil_remark: "Follow up on EMI-2",
-      deal_stage: "in_collection",
+      deal_stage: "instalments",
       remaining_fee: 250_000,
     });
     const lines = [
@@ -169,7 +170,7 @@ export function buildDemoFeeTrackerStudents(
   {
     const fee = feeBase("demo-fee-2", "demo-lead-2", {
       payment_mode: "loan",
-      deal_stage: "deadlines_set",
+      deal_stage: "some_docs_pending",
       gross_fee_ex_gst: 450_000,
       gross_fee_with_gst: 531_000,
       net_fee_without_gst: 450_000,
@@ -182,7 +183,7 @@ export function buildDemoFeeTrackerStudents(
     const loan: Loan = {
       id: "demo-loan-2",
       fee_record_id: fee.id,
-      stage: "loan_in_process",
+      stage: "some_docs_pending",
       total_fee: 470_000,
       remaining_fee: 470_000,
       deadline_to_hit: daysFromNow(14),
@@ -226,7 +227,7 @@ export function buildDemoFeeTrackerStudents(
   {
     const fee = feeBase("demo-fee-3", "demo-lead-3", {
       payment_mode: "one_shot",
-      deal_stage: "deadlines_set",
+      deal_stage: "one_shot",
       one_shot_deadline: daysFromNow(7),
       active_deadline: daysFromNow(7),
       total_fee: 377_600,
@@ -279,7 +280,7 @@ export function buildDemoFeeTrackerStudents(
   {
     const fee = feeBase("demo-fee-5", "demo-lead-5", {
       payment_mode: "loan",
-      deal_stage: "drop_email",
+      deal_stage: "docs_to_share",
       drop_email: true,
       remaining_fee: 400_000,
       nikhil_remark: "Family declined loan",
@@ -287,7 +288,7 @@ export function buildDemoFeeTrackerStudents(
     const loan: Loan = {
       id: "demo-loan-5",
       fee_record_id: fee.id,
-      stage: "drop_email",
+      stage: "docs_to_share",
       total_fee: 400_000,
       remaining_fee: 400_000,
       deadline_to_hit: null,
@@ -323,7 +324,7 @@ export function buildDemoFeeTrackerStudents(
   {
     const fee = feeBase("demo-fee-6", "demo-lead-6", {
       payment_mode: "loan",
-      deal_stage: "in_collection",
+      deal_stage: "loan_hit_bank",
       remaining_fee: 0,
       total_fee: 489_700,
       gross_fee_ex_gst: 415_000,
@@ -333,7 +334,7 @@ export function buildDemoFeeTrackerStudents(
     const loan: Loan = {
       id: "demo-loan-6",
       fee_record_id: fee.id,
-      stage: "loan_approved_hit_bank",
+      stage: "loan_hit_bank",
       total_fee: 439_700,
       remaining_fee: 0,
       deadline_to_hit: daysFromNow(-3),
@@ -375,11 +376,11 @@ export function buildDemoFeeTrackerStudents(
     });
   }
 
-  // 7 — Method chosen, onboarding pending
+  // 7 — Method chosen, awaiting branch pick
   {
     const fee = feeBase("demo-fee-7", "demo-lead-7", {
-      payment_mode: "one_shot",
-      deal_stage: "deadlines_pending",
+      payment_mode: "direct_instalments",
+      deal_stage: "method_chosen",
       program_onboarding_call_done: false,
       payment_method_email_sent: true,
       remaining_fee: 410_000,
@@ -398,7 +399,7 @@ export function buildDemoFeeTrackerStudents(
   {
     const fee = feeBase("demo-fee-8", "demo-lead-8", {
       payment_mode: "direct_instalments",
-      deal_stage: "in_collection",
+      deal_stage: "instalments",
       remaining_fee: 0,
       total_fee: 413_000,
       gross_fee_ex_gst: 350_000,
@@ -493,8 +494,10 @@ export function demoPaymentsDashboard(
       admissionFee: s.fee.admission_fee ?? null,
       paymentMode: mode,
       overallStatus: s.loan
-        ? LOAN_STAGE_LABELS[s.loan.stage as LoanStage] ?? s.loan.stage
-        : s.fee.deal_stage ?? "In collection",
+        ? LOAN_STAGE_LABELS[normalizeLoanStage(s.loan.stage)] ?? s.loan.stage
+        : s.fee.deal_stage
+          ? dealStageLabel(s.fee.deal_stage)
+          : "—",
       paymentStatus: s.fee.payment_status ?? null,
       revenueAmount: Number(s.fee.revenue_amount ?? s.fee.total_fee) || 0,
       invoiceNumber: s.fee.invoice_number ?? null,
@@ -528,7 +531,7 @@ export function demoPaymentsDashboard(
             deadline: s.loan.doc_submission_deadline
               ? String(s.loan.doc_submission_deadline).slice(0, 10)
               : null,
-            status: LOAN_STAGE_LABELS[s.loan.stage as LoanStage] ?? s.loan.stage,
+            status: LOAN_STAGE_LABELS[normalizeLoanStage(s.loan.stage)] ?? s.loan.stage,
             daysRemaining: null,
           }
         : null,
@@ -545,7 +548,7 @@ export function demoPaymentsDashboard(
       amount: Number(s.loan!.total_fee) || 0,
       revenueAmount: Number(s.fee.revenue_amount ?? s.fee.total_fee) || 0,
       daysRemaining: null,
-      status: LOAN_STAGE_LABELS[s.loan!.stage as LoanStage] ?? s.loan!.stage,
+      status: LOAN_STAGE_LABELS[normalizeLoanStage(s.loan!.stage)] ?? s.loan!.stage,
     }));
 
   const byCohortMap = new Map<string, CohortPayerSummary>();

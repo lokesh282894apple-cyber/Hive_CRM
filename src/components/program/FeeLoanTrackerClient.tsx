@@ -8,8 +8,10 @@ import {
 import {
   FEE_DEAL_STAGE_LABELS,
   FEE_DEAL_STAGES,
+  FEE_DEAL_SWIMLANES,
   FEE_LINE_TYPES,
   FEE_PAYMENT_STATUSES,
+  LOAN_PIPELINE_STAGES,
   LOAN_STAGE_LABELS,
   PAYMENT_MODE_LABELS,
   type FeeDealStage,
@@ -28,30 +30,20 @@ import {
   type FeeLineUiStatus,
 } from "@/lib/fees/status";
 import type { FeeRevenueMonth, FeeTrackerStudent } from "@/lib/program/fee-tracker";
-import { paymentModeLabel } from "@/lib/program/fee-tracker";
+import {
+  normalizeDealStage,
+  normalizeLoanStage,
+  paymentModeLabel,
+} from "@/lib/program/fee-tracker";
 import { StatusBadge } from "@/components/ui/Primitives";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
 
-const PROGRAM_LOAN_STAGES: LoanStage[] = [
-  "docs_to_share",
-  "loan_in_process",
-  "loan_approved",
-  "loan_approved_hit_bank",
-  "drop_email",
-];
-
-const LOAN_BOARD_COLS: LoanStage[] = [
-  "docs_to_share",
-  "loan_in_process",
-  "loan_approved",
-  "loan_approved_hit_bank",
-  "drop_email",
-];
-
-const TERMINAL_LOAN: LoanStage[] = ["loan_approved_hit_bank", "drop_email"];
+const PROGRAM_LOAN_STAGES: LoanStage[] = [...LOAN_PIPELINE_STAGES];
+const LOAN_BOARD_COLS: LoanStage[] = [...LOAN_PIPELINE_STAGES];
+const TERMINAL_LOAN: LoanStage[] = ["loan_hit_bank"];
 
 type MainTab = "fees" | "loans" | "deal" | "revenue";
 type LoanView = "board" | "table";
@@ -525,8 +517,8 @@ function admissionCloseDate(s: FeeTrackerStudent) {
 }
 
 function loanOverdueFlags(s: FeeTrackerStudent) {
-  const stage = (s.loan?.stage ?? "docs_to_share") as LoanStage;
-  const terminal = TERMINAL_LOAN.includes(stage);
+  const stage = normalizeLoanStage(s.loan?.stage ?? "docs_to_share");
+  const terminal = TERMINAL_LOAN.includes(stage) || !!s.fee.drop_email;
   const flags: { key: string; label: string; tone: "rose" | "amber" }[] = [];
   if (terminal) return flags;
 
@@ -605,7 +597,7 @@ function LoansTab({
         <div className="flex gap-3 overflow-x-auto pb-2">
           {LOAN_BOARD_COLS.map((col) => {
             const cards = students.filter(
-              (s) => (s.loan?.stage ?? "docs_to_share") === col
+              (s) => normalizeLoanStage(s.loan?.stage ?? "docs_to_share") === col
             );
             return (
               <div
@@ -642,6 +634,11 @@ function LoansTab({
                               {f.label}
                             </span>
                           ))}
+                          {s.fee.drop_email ? (
+                            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
+                              Drop Email
+                            </span>
+                          ) : null}
                         </div>
                         <select
                           className="input-field mt-2 w-full py-1 text-[11px]"
@@ -750,7 +747,9 @@ function LoansTab({
                       <select
                         className="input-field py-1 text-xs"
                         disabled={pending}
-                        defaultValue={(s.loan?.stage as string) || "docs_to_share"}
+                        defaultValue={normalizeLoanStage(
+                          (s.loan?.stage as string) || "docs_to_share"
+                        )}
                         onChange={(e) =>
                           onMove(s.fee.id, e.target.value as LoanStage, {
                             loan_amount: Number(s.loan?.total_fee ?? 0) || undefined,
@@ -780,7 +779,9 @@ function LoansTab({
                     ).map(([key, val]) => {
                       const tone = deadlineTone(val, {
                         terminal: TERMINAL_LOAN.includes(
-                          (s.loan?.stage as LoanStage) || "docs_to_share"
+                          normalizeLoanStage(
+                            (s.loan?.stage as string) || "docs_to_share"
+                          )
                         ),
                       });
                       return (
@@ -862,146 +863,225 @@ function DealBoard({
   pending: boolean;
   onSave: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => void;
 }) {
-  function resolveDealStage(s: FeeTrackerStudent): FeeDealStage {
-    if (s.fee.drop_email || s.fee.deal_stage === "drop_email") return "drop_email";
-    if (s.fee.deal_stage && FEE_DEAL_STAGES.includes(s.fee.deal_stage as FeeDealStage)) {
-      return s.fee.deal_stage as FeeDealStage;
+  function stageOf(s: FeeTrackerStudent): FeeDealStage {
+    return normalizeDealStage(s.fee, s.loan);
+  }
+
+  function moveOptionsFor(stage: FeeDealStage): FeeDealStage[] {
+    const lane = FEE_DEAL_SWIMLANES.find((g) => g.stages.includes(stage));
+    if (!lane) return [...FEE_DEAL_STAGES];
+    if (lane.id === "choosing") {
+      return [
+        ...lane.stages,
+        "instalments",
+        "one_shot",
+        "docs_to_share",
+      ];
     }
-    if (s.fee.payment_mode === "loan" || s.fee.payment_mode === "one_shot") {
-      return s.fee.active_deadline || s.fee.one_shot_deadline
-        ? "deadlines_set"
-        : "method_chosen";
-    }
-    if (s.fee.payment_method_email_sent) return "awaiting_method";
-    return "awaiting_method";
+    return [...lane.stages];
   }
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {FEE_DEAL_STAGES.map((col) => {
-        const cards = students.filter((s) => resolveDealStage(s) === col);
-        return (
+    <div className="space-y-3 overflow-x-auto pb-2">
+      <p className="text-xs text-muted">
+        Cards stay in Choosing until a payment option is picked, then only appear in that
+        branch. Drop Email is a flag on the card — not a column.
+      </p>
+      <div className="flex min-w-max gap-4">
+        {FEE_DEAL_SWIMLANES.map((lane) => (
           <div
-            key={col}
-            className="w-64 shrink-0 rounded-2xl border border-border bg-[#F7F8FC] p-2"
+            key={lane.id}
+            className="rounded-2xl border border-border bg-white/60 p-2"
           >
-            <p className="px-1 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
-              {FEE_DEAL_STAGE_LABELS[col]} · {cards.length}
+            <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-eyebrow text-navy">
+              {lane.label}
             </p>
-            <div className="space-y-2">
-              {cards.map((s) => {
-                const dl = s.fee.response_deadline || s.fee.active_deadline || s.pinnedDeadline;
-                const tone = deadlineTone(dl, { terminal: col === "drop_email" });
+            <div className="flex gap-2">
+              {lane.stages.map((col) => {
+                const cards = students.filter((s) => stageOf(s) === col);
                 return (
                   <div
-                    key={s.fee.id}
-                    className="rounded-xl border border-border bg-white p-3 shadow-sm"
+                    key={col}
+                    className="w-60 shrink-0 rounded-2xl border border-border bg-[#F7F8FC] p-2"
                   >
-                    <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
-                    <p className="text-[11px] text-muted">
-                      {paymentModeLabel(s.fee.payment_mode)}
-                      {s.fee.program_onboarding_call_done ? " · Onboarded" : ""}
+                    <p className="px-1 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+                      {FEE_DEAL_STAGE_LABELS[col]} · {cards.length}
                     </p>
-                    {dl ? (
-                      <span
-                        className={cn(
-                          "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                          deadlineToneClass(tone)
-                        )}
-                      >
-                        {formatDate(dl)}
-                      </span>
-                    ) : null}
-                    <select
-                      className="input-field mt-2 w-full py-1 text-[11px]"
-                      disabled={pending}
-                      value={col}
-                      onChange={(e) => {
-                        const next = e.target.value as FeeDealStage;
-                        onSave(() =>
-                          updateFeeTrackerStudent({
-                            feeId: s.fee.id,
-                            deal_stage: next,
-                            drop_email: next === "drop_email",
-                            payment_method_email_sent:
-                              next === "awaiting_method"
-                                ? true
-                                : s.fee.payment_method_email_sent,
-                            program_onboarding_call_done:
-                              next === "deadlines_pending" ||
-                              next === "deadlines_set" ||
-                              next === "in_collection"
-                                ? true
-                                : s.fee.program_onboarding_call_done,
-                            payment_mode: s.fee.payment_mode,
-                            response_deadline:
-                              next === "awaiting_method" && !s.fee.response_deadline
-                                ? new Date(Date.now() + 3 * 86400_000)
-                                    .toISOString()
-                                    .slice(0, 10)
-                                : s.fee.response_deadline,
-                          })
+                    <div className="space-y-2">
+                      {cards.map((s) => {
+                        const dl =
+                          s.fee.response_deadline ||
+                          s.fee.active_deadline ||
+                          s.pinnedDeadline;
+                        const tone = deadlineTone(dl, {
+                          terminal: !!s.fee.drop_email || col === "loan_hit_bank",
+                        });
+                        const options = moveOptionsFor(col);
+                        return (
+                          <div
+                            key={s.fee.id}
+                            className={cn(
+                              "rounded-xl border bg-white p-3 shadow-sm",
+                              s.fee.drop_email
+                                ? "border-rose-300 ring-1 ring-rose-200"
+                                : "border-border"
+                            )}
+                          >
+                            <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
+                            <p className="text-[11px] text-muted">
+                              {paymentModeLabel(s.fee.payment_mode)}
+                              {s.fee.program_onboarding_call_done ? " · Onboarded" : ""}
+                            </p>
+                            {s.fee.drop_email ? (
+                              <span className="mt-1 inline-block rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
+                                Drop Email
+                              </span>
+                            ) : null}
+                            {dl ? (
+                              <span
+                                className={cn(
+                                  "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                                  deadlineToneClass(tone)
+                                )}
+                              >
+                                {formatDate(dl)}
+                              </span>
+                            ) : null}
+                            <select
+                              className="input-field mt-2 w-full py-1 text-[11px]"
+                              disabled={pending}
+                              value={col}
+                              onChange={(e) => {
+                                const next = e.target.value as FeeDealStage;
+                                onSave(() =>
+                                  updateFeeTrackerStudent({
+                                    feeId: s.fee.id,
+                                    deal_stage: next,
+                                    payment_method_email_sent:
+                                      next === "awaiting_method" ||
+                                      next === "method_chosen" ||
+                                      s.fee.payment_method_email_sent
+                                        ? true
+                                        : s.fee.payment_method_email_sent,
+                                    payment_mode:
+                                      next === "instalments"
+                                        ? "direct_instalments"
+                                        : next === "one_shot"
+                                          ? "one_shot"
+                                          : next === "docs_to_share" ||
+                                              LOAN_PIPELINE_STAGES.includes(
+                                                next as (typeof LOAN_PIPELINE_STAGES)[number]
+                                              )
+                                            ? "loan"
+                                            : s.fee.payment_mode,
+                                    response_deadline:
+                                      next === "awaiting_method" &&
+                                      !s.fee.response_deadline
+                                        ? new Date(Date.now() + 3 * 86400_000)
+                                            .toISOString()
+                                            .slice(0, 10)
+                                        : s.fee.response_deadline,
+                                  })
+                                );
+                              }}
+                            >
+                              {options.map((st) => (
+                                <option key={st} value={st}>
+                                  → {FEE_DEAL_STAGE_LABELS[st]}
+                                </option>
+                              ))}
+                            </select>
+                            {col === "method_chosen" ? (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                <button
+                                  type="button"
+                                  className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
+                                  disabled={pending}
+                                  onClick={() =>
+                                    onSave(() =>
+                                      updateFeeTrackerStudent({
+                                        feeId: s.fee.id,
+                                        payment_mode: "direct_instalments",
+                                        deal_stage: "instalments",
+                                      })
+                                    )
+                                  }
+                                >
+                                  → Instalements
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
+                                  disabled={pending}
+                                  onClick={() =>
+                                    onSave(() =>
+                                      updateFeeTrackerStudent({
+                                        feeId: s.fee.id,
+                                        payment_mode: "one_shot",
+                                        deal_stage: "one_shot",
+                                        active_deadline:
+                                          s.fee.one_shot_deadline ||
+                                          s.fee.active_deadline ||
+                                          new Date(Date.now() + 7 * 86400_000)
+                                            .toISOString()
+                                            .slice(0, 10),
+                                      })
+                                    )
+                                  }
+                                >
+                                  → One Shot
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
+                                  disabled={pending}
+                                  onClick={() =>
+                                    onSave(() =>
+                                      updateFeeTrackerStudent({
+                                        feeId: s.fee.id,
+                                        payment_mode: "loan",
+                                        deal_stage: "docs_to_share",
+                                      })
+                                    )
+                                  }
+                                >
+                                  → Loan
+                                </button>
+                              </div>
+                            ) : null}
+                            <button
+                              type="button"
+                              className={cn(
+                                "mt-2 text-[10px] font-semibold hover:underline",
+                                s.fee.drop_email ? "text-muted" : "text-rose-700"
+                              )}
+                              disabled={pending}
+                              onClick={() =>
+                                onSave(() =>
+                                  updateFeeTrackerStudent({
+                                    feeId: s.fee.id,
+                                    drop_email: !s.fee.drop_email,
+                                    deal_stage: stageOf(s),
+                                  })
+                                )
+                              }
+                            >
+                              {s.fee.drop_email ? "Clear Drop Email" : "Mark Drop Email"}
+                            </button>
+                          </div>
                         );
-                      }}
-                    >
-                      {FEE_DEAL_STAGES.map((st) => (
-                        <option key={st} value={st}>
-                          → {FEE_DEAL_STAGE_LABELS[st]}
-                        </option>
-                      ))}
-                    </select>
-                    {col === "method_chosen" || col === "deadlines_pending" ? (
-                      <div className="mt-2 flex gap-1">
-                        <button
-                          type="button"
-                          className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
-                          disabled={pending}
-                          onClick={() =>
-                            onSave(() =>
-                              updateFeeTrackerStudent({
-                                feeId: s.fee.id,
-                                payment_mode: "loan",
-                                deal_stage: "deadlines_set",
-                              })
-                            )
-                          }
-                        >
-                          → Loan
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
-                          disabled={pending}
-                          onClick={() =>
-                            onSave(() =>
-                              updateFeeTrackerStudent({
-                                feeId: s.fee.id,
-                                payment_mode: "one_shot",
-                                deal_stage: "deadlines_set",
-                                active_deadline:
-                                  s.fee.one_shot_deadline ||
-                                  s.fee.active_deadline ||
-                                  new Date(Date.now() + 7 * 86400_000)
-                                    .toISOString()
-                                    .slice(0, 10),
-                              })
-                            )
-                          }
-                        >
-                          → One shot
-                        </button>
-                      </div>
-                    ) : null}
+                      })}
+                      {!cards.length ? (
+                        <p className="px-1 py-4 text-center text-[11px] text-muted">Empty</p>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })}
-              {!cards.length ? (
-                <p className="px-1 py-4 text-center text-[11px] text-muted">Empty</p>
-              ) : null}
             </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }

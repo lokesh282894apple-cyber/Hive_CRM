@@ -866,14 +866,30 @@ export type GradeTier = (typeof GRADE_TIERS)[number];
 export const INSTALLMENT_STATUSES = ["pending", "partial", "paid", "overdue"] as const;
 export type InstallmentStatus = (typeof INSTALLMENT_STATUSES)[number];
 
-/** Nikhil Fee Tracker loan pipeline (+ legacy codes still readable). */
-export const LOAN_STAGES = [
+/** Canonical loan pipeline (Deal Stage Loan lane + Loan Status board). */
+export const LOAN_PIPELINE_STAGES = [
   "docs_to_share",
-  "loan_in_process",
+  "some_docs_pending",
+  "all_docs_received",
+  "login_done_review",
   "loan_approved",
+  "courrier_initiated",
+  "courrier_received",
+  "kyc",
+  "e_sign",
+  "loan_disbursed",
+  "loan_hit_bank",
+] as const;
+
+export type LoanPipelineStage = (typeof LOAN_PIPELINE_STAGES)[number];
+
+/** Loan pipeline (+ legacy codes still readable / migratable). */
+export const LOAN_STAGES = [
+  ...LOAN_PIPELINE_STAGES,
+  // legacy (mapped on read)
+  "loan_in_process",
   "loan_approved_hit_bank",
   "drop_email",
-  // legacy (mapped on read/write)
   "docs_shared",
   "sent_to_vendor",
   "approved",
@@ -884,16 +900,26 @@ export const LOAN_STAGES = [
 export type LoanStage = (typeof LOAN_STAGES)[number];
 
 export const LOAN_STAGE_LABELS: Record<LoanStage, string> = {
-  docs_to_share: "Documents to be shared",
-  loan_in_process: "Loan In Process",
+  docs_to_share: "Documents to be Shared",
+  some_docs_pending: "Some Docs Pending",
+  all_docs_received: "All docs received",
+  login_done_review: "Login Done (Review)",
   loan_approved: "Loan Approved",
-  loan_approved_hit_bank: "Loan Approved - Hit the bank",
+  courrier_initiated: "Courrier Initiated",
+  courrier_received: "Courrier Received",
+  kyc: "KYC",
+  e_sign: "E-Sign",
+  loan_disbursed: "Loan Disbursed",
+  loan_hit_bank: "Loan Hit the Bank",
+  // legacy labels (normalized away on read)
+  loan_in_process: "Some Docs Pending",
+  loan_approved_hit_bank: "Loan Hit the Bank",
   drop_email: "Drop Email",
-  docs_shared: "Loan In Process",
-  sent_to_vendor: "Loan In Process",
+  docs_shared: "Some Docs Pending",
+  sent_to_vendor: "Some Docs Pending",
   approved: "Loan Approved",
   disbursed_pending: "Loan Approved",
-  disbursed_hit_bank: "Loan Approved - Hit the bank",
+  disbursed_hit_bank: "Loan Hit the Bank",
 };
 
 export const FEE_LINE_TYPES = [
@@ -907,24 +933,69 @@ export type FeeLineType = (typeof FEE_LINE_TYPES)[number];
 export const FEE_PAYMENT_STATUSES = ["Paid", "Yet to Pay", "Overdue"] as const;
 export type FeePaymentStatus = (typeof FEE_PAYMENT_STATUSES)[number];
 
+/**
+ * Deal Stage board: choosing → branch (Instalements | One Shot | Loan).
+ * Drop Email is a flag on the deal, not a column.
+ */
 export const FEE_DEAL_STAGES = [
   "awaiting_method",
   "method_chosen",
-  "deadlines_pending",
-  "deadlines_set",
-  "in_collection",
-  "drop_email",
+  "instalments",
+  "one_shot",
+  ...LOAN_PIPELINE_STAGES,
 ] as const;
 export type FeeDealStage = (typeof FEE_DEAL_STAGES)[number];
 
 export const FEE_DEAL_STAGE_LABELS: Record<FeeDealStage, string> = {
   awaiting_method: "Payment Option Email Sent",
   method_chosen: "Payment Option Chosen",
-  deadlines_pending: "Onboarding Call Booked",
-  deadlines_set: "Payment Deadline Set",
-  in_collection: "Payment Deadline Confirmed",
-  drop_email: "Drop Email",
+  instalments: "Instalements",
+  one_shot: "One Shot",
+  docs_to_share: "Documents to be Shared",
+  some_docs_pending: "Some Docs Pending",
+  all_docs_received: "All docs received",
+  login_done_review: "Login Done (Review)",
+  loan_approved: "Loan Approved",
+  courrier_initiated: "Courrier Initiated",
+  courrier_received: "Courrier Received",
+  kyc: "KYC",
+  e_sign: "E-Sign",
+  loan_disbursed: "Loan Disbursed",
+  loan_hit_bank: "Loan Hit the Bank",
 };
+
+/** Swimlane groups for the Deal Stage board (matches ops spreadsheet). */
+export const FEE_DEAL_SWIMLANES: {
+  id: string;
+  label: string;
+  stages: readonly FeeDealStage[];
+}[] = [
+  {
+    id: "choosing",
+    label: "Choosing Payment Option",
+    stages: ["awaiting_method", "method_chosen"],
+  },
+  {
+    id: "in_house",
+    label: "In-House Instalment",
+    stages: ["instalments", "one_shot"],
+  },
+  {
+    id: "loan",
+    label: "Loan",
+    stages: [...LOAN_PIPELINE_STAGES],
+  },
+];
+
+export const FEE_DEAL_LOAN_STAGES: readonly FeeDealStage[] = LOAN_PIPELINE_STAGES;
+
+export function isFeeDealLoanStage(stage: string): stage is LoanPipelineStage {
+  return (LOAN_PIPELINE_STAGES as readonly string[]).includes(stage);
+}
+
+export function isFeeDealStage(stage: string): stage is FeeDealStage {
+  return (FEE_DEAL_STAGES as readonly string[]).includes(stage);
+}
 
 /** Default admission fee line (INR) when a student converts. */
 export const DEFAULT_ADMISSION_FEE_INR = 50_000;
