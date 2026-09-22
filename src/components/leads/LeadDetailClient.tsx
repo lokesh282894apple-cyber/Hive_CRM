@@ -51,7 +51,7 @@ import type {
   StageHistory,
 } from "@/types/database";
 import { cohortNumberMap } from "@/lib/cohorts/display";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { formatCurrency, formatDateTime } from "@/lib/utils";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
