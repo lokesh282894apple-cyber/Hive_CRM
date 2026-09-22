@@ -55,6 +55,7 @@ export function SettingsClient({
   const tab = (searchParams.get("tab") as Tab) || "courses";
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  const [editingCohort, setEditingCohort] = useState<Cohort | null>(null);
 
   function setTab(next: Tab) {
     router.push(next === "courses" ? "/admin/config" : `/admin/config?tab=${next}`);
@@ -149,20 +150,37 @@ export function SettingsClient({
           </form>
 
           <form
+            key={editingCohort?.id ?? "new"}
             className="panel space-y-3 p-5"
             onSubmit={(e: FormEvent<HTMLFormElement>) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
-              fd.set("active", "true");
-              wrap(() => upsertCohort(fd));
+              if (editingCohort) {
+                fd.set("id", editingCohort.id);
+                fd.set("active", editingCohort.active ? "true" : "false");
+              } else {
+                fd.set("active", "true");
+              }
+              wrap(async () => {
+                const res = await upsertCohort(fd);
+                if (res.ok) setEditingCohort(null);
+                return res;
+              });
             }}
           >
-            <p className="eyebrow">Add cohort</p>
+            <p className="eyebrow">
+              {editingCohort ? "Edit cohort" : "Add cohort"}
+            </p>
             <p className="text-xs text-muted">
               Keep names as Cohort N – Year. Set intake dates so new leads for
               this program land in the right cohort by signup date.
             </p>
-            <select name="course_id" className="input-field" required>
+            <select
+              name="course_id"
+              className="input-field"
+              required
+              defaultValue={editingCohort?.course_id ?? courses[0]?.id}
+            >
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -176,6 +194,7 @@ export function SettingsClient({
               className="input-field"
               placeholder="Cohort number (e.g. 3)"
               required
+              defaultValue={editingCohort?.cohort_number ?? undefined}
             />
             <input
               name="year"
@@ -184,10 +203,16 @@ export function SettingsClient({
               className="input-field"
               placeholder="Year (e.g. 2026)"
               required
+              defaultValue={editingCohort?.year ?? undefined}
             />
             <label className="block text-xs text-muted">
               Class start (optional)
-              <input name="start_date" type="date" className="input-field mt-1" />
+              <input
+                name="start_date"
+                type="date"
+                className="input-field mt-1"
+                defaultValue={editingCohort?.start_date ?? undefined}
+              />
             </label>
             <div className="grid grid-cols-2 gap-2">
               <label className="block text-xs text-muted">
@@ -196,6 +221,7 @@ export function SettingsClient({
                   name="intake_start"
                   type="date"
                   className="input-field mt-1"
+                  defaultValue={editingCohort?.intake_start ?? undefined}
                 />
               </label>
               <label className="block text-xs text-muted">
@@ -204,6 +230,7 @@ export function SettingsClient({
                   name="intake_end"
                   type="date"
                   className="input-field mt-1"
+                  defaultValue={editingCohort?.intake_end ?? undefined}
                 />
               </label>
             </div>
@@ -212,26 +239,89 @@ export function SettingsClient({
               type="number"
               className="input-field"
               placeholder="Default total fee"
-              defaultValue={350000}
+              defaultValue={editingCohort?.default_total_fee ?? 350000}
             />
-            <button type="submit" className="btn-primary" disabled={pending}>
-              Create cohort
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="submit" className="btn-primary" disabled={pending}>
+                {editingCohort ? "Save cohort" : "Create cohort"}
+              </button>
+              {editingCohort ? (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={pending}
+                  onClick={() => setEditingCohort(null)}
+                >
+                  Cancel
+                </button>
+              ) : null}
+            </div>
             <ul className="mt-4 max-h-64 space-y-2 overflow-y-auto border-t border-border pt-4">
-              {cohorts.map((c) => (
-                <li key={c.id} className="text-sm">
-                  <span className="font-medium text-navy">{cohortEntryLabel(c)}</span>
-                  <span className="text-muted">
-                    {" "}
-                    · ₹{Number(c.default_total_fee).toLocaleString("en-IN")}
-                  </span>
-                  {cohortIntakeHint(c) ? (
-                    <span className="mt-0.5 block text-[11px] text-muted">
-                      {cohortIntakeHint(c)}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
+              {cohorts.map((c) => {
+                const courseName =
+                  courses.find((x) => x.id === c.course_id)?.name ?? "Program";
+                const selected = editingCohort?.id === c.id;
+                return (
+                  <li
+                    key={c.id}
+                    className={`flex items-start justify-between gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                      selected ? "bg-periwinkle/10" : ""
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium text-navy">
+                        {courseName} · {cohortEntryLabel(c)}
+                      </span>
+                      <span className="text-muted">
+                        {" "}
+                        · ₹{Number(c.default_total_fee).toLocaleString("en-IN")}
+                        {!c.active ? " · inactive" : ""}
+                      </span>
+                      {cohortIntakeHint(c) ? (
+                        <span className="mt-0.5 block text-[11px] text-muted">
+                          {cohortIntakeHint(c)}
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 block text-[11px] text-muted">
+                          No intake window
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-periwinkle hover:underline"
+                        onClick={() => setEditingCohort(c)}
+                      >
+                        Edit
+                      </button>
+                      <StatusToggle
+                        active={c.active}
+                        onToggle={() => {
+                          const fd = new FormData();
+                          fd.set("id", c.id);
+                          fd.set("course_id", c.course_id);
+                          fd.set(
+                            "cohort_number",
+                            String(c.cohort_number ?? "")
+                          );
+                          fd.set("year", String(c.year ?? ""));
+                          fd.set("name", c.name);
+                          fd.set("start_date", c.start_date ?? "");
+                          fd.set("intake_start", c.intake_start ?? "");
+                          fd.set("intake_end", c.intake_end ?? "");
+                          fd.set(
+                            "default_total_fee",
+                            String(c.default_total_fee)
+                          );
+                          fd.set("active", c.active ? "false" : "true");
+                          wrap(() => upsertCohort(fd));
+                        }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </form>
         </div>
