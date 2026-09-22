@@ -21,16 +21,6 @@ function monthsAgo(n: number): string {
   return d.toISOString();
 }
 
-/** India education / fee GST used for demo gross ↔ net. */
-const GST_RATE = 0.18;
-
-function withGst(netExGst: number): { net: number; gross: number } {
-  const net = Math.round(netExGst);
-  const gross = Math.round(net * (1 + GST_RATE));
-  return { net, gross };
-}
-
-
 function feeBase(
   id: string,
   leadId: string,
