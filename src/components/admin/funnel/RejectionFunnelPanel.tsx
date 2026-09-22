@@ -12,6 +12,16 @@ export function RejectionFunnelPanel({ data }: { data: RejectionFunnel }) {
           Where leads exit — Hive reject vs Student reject. Separate from the
           round activity matrix.
         </p>
+        {data.schemaPending ? (
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            Meeting migration not applied yet — showing stage-based estimate.
+            Run{" "}
+            <code className="font-mono">
+              supabase/migrations/20260922120000_meeting_followups.sql
+            </code>{" "}
+            in the Supabase SQL Editor for full reject metadata.
+          </p>
+        ) : null}
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-border bg-[#F7F8FC] px-3 py-2">

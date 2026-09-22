@@ -182,7 +182,7 @@ async function fetchCounselorDashboardUncached(
       duration: number | null;
       outcome: string | null;
       direction: string | null;
-    }>((from, to) => {
+    }>(async (from, to) => {
       let q = supabase
         .from("call_logs")
         .select("lead_id, counselor_id, logged_at, duration, outcome, direction")
@@ -190,7 +190,25 @@ async function fetchCounselorDashboardUncached(
         .lt("logged_at", until)
         .order("logged_at", { ascending: true });
       if (filters.counselorId) q = q.eq("counselor_id", filters.counselorId);
-      return q.range(from, to);
+      const res = await q.range(from, to);
+      if (
+        res.error &&
+        /column .*direction.* does not exist/i.test(res.error.message)
+      ) {
+        let q2 = supabase
+          .from("call_logs")
+          .select("lead_id, counselor_id, logged_at, duration, outcome")
+          .gte("logged_at", since)
+          .lt("logged_at", until)
+          .order("logged_at", { ascending: true });
+        if (filters.counselorId) q2 = q2.eq("counselor_id", filters.counselorId);
+        const res2 = await q2.range(from, to);
+        return {
+          data: (res2.data ?? []).map((r) => ({ ...r, direction: "outbound" as const })),
+          error: res2.error,
+        };
+      }
+      return res;
     }, "counselor-calls"),
     fetchAllPages<{
       lead_id: string;
