@@ -96,6 +96,22 @@ export async function upsertCohort(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+export async function deleteCohort(cohortId: string): Promise<ActionResult> {
+  await requireUser(["admin"]);
+  const id = String(cohortId || "").trim();
+  if (!id) return { ok: false, error: "Cohort required" };
+
+  const supabase = createClient();
+  // leads.cohort_id is ON DELETE SET NULL; counselor_scope cascades.
+  const { error } = await supabase.from("cohorts").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/admin/config");
+  revalidatePath("/admin/leads");
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
 export async function upsertLoanVendor(formData: FormData): Promise<ActionResult> {
   await requireUser(["admin"]);
   const supabase = createClient();

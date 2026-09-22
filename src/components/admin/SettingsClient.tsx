@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  deleteCohort,
   updateAppSetting,
   upsertCohort,
   upsertCourse,
@@ -294,6 +295,30 @@ export function SettingsClient({
                         onClick={() => setEditingCohort(c)}
                       >
                         Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-rose-600 hover:underline"
+                        disabled={pending}
+                        onClick={() => {
+                          const label = `${courseName} · ${cohortEntryLabel(c)}`;
+                          if (
+                            !window.confirm(
+                              `Delete ${label}?\n\nLeads on this cohort will keep their program but lose the cohort assignment.`
+                            )
+                          ) {
+                            return;
+                          }
+                          wrap(async () => {
+                            const res = await deleteCohort(c.id);
+                            if (res.ok && editingCohort?.id === c.id) {
+                              setEditingCohort(null);
+                            }
+                            return res;
+                          });
+                        }}
+                      >
+                        Delete
                       </button>
                       <StatusToggle
                         active={c.active}
