@@ -59,6 +59,7 @@ export type LeadInterviewSummary = {
   interviewerName: string | null;
   readAiReportUrl?: string | null;
   readAiSummary?: string | null;
+  feedbackNotes?: string | null;
 };
 
 export type LeadFeeSummary = {
@@ -745,6 +746,11 @@ export function LeadDetailClient({
                       {b.readAiSummary ? (
                         <p className="mt-1 line-clamp-3 text-xs text-muted">
                           {b.readAiSummary}
+                        </p>
+                      ) : null}
+                      {b.feedbackNotes ? (
+                        <p className="mt-1 rounded-lg bg-[#F7F8FC] px-2 py-1.5 text-xs text-navy">
+                          Feedback: {b.feedbackNotes}
                         </p>
                       ) : null}
                     </li>

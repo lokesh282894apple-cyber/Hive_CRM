@@ -60,7 +60,7 @@ export default async function LeadDetailPage({
     supabase
       .from("interview_bookings")
       .select(
-        "id, round, scheduled_at, outcome, meet_link, read_ai_report_url, read_ai_summary, interviewer:users!interview_bookings_interviewer_id_fkey(id, name)"
+        "id, round, scheduled_at, outcome, meet_link, read_ai_report_url, read_ai_summary, feedback_notes, interviewer:users!interview_bookings_interviewer_id_fkey(id, name)"
       )
       .eq("lead_id", params.id)
       .order("scheduled_at", { ascending: false }),
@@ -223,6 +223,7 @@ export default async function LeadDetailPage({
       interviewerName: interviewer?.name ?? null,
       readAiReportUrl: (b.read_ai_report_url as string | null) ?? null,
       readAiSummary: (b.read_ai_summary as string | null) ?? null,
+      feedbackNotes: (b.feedback_notes as string | null) ?? null,
     };
   });
 

@@ -9,6 +9,7 @@ import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilter
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Fragment } from "react";
 
 function buildQuery(params: Record<string, string | undefined>) {
   const q = new URLSearchParams();
@@ -292,9 +293,19 @@ export default async function AdminPanelPage({
                 <tr>
                   <th className="eyebrow px-5 py-2.5">Panelist</th>
                   {(["R1", "R2", "R3"] as const).map((r) => (
-                    <th key={r} className="eyebrow px-4 py-2.5 text-right">
-                      {r} sel / cond
+                    <th key={r} colSpan={3} className="eyebrow px-2 py-2.5 text-center">
+                      {r}
                     </th>
+                  ))}
+                </tr>
+                <tr>
+                  <th className="eyebrow px-5 py-1" />
+                  {(["R1", "R2", "R3"] as const).map((r) => (
+                    <Fragment key={r}>
+                      <th className="eyebrow px-2 py-1 text-right">Booked</th>
+                      <th className="eyebrow px-2 py-1 text-right">Done</th>
+                      <th className="eyebrow px-2 py-1 text-right">Sel</th>
+                    </Fragment>
                   ))}
                 </tr>
               </thead>
@@ -305,9 +316,17 @@ export default async function AdminPanelPage({
                     {(["R1", "R2", "R3"] as const).map((r) => {
                       const s = row.byRound[r];
                       return (
-                        <td key={r} className="px-4 py-2.5 text-right tabular-nums text-muted">
-                          {s.selected}/{s.conducted || s.booked}
-                        </td>
+                        <Fragment key={r}>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-muted">
+                            {s.booked}
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-muted">
+                            {s.conducted}
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-navy">
+                            {s.selected}
+                          </td>
+                        </Fragment>
                       );
                     })}
                   </tr>

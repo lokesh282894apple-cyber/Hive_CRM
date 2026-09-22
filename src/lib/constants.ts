@@ -80,21 +80,92 @@ export const ADMISSION_REJECTION_REASONS = [
   "Less than 3rd Year",
 ] as const;
 
+/** Hidden from new picks (typo / retired); old stage_reason values stay readable. */
+export const ADMISSION_REJECTION_REASONS_HIDDEN = [
+  "Less than 30 years",
+  "experience less than 30 years",
+] as const;
+
 export const ADMISSION_REJECTION_CUSTOM_OPTION = "Custom" as const;
 
 export type AdmissionRejectionReason =
   | (typeof ADMISSION_REJECTION_REASONS)[number]
   | typeof ADMISSION_REJECTION_CUSTOM_OPTION;
 
+/** Student reject reasons — mandatory at every stage (RR-4). */
+export const STUDENT_REJECTION_REASONS = [
+  "Ghosted",
+  "Joined elsewhere",
+  "Parents didn't agree",
+  "Relocation",
+  "Job opportunity / continuing with current job",
+  "Preparing for competitive exams",
+  "Custom",
+] as const;
+
+export type StudentRejectionReason = (typeof STUDENT_REJECTION_REASONS)[number];
+
+/** Reasons that need extra free text. */
+export const STUDENT_REJECTION_NEEDS_DETAIL: readonly string[] = [
+  "Joined elsewhere",
+  "Custom",
+];
+
+export function isValidStudentRejectionReason(reason: string): boolean {
+  const trimmed = reason.trim();
+  if (!trimmed) return false;
+  for (const preset of STUDENT_REJECTION_REASONS) {
+    if (preset === "Joined elsewhere" && trimmed.startsWith("Joined elsewhere")) {
+      return trimmed.length >= "Joined elsewhere: x".length;
+    }
+    if (preset === "Custom") continue;
+    if (trimmed === preset) return true;
+  }
+  // Custom free text
+  return trimmed.length >= 2 && !(STUDENT_REJECTION_REASONS as readonly string[]).includes(trimmed);
+}
+
+/** Panel / Hive reject at R1–R3 — reuse admission presets + Custom. */
+export function isValidHiveRejectionReason(reason: string): boolean {
+  return isValidAdmissionRejectionReason(reason);
+}
+
+export type RejectKind = "hive" | "student";
+export type RejectAtStage = "nurturing" | "r1" | "r2" | "r3" | "offered";
+
+export function rejectAtStageFromLeadStage(stage: string): RejectAtStage {
+  if (stage.startsWith("r1_")) return "r1";
+  if (stage.startsWith("r2_")) return "r2";
+  if (stage.startsWith("r3_")) return "r3";
+  if (
+    stage === "yet_to_offer" ||
+    stage === "offered" ||
+    stage === "offered_accepted"
+  ) {
+    return "offered";
+  }
+  return "nurturing";
+}
+
 export function stageRequiresReason(stage: string): boolean {
   return (
     (STAGES_REQUIRING_REASON as readonly string[]).includes(stage) ||
-    stage === "admission_team_rejected"
+    stage === "admission_team_rejected" ||
+    stage === "student_reject" ||
+    stage === "r1_reject" ||
+    stage === "r2_reject" ||
+    stage === "r3_reject"
   );
 }
 
 export function stageRequiresPresetReason(stage: string): boolean {
-  return stage === "admission_team_rejected";
+  return (
+    stage === "admission_team_rejected" ||
+    stage === "student_reject" ||
+    stage === "r1_reject" ||
+    stage === "r2_reject" ||
+    stage === "r3_reject"
+  );
 }
 
 /** Preset reasons, or any non-empty custom free-text reason. */
@@ -108,6 +179,22 @@ export function isValidAdmissionRejectionReason(reason: string): boolean {
   return (
     trimmed !== ADMISSION_REJECTION_CUSTOM_OPTION && trimmed.length >= 2
   );
+}
+
+export function isValidRejectionReasonForStage(
+  stage: string,
+  reason: string
+): boolean {
+  if (stage === "student_reject") return isValidStudentRejectionReason(reason);
+  if (
+    stage === "admission_team_rejected" ||
+    stage === "r1_reject" ||
+    stage === "r2_reject" ||
+    stage === "r3_reject"
+  ) {
+    return isValidHiveRejectionReason(reason);
+  }
+  return reason.trim().length >= 2;
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {
@@ -502,19 +589,11 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     accent: "warning",
     section: "Pre-interview",
   },
-  {
-    id: "retarget_next_batch",
-    label: "Retarget Next Batch",
-    hint: "Hold for a later cohort",
-    stages: ["retarget_next_batch"],
-    dropStage: "retarget_next_batch",
-    accent: "warning",
-    section: "Pre-interview",
-  },
+  // Retarget kept as a stage in DB for old rows — not a board column (FN-1)
   {
     id: "admission_team_rejected",
     label: "Admission Team Rejected",
-    hint: "Rejected by admissions",
+    hint: "Hive reject · pick a reason",
     stages: ["admission_team_rejected"],
     dropStage: "admission_team_rejected",
     accent: "red",
@@ -550,95 +629,95 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
   {
     id: "yet_to_offer",
     label: "Yet to Offer",
-    hint: "Interview done · offer not sent",
+    hint: "Passed interviews · not yet offered",
     stages: ["yet_to_offer"],
     dropStage: "yet_to_offer",
     accent: "gold",
-    section: "Close",
+    section: "Offered",
   },
   {
     id: "offer_call_not_booked",
-    label: "Offer · call not booked",
-    hint: "Offered · post-offer call not booked",
+    label: "Offer call not booked",
+    hint: "Offer made · call not scheduled",
     stages: ["offered"],
     dropStage: "offered",
     accent: "gold",
-    section: "Close",
+    section: "Offered",
     offerCallStatus: "not_booked",
   },
   {
     id: "offer_call_booked",
-    label: "Offer · call booked",
-    hint: "Offered · post-offer call booked",
+    label: "Offer call booked",
+    hint: "Offer call on calendar",
     stages: ["offered"],
     dropStage: "offered",
     accent: "gold",
-    section: "Close",
+    section: "Offered",
     offerCallStatus: "booked",
   },
   {
     id: "offer_call_done",
-    label: "Offer · call done",
-    hint: "Offered · post-offer call done",
+    label: "Offer call done",
+    hint: "Offer call completed",
     stages: ["offered"],
     dropStage: "offered",
     accent: "gold",
-    section: "Close",
+    section: "Offered",
     offerCallStatus: "done",
-  },
-  {
-    id: "offered_accepted",
-    label: "Offered – Accepted",
-    hint: "Offer accepted · pending close",
-    stages: ["offered_accepted"],
-    dropStage: "offered_accepted",
-    accent: "gold",
-    section: "Close",
   },
   {
     id: "student_reject",
     label: "Student Reject",
-    hint: "Candidate declined (post pre-interview)",
+    hint: "Student dropped · reason required",
     stages: ["student_reject"],
     dropStage: "student_reject",
     accent: "red",
-    section: "Close",
+    section: "Offered",
+  },
+  {
+    id: "offered_accepted",
+    label: "Offer accepted",
+    hint: "Accepted · closed won path",
+    stages: ["offered_accepted"],
+    dropStage: "offered_accepted",
+    accent: "green",
+    section: "Closed",
   },
   {
     id: "closed_paid",
     label: "Closed – Paid",
-    hint: "Converted · paid",
+    hint: "Fee realised",
     stages: ["closed_paid"],
     dropStage: "closed_paid",
     accent: "green",
-    section: "Close",
+    section: "Closed",
   },
   {
     id: "closed_deferred",
     label: "Closed – Deferred",
-    hint: "Closed · payment deferred",
+    hint: "Deferred intake",
     stages: ["closed_deferred"],
     dropStage: "closed_deferred",
-    accent: "warning",
-    section: "Close",
+    accent: "gray",
+    section: "Closed",
   },
   {
     id: "closed_refund",
     label: "Closed – Refund",
-    hint: "Closed · refunded",
+    hint: "Refunded",
     stages: ["closed_refund"],
     dropStage: "closed_refund",
-    accent: "red",
-    section: "Close",
+    accent: "gray",
+    section: "Closed",
   },
   {
     id: "closed_lost",
     label: "Closed – Lost",
-    hint: "Closed · lost",
+    hint: "Lost",
     stages: ["closed_lost"],
     dropStage: "closed_lost",
-    accent: "red",
-    section: "Close",
+    accent: "gray",
+    section: "Closed",
   },
 ];
 
@@ -672,15 +751,11 @@ function sectionForStage(stage: Stage): string {
   if ((PRE_INTERVIEW_STAGES as readonly string[]).includes(stage)) {
     return "Pre-interview";
   }
-  if (stage.startsWith("r1_")) return "Round 1";
-  if (stage.startsWith("r2_")) return "Round 2";
-  if (stage.startsWith("r3_")) return "Round 3";
-  if (
-    stage === "yet_to_offer" ||
-    stage === "offered" ||
-    stage === "offered_accepted"
-  ) {
-    return "Offer";
+  if (stage.startsWith("r1_") || stage.startsWith("r2_") || stage.startsWith("r3_")) {
+    return "Interviews";
+  }
+  if (stage === "yet_to_offer" || stage === "offered" || stage === "student_reject") {
+    return "Offered";
   }
   return "Closed";
 }

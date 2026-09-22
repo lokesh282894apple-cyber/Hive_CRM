@@ -3,6 +3,7 @@
 import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
 import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
+import { StageRejectDialog } from "@/components/leads/StageRejectDialog";
 import {
   BOARD_COLUMN_CAP,
   BOARD_WIP_WARN,
@@ -494,6 +495,11 @@ export function PipelineBoard({
     leadId: string;
     leadName: string;
   } | null>(null);
+  const [stageReject, setStageReject] = useState<{
+    leadId: string;
+    leadName: string;
+    targetStage: Stage;
+  } | null>(null);
   const [dndReady, setDndReady] = useState(false);
   const lastOverId = useRef<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -667,6 +673,22 @@ export function PipelineBoard({
 
       if (!sameStage && nextStage === "admission_team_rejected") {
         openAdmissionRejectDialog(lead);
+        return;
+      }
+
+      if (
+        !sameStage &&
+        (nextStage === "student_reject" ||
+          nextStage === "r1_reject" ||
+          nextStage === "r2_reject" ||
+          nextStage === "r3_reject")
+      ) {
+        setError(null);
+        setStageReject({
+          leadId: lead.id,
+          leadName: lead.name,
+          targetStage: nextStage,
+        });
         return;
       }
 
@@ -876,6 +898,31 @@ export function PipelineBoard({
               )
             );
             setAdmissionReject(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {stageReject ? (
+        <StageRejectDialog
+          open
+          leadId={stageReject.leadId}
+          leadName={stageReject.leadName}
+          targetStage={stageReject.targetStage}
+          onClose={() => setStageReject(null)}
+          onRejected={(reason) => {
+            setItems((prev) =>
+              prev.map((l) =>
+                l.id === stageReject.leadId
+                  ? {
+                      ...l,
+                      stage: stageReject.targetStage,
+                      stage_reason: reason,
+                    }
+                  : l
+              )
+            );
+            setStageReject(null);
             router.refresh();
           }}
         />

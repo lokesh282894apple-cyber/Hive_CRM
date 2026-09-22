@@ -138,8 +138,29 @@ export default async function AdminCounselorPage({
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Allocated leads" value={t.calling.allocatedLeads} />
         <StatCard label="Total calls" value={t.calling.totalCalls} />
+        <StatCard label="Unique leads called" value={t.calling.uniqueCalls} />
         <StatCard label="Avg calls / lead" value={t.calling.avgCallsPerLead} />
         <StatCard label="Avg calls / day" value={t.calling.avgCallsPerDay} />
+        <StatCard
+          label="Pickup rate"
+          value={t.calling.pickupRatePct != null ? `${t.calling.pickupRatePct}%` : "—"}
+        />
+        <StatCard
+          label="Talk time (avg/day)"
+          value={
+            t.calling.avgDailyTalkSec != null
+              ? `${(t.calling.avgDailyTalkSec / 3600).toFixed(2)}h`
+              : "—"
+          }
+        />
+        <StatCard
+          label="Inbound attended"
+          value={
+            t.calling.inboundCalls
+              ? `${t.calling.inboundAttended}/${t.calling.inboundCalls}`
+              : "—"
+          }
+        />
       </div>
 
       <p className="mb-2 text-xs font-semibold uppercase tracking-eyebrow text-muted">
@@ -147,11 +168,14 @@ export default async function AdminCounselorPage({
       </p>
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <StatCard label="Allocated" value={t.pipeline.allocated} />
+        <StatCard label="Nurturing" value={t.pipeline.nurturing} />
         <StatCard label="R1 booked" value={t.pipeline.r1Booked} />
         <StatCard label="R1 conducted" value={t.pipeline.r1Conducted} />
         <StatCard label="R2 booked" value={t.pipeline.r2Booked} />
         <StatCard label="R3 booked" value={t.pipeline.r3Booked} />
         <StatCard label="Offer" value={t.pipeline.offer} />
+        <StatCard label="Student reject" value={t.pipeline.studentReject} />
+        <StatCard label="Hive reject" value={t.pipeline.hiveReject} />
       </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -215,13 +239,19 @@ export default async function AdminCounselorPage({
                 <th className="eyebrow px-4 py-3">Calls/mo</th>
                 <th className="eyebrow px-4 py-3">Avg connect</th>
                 <th className="eyebrow px-4 py-3">DNP calls/day</th>
-                <th className="eyebrow px-4 py-3">Unique calls</th>
+                <th className="eyebrow px-4 py-3">Unique leads</th>
+                <th className="eyebrow px-4 py-3">Pickup %</th>
+                <th className="eyebrow px-4 py-3">Talk/day</th>
+                <th className="eyebrow px-4 py-3">In / Out</th>
                 <th className="eyebrow px-4 py-3">Unique days</th>
+                <th className="eyebrow px-4 py-3">Nurture</th>
                 <th className="eyebrow px-4 py-3">R1 booked</th>
                 <th className="eyebrow px-4 py-3">R1 done</th>
                 <th className="eyebrow px-4 py-3">R2</th>
                 <th className="eyebrow px-4 py-3">R3</th>
                 <th className="eyebrow px-4 py-3">Offer</th>
+                <th className="eyebrow px-4 py-3">Stu rej</th>
+                <th className="eyebrow px-4 py-3">Hive rej</th>
                 <th className="eyebrow px-4 py-3">Offer→conv</th>
                 <th className="eyebrow px-4 py-3">Not conv %</th>
               </tr>
@@ -244,12 +274,28 @@ export default async function AdminCounselorPage({
                     {r.calling.avgCallsPerDayOnDnp ?? "—"}
                   </td>
                   <td className="px-4 py-3">{r.calling.uniqueCalls}</td>
+                  <td className="px-4 py-3">
+                    {r.calling.pickupRatePct != null
+                      ? `${r.calling.pickupRatePct}%`
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {r.calling.avgDailyTalkSec != null
+                      ? `${(r.calling.avgDailyTalkSec / 3600).toFixed(2)}h`
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {r.calling.inboundCalls}/{r.calling.outboundCalls}
+                  </td>
                   <td className="px-4 py-3">{r.calling.uniqueCallDays}</td>
+                  <td className="px-4 py-3">{r.pipeline.nurturing}</td>
                   <td className="px-4 py-3">{r.pipeline.r1Booked}</td>
                   <td className="px-4 py-3">{r.pipeline.r1Conducted}</td>
                   <td className="px-4 py-3">{r.pipeline.r2Booked}</td>
                   <td className="px-4 py-3">{r.pipeline.r3Booked}</td>
                   <td className="px-4 py-3">{r.pipeline.offer}</td>
+                  <td className="px-4 py-3">{r.pipeline.studentReject}</td>
+                  <td className="px-4 py-3">{r.pipeline.hiveReject}</td>
                   <td className="px-4 py-3">{r.pipeline.convertedAfterOffer}</td>
                   <td className="px-4 py-3">
                     {r.pipeline.notConvertedAfterOfferPct != null

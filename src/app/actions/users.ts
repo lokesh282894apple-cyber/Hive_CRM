@@ -34,6 +34,7 @@ export async function createUserAccount(input: {
     email: input.email,
     role: input.role,
     active: true,
+    must_change_password: true,
   });
   if (profileError) {
     return { ok: false, error: profileError.message };

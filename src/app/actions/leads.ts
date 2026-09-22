@@ -9,6 +9,8 @@ import {
   stageRequiresReason,
   stageRequiresPresetReason,
   isValidAdmissionRejectionReason,
+  isValidRejectionReasonForStage,
+  rejectAtStageFromLeadStage,
 } from "@/lib/constants";
 import { getFunnelConfig } from "@/lib/funnel/config";
 import { recomputeLeadScore } from "@/lib/leads/score";
@@ -120,19 +122,40 @@ export async function updateLeadStage(
     return {
       ok: false,
       error: stageRequiresPresetReason(stage)
-        ? "Pick a reason of rejection before marking Admission Team Rejected"
+        ? "Pick a rejection reason before moving this lead"
         : "This stage requires a typed reason",
     };
   }
-  if (stageRequiresPresetReason(stage) && !isValidAdmissionRejectionReason(reason)) {
+  if (stageRequiresPresetReason(stage) && !isValidRejectionReasonForStage(stage, reason)) {
     return { ok: false, error: "Invalid rejection reason" };
   }
+
+  const rejectKind =
+    stage === "student_reject"
+      ? "student"
+      : stage === "admission_team_rejected" ||
+          stage === "r1_reject" ||
+          stage === "r2_reject" ||
+          stage === "r3_reject"
+        ? "hive"
+        : null;
+
+  const rejectAt = rejectKind
+    ? rejectAtStageFromLeadStage(lead.stage)
+    : null;
 
   const { error } = await supabase
     .from("leads")
     .update({
       stage,
       stage_reason: reason || null,
+      ...(rejectKind
+        ? {
+            reject_kind: rejectKind,
+            reject_at_stage: rejectAt,
+            reject_reason_category: reason.slice(0, 120),
+          }
+        : {}),
     })
     .eq("id", leadId);
   if (error) return { ok: false, error: error.message };
@@ -341,6 +364,7 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
   const { error } = await supabase.from("call_logs").insert({
     ...payload,
     call_source: "manual",
+    direction: "outbound",
   });
   if (error) return { ok: false, error: error.message };
 

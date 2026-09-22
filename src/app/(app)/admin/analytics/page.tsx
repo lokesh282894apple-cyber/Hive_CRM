@@ -10,6 +10,8 @@ import { resolveStructuredRange, monthBounds } from "@/lib/analytics/date-range"
 import { DateRangeBar } from "@/components/admin/DateRangeBar";
 import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/FunnelMatrix";
+import { RejectionFunnelPanel } from "@/components/admin/funnel/RejectionFunnelPanel";
+import { fetchRejectionFunnel } from "@/lib/analytics/rejection-funnel";
 import { ConversionTable } from "@/components/admin/funnel/ConversionTable";
 import { AttributionSplit } from "@/components/admin/funnel/AttributionSplit";
 import { DayWiseGrid } from "@/components/admin/funnel/DayWiseGrid";
@@ -161,6 +163,11 @@ export default async function AdminAnalyticsPage({
     courseId,
     cohortId,
     counselorId,
+  });
+
+  const rejection = await fetchRejectionFunnel(supabase, {
+    sinceIso: `${fromDate}T00:00:00.000Z`,
+    untilExclusiveIso: `${toDate}T23:59:59.999Z`,
   });
 
   const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
@@ -398,6 +405,9 @@ export default async function AdminAnalyticsPage({
             cohortId={cohortId}
             counselorId={counselorId}
           />
+        </div>
+        <div className="mt-4">
+          <RejectionFunnelPanel data={rejection} />
         </div>
       </Section>
 
