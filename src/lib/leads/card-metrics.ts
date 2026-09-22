@@ -1,5 +1,4 @@
 import type { createClient } from "@/lib/supabase/server";
-import { fetchAllPages } from "@/lib/supabase/paginate";
 import type { LeadWithRelations } from "@/types/database";
 
 type Supabase = ReturnType<typeof createClient>;
@@ -32,7 +31,10 @@ export type LeadWithCard = LeadWithRelations & {
   cardMetrics?: LeadCardMetrics;
 };
 
-const IN_CHUNK = 80;
+const IN_CHUNK = 100;
+/** Cap recent calls per lead for list/board cards (avoids scanning full call history). */
+const CALLS_PER_LEAD_CAP = 40;
+const HISTORY_PER_LEAD_CAP = 8;
 
 function dayKey(iso: string) {
   return iso.slice(0, 10);
@@ -75,53 +77,56 @@ export async function loadLeadCardMetrics(
   const grades: GradeRow[] = [];
   const approvals: ApprovalRow[] = [];
 
-  for (const chunk of chunkIds(ids)) {
-    const [callPage, bookingPage, historyPage, gradePage, approvalPage] =
-      await Promise.all([
-        fetchAllPages<CallRow>(
-          (from, to) =>
-            supabase
-              .from("call_logs")
-              .select("lead_id, logged_at, recording_url")
-              .in("lead_id", chunk)
-              .order("logged_at", { ascending: false })
-              .range(from, to),
-          "card-metrics.calls"
-        ),
-        supabase
-          .from("interview_bookings")
-          .select("lead_id, scheduled_at, created_at, read_ai_report_url")
-          .in("lead_id", chunk)
-          .order("scheduled_at", { ascending: false }),
-        fetchAllPages<HistoryRow>(
-          (from, to) =>
-            supabase
-              .from("stage_history")
-              .select("lead_id, to_stage, changed_at")
-              .in("lead_id", chunk)
-              .order("changed_at", { ascending: false })
-              .range(from, to),
-          "card-metrics.history"
-        ),
-        supabase.from("lead_panelist_grades").select("lead_id, score").in("lead_id", chunk),
-        supabase
-          .from("lead_approvals")
-          .select(
-            "lead_id, slot, label, status, approved_at, approved_by, approver:users!lead_approvals_approved_by_fkey(name)"
-          )
-          .in("lead_id", chunk),
-      ]);
+  // Parallelize chunks (was sequential — big lag on 400-lead boards)
+  await Promise.all(
+    chunkIds(ids).map(async (chunk) => {
+      const callLimit = Math.min(chunk.length * CALLS_PER_LEAD_CAP, 2500);
+      const historyLimit = Math.min(chunk.length * HISTORY_PER_LEAD_CAP, 800);
 
-    calls.push(...callPage);
-    bookings.push(...((bookingPage.data ?? []) as BookingRow[]));
-    history.push(...historyPage);
-    grades.push(...((gradePage.data ?? []) as GradeRow[]));
-    approvals.push(...((approvalPage.data ?? []) as ApprovalRow[]));
-  }
+      const [callRes, bookingRes, historyRes, gradeRes, approvalRes] =
+        await Promise.all([
+          supabase
+            .from("call_logs")
+            .select("lead_id, logged_at, recording_url")
+            .in("lead_id", chunk)
+            .order("logged_at", { ascending: false })
+            .limit(callLimit),
+          supabase
+            .from("interview_bookings")
+            .select("lead_id, scheduled_at, created_at, read_ai_report_url")
+            .in("lead_id", chunk)
+            .order("scheduled_at", { ascending: false })
+            .limit(chunk.length * 3),
+          supabase
+            .from("stage_history")
+            .select("lead_id, to_stage, changed_at")
+            .in("lead_id", chunk)
+            .order("changed_at", { ascending: false })
+            .limit(historyLimit),
+          supabase
+            .from("lead_panelist_grades")
+            .select("lead_id, score")
+            .in("lead_id", chunk),
+          supabase
+            .from("lead_approvals")
+            .select(
+              "lead_id, slot, label, status, approved_at, approved_by, approver:users!lead_approvals_approved_by_fkey(name)"
+            )
+            .in("lead_id", chunk),
+        ]);
+
+      calls.push(...((callRes.data ?? []) as CallRow[]));
+      bookings.push(...((bookingRes.data ?? []) as BookingRow[]));
+      history.push(...((historyRes.data ?? []) as HistoryRow[]));
+      grades.push(...((gradeRes.data ?? []) as GradeRow[]));
+      approvals.push(...((approvalRes.data ?? []) as ApprovalRow[]));
+    })
+  );
 
   const callsByLead = new Map<string, CallRow[]>();
   for (const c of calls) {
     const list = callsByLead.get(c.lead_id) ?? [];
+    if (list.length >= CALLS_PER_LEAD_CAP) continue;
     list.push(c);
     callsByLead.set(c.lead_id, list);
   }
@@ -163,20 +168,14 @@ export async function loadLeadCardMetrics(
   return leads.map((lead) => {
     const leadCalls = callsByLead.get(lead.id) ?? [];
     const unique = new Set(leadCalls.map((c) => dayKey(c.logged_at)));
-    const lastCallAt = leadCalls.reduce<string | null>((acc, c) => {
-      if (!acc || c.logged_at > acc) return c.logged_at;
-      return acc;
-    }, null);
+    const lastCallAt = leadCalls[0]?.logged_at ?? lead.last_contacted_at ?? null;
     const callRecording = leadCalls.find((c) => c.recording_url)?.recording_url;
     const leadRecording =
       (lead as { recording_url?: string | null }).recording_url ?? null;
     const entered =
       stageEntered.get(`${lead.id}:${lead.stage}`) ?? lead.created_at;
     const sinceCalls = leadCalls.filter((c) => c.logged_at >= entered);
-    const lastCallSinceStageAt = sinceCalls.reduce<string | null>((acc, c) => {
-      if (!acc || c.logged_at > acc) return c.logged_at;
-      return acc;
-    }, null);
+    const lastCallSinceStageAt = sinceCalls[0]?.logged_at ?? null;
     const daysSince = Math.max(
       1,
       Math.ceil((Date.now() - new Date(entered).getTime()) / 86_400_000)

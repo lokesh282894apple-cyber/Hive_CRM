@@ -194,7 +194,10 @@ export function LeadsWorkspace({
       new URLSearchParams(searchParams.toString())
     );
     startTransition(() => {
-      router.push(`${basePath || pathname}?${next.toString()}`, { scroll: false });
+      // replace avoids history stack + is slightly cheaper than push on rapid filter clicks
+      router.replace(`${basePath || pathname}?${next.toString()}`, {
+        scroll: false,
+      });
     });
   }
 

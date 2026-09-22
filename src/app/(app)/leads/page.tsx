@@ -9,6 +9,7 @@ import {
   getCounselorScopePairs,
   parseLeadsSearchParams,
 } from "@/lib/leads-query";
+import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
@@ -23,7 +24,6 @@ export default async function LeadsPage({
   const ctx = await requireAuth(["counselor", "admin"]);
   const user = ctx.user;
   const supabase = createClient();
-  // View as must behave as the target counselor (never admin "all leads")
   const isAdmin = user.role === "admin" && !ctx.impersonating;
   const basePath = ctx.impersonating
     ? viewAsHref(user.id, "/leads")
@@ -50,18 +50,33 @@ export default async function LeadsPage({
   let dataQuery = supabase.from("leads").select(LEAD_LIST_SELECT);
   dataQuery = applyLeadsFilters(dataQuery, filterOpts);
 
-  let countQuery = supabase.from("leads").select("id", { count: "exact", head: true });
-  countQuery = applyLeadsFilters(countQuery, { ...filterOpts, paginate: false });
+  // Exact count is slow on large tables — skip on board (use estimate)
+  const needExactCount = filters.mode === "list";
+  const countPromise = needExactCount
+    ? (() => {
+        let countQuery = supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true });
+        countQuery = applyLeadsFilters(countQuery, {
+          ...filterOpts,
+          paginate: false,
+        });
+        return countQuery;
+      })()
+    : Promise.resolve({ count: null as number | null });
 
-  const [{ data }, { count }] = await Promise.all([dataQuery, countQuery]);
+  const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
 
   const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
   const [leads, attrMap] = await Promise.all([
     loadLeadCardMetrics(supabase, leadsRaw),
-    fetchAttributionForLeads(
-      supabase,
-      leadsRaw.map((l) => l.id)
-    ),
+    // Attribution only powers the list Source column
+    filters.mode === "list"
+      ? fetchAttributionForLeads(
+          supabase,
+          leadsRaw.map((l) => l.id)
+        )
+      : Promise.resolve(new Map()),
   ]);
 
   const attributionByLead: Record<
@@ -74,6 +89,12 @@ export default async function LeadsPage({
       channel_name: v.channel_name,
     };
   }
+
+  const totalEstimate =
+    count ??
+    (leads.length >= BOARD_FETCH_MAX
+      ? BOARD_FETCH_MAX
+      : leads.length);
 
   return (
     <div>
@@ -90,7 +111,7 @@ export default async function LeadsPage({
       />
       <LeadsWorkspace
         leads={leads}
-        totalEstimate={count ?? 0}
+        totalEstimate={totalEstimate}
         filters={filters}
         courses={courses as Course[]}
         cohorts={cohorts as Cohort[]}

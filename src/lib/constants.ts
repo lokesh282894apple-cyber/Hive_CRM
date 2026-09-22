@@ -528,7 +528,8 @@ export type OwnershipView = (typeof OWNERSHIP_VIEWS)[number]["id"];
 export const BOARD_COLUMN_CAP = 30;
 export const BOARD_WIP_WARN = 50;
 export const LIST_PAGE_SIZE = 50;
-export const BOARD_FETCH_MAX = 400;
+/** Board fetch cap — keep modest so card metrics stay fast */
+export const BOARD_FETCH_MAX = 250;
 export const BOOKING_DEFAULT_DAYS = 7;
 export const BOOKING_SLOT_CAP = 80;
 

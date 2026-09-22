@@ -8,6 +8,7 @@ import {
   applyLeadsFilters,
   parseLeadsSearchParams,
 } from "@/lib/leads-query";
+import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
@@ -36,8 +37,19 @@ export default async function AdminLeadsPage({
   let dataQuery = supabase.from("leads").select(LEAD_LIST_SELECT);
   dataQuery = applyLeadsFilters(dataQuery, filterOpts);
 
-  let countQuery = supabase.from("leads").select("id", { count: "exact", head: true });
-  countQuery = applyLeadsFilters(countQuery, { ...filterOpts, paginate: false });
+  const needExactCount = filters.mode === "list";
+  const countPromise = needExactCount
+    ? (() => {
+        let countQuery = supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true });
+        countQuery = applyLeadsFilters(countQuery, {
+          ...filterOpts,
+          paginate: false,
+        });
+        return countQuery;
+      })()
+    : Promise.resolve({ count: null as number | null });
 
   const [
     { data: leadsRaw },
@@ -47,7 +59,7 @@ export default async function AdminLeadsPage({
     cohorts,
   ] = await Promise.all([
     dataQuery,
-    countQuery,
+    countPromise,
     supabase
       .from("users")
       .select("id, name, email, role, active")
@@ -61,10 +73,12 @@ export default async function AdminLeadsPage({
   const raw = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
   const [leads, attrMap] = await Promise.all([
     loadLeadCardMetrics(supabase, raw),
-    fetchAttributionForLeads(
-      supabase,
-      raw.map((l) => l.id)
-    ),
+    filters.mode === "list"
+      ? fetchAttributionForLeads(
+          supabase,
+          raw.map((l) => l.id)
+        )
+      : Promise.resolve(new Map()),
   ]);
 
   const attributionByLead: Record<
@@ -78,6 +92,10 @@ export default async function AdminLeadsPage({
     };
   }
 
+  const totalEstimate =
+    count ??
+    (leads.length >= BOARD_FETCH_MAX ? BOARD_FETCH_MAX : leads.length);
+
   return (
     <div>
       <PageHeader
@@ -89,7 +107,7 @@ export default async function AdminLeadsPage({
       <HubspotImportClient />
       <LeadsWorkspace
         leads={leads}
-        totalEstimate={count ?? 0}
+        totalEstimate={totalEstimate}
         filters={filters}
         courses={courses as Course[]}
         cohorts={cohorts as Cohort[]}
