@@ -11,6 +11,8 @@ import {
   FEE_DEAL_SWIMLANES,
   FEE_LINE_TYPES,
   FEE_PAYMENT_STATUSES,
+  isFeeDealLoanStage,
+  isFeeDealStage,
   LOAN_PIPELINE_STAGES,
   LOAN_STAGE_LABELS,
   PAYMENT_MODE_LABELS,
@@ -37,13 +39,97 @@ import {
 } from "@/lib/program/fee-tracker";
 import { StatusBadge } from "@/components/ui/Primitives";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
-import { useMemo, useState, useTransition } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  closestCorners,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
 
-const PROGRAM_LOAN_STAGES: LoanStage[] = [...LOAN_PIPELINE_STAGES];
 const LOAN_BOARD_COLS: LoanStage[] = [...LOAN_PIPELINE_STAGES];
 const TERMINAL_LOAN: LoanStage[] = ["loan_hit_bank"];
+
+function DragHandle({
+  listeners,
+  attributes,
+  disabled,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  listeners?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  attributes?: any;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="mt-0.5 cursor-grab touch-none text-muted opacity-50 hover:opacity-100 active:cursor-grabbing disabled:cursor-default disabled:opacity-30"
+      aria-label="Drag card"
+      disabled={disabled}
+      {...(disabled ? {} : listeners)}
+      {...(disabled ? {} : attributes)}
+    >
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+        <circle cx="9" cy="7" r="1.5" />
+        <circle cx="15" cy="7" r="1.5" />
+        <circle cx="9" cy="12" r="1.5" />
+        <circle cx="15" cy="12" r="1.5" />
+        <circle cx="9" cy="17" r="1.5" />
+        <circle cx="15" cy="17" r="1.5" />
+      </svg>
+    </button>
+  );
+}
+
+function allowedDealDrops(from: FeeDealStage): FeeDealStage[] {
+  const lane = FEE_DEAL_SWIMLANES.find((g) => g.stages.includes(from));
+  if (!lane) return [...FEE_DEAL_STAGES];
+  if (lane.id === "choosing") {
+    return [...lane.stages, "instalments", "one_shot", "docs_to_share"];
+  }
+  return [...lane.stages];
+}
+
+function dealMovePayload(s: FeeTrackerStudent, next: FeeDealStage) {
+  return {
+    feeId: s.fee.id,
+    deal_stage: next,
+    payment_method_email_sent:
+      next === "awaiting_method" ||
+      next === "method_chosen" ||
+      s.fee.payment_method_email_sent
+        ? true
+        : s.fee.payment_method_email_sent,
+    payment_mode: (next === "instalments"
+      ? "direct_instalments"
+      : next === "one_shot"
+        ? "one_shot"
+        : isFeeDealLoanStage(next)
+          ? "loan"
+          : s.fee.payment_mode) as PaymentMode,
+    response_deadline:
+      next === "awaiting_method" && !s.fee.response_deadline
+        ? new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10)
+        : s.fee.response_deadline,
+    active_deadline:
+      next === "one_shot"
+        ? s.fee.one_shot_deadline ||
+          s.fee.active_deadline ||
+          new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10)
+        : s.fee.active_deadline,
+  };
+}
 
 type MainTab = "fees" | "loans" | "deal" | "revenue";
 type LoanView = "board" | "table";
@@ -570,6 +656,53 @@ function LoansTab({
     }
   ) => void;
 }) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const lastOverId = useRef<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  const activeStudent = students.find((s) => s.fee.id === activeId) ?? null;
+
+  function resolveLoanColumn(overId: string | null): LoanStage | null {
+    if (!overId) return null;
+    if ((LOAN_BOARD_COLS as readonly string[]).includes(overId)) {
+      return overId as LoanStage;
+    }
+    const card = students.find((s) => s.fee.id === overId);
+    if (card) return normalizeLoanStage(card.loan?.stage ?? "docs_to_share");
+    return null;
+  }
+
+  function onDragStart(e: DragStartEvent) {
+    setActiveId(String(e.active.id));
+    lastOverId.current = null;
+  }
+
+  function onDragOver(e: DragOverEvent) {
+    if (e.over?.id) lastOverId.current = String(e.over.id);
+  }
+
+  function onDragEnd(e: DragEndEvent) {
+    setActiveId(null);
+    const feeId = String(e.active.id);
+    const overId = e.over?.id ? String(e.over.id) : lastOverId.current;
+    lastOverId.current = null;
+    const target = resolveLoanColumn(overId);
+    if (!target || pending) return;
+    const s = students.find((row) => row.fee.id === feeId);
+    if (!s) return;
+    const current = normalizeLoanStage(s.loan?.stage ?? "docs_to_share");
+    if (current === target) return;
+    onMove(feeId, target, {
+      loan_amount: Number(s.loan?.total_fee ?? 0) || undefined,
+      doc_submission_deadline: s.loan?.doc_submission_deadline ?? null,
+      remaining_fee_15d_deadline: s.loan?.remaining_fee_15d_deadline ?? null,
+      loan_completion_deadline: s.loan?.loan_completion_deadline ?? null,
+      disbursement_date: s.loan?.disbursement_date ?? null,
+    });
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
@@ -594,85 +727,50 @@ function LoansTab({
       </div>
 
       {view === "board" ? (
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {LOAN_BOARD_COLS.map((col) => {
-            const cards = students.filter(
-              (s) => normalizeLoanStage(s.loan?.stage ?? "docs_to_share") === col
-            );
-            return (
-              <div
-                key={col}
-                className="w-64 shrink-0 rounded-2xl border border-border bg-[#F7F8FC] p-2"
-              >
-                <p className="px-1 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
-                  {LOAN_STAGE_LABELS[col]} · {cards.length}
-                </p>
-                <div className="space-y-2">
-                  {cards.map((s) => {
-                    const flags = loanOverdueFlags(s);
-                    return (
-                      <div
-                        key={s.fee.id}
-                        className="rounded-xl border border-border bg-white p-3 shadow-sm"
-                      >
-                        <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
-                        <p className="text-[11px] text-muted">
-                          {s.lead.course_name ?? "—"} · {s.lead.cohort_name ?? "—"}
-                        </p>
-                        <p className="mt-1 text-xs tabular-nums text-navy">
-                          {formatCurrency(Number(s.loan?.total_fee ?? 0) || 0)}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {flags.map((f) => (
-                            <span
-                              key={f.key}
-                              className={cn(
-                                "rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                                deadlineToneClass(f.tone)
-                              )}
-                            >
-                              {f.label}
-                            </span>
-                          ))}
-                          {s.fee.drop_email ? (
-                            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
-                              Drop Email
-                            </span>
-                          ) : null}
-                        </div>
-                        <select
-                          className="input-field mt-2 w-full py-1 text-[11px]"
-                          disabled={pending}
-                          value={col}
-                          onChange={(e) =>
-                            onMove(s.fee.id, e.target.value as LoanStage, {
-                              loan_amount: Number(s.loan?.total_fee ?? 0) || undefined,
-                              doc_submission_deadline: s.loan?.doc_submission_deadline ?? null,
-                              remaining_fee_15d_deadline:
-                                s.loan?.remaining_fee_15d_deadline ?? null,
-                              loan_completion_deadline:
-                                s.loan?.loan_completion_deadline ?? null,
-                              disbursement_date: s.loan?.disbursement_date ?? null,
-                            })
-                          }
-                        >
-                          {PROGRAM_LOAN_STAGES.map((st) => (
-                            <option key={st} value={st}>
-                              Move → {LOAN_STAGE_LABELS[st]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  })}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setActiveId(null)}
+        >
+          <p className="text-xs text-muted">Drag a card onto another column to change stage.</p>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {LOAN_BOARD_COLS.map((col) => {
+              const cards = students.filter(
+                (s) => normalizeLoanStage(s.loan?.stage ?? "docs_to_share") === col
+              );
+              return (
+                <LoanDropColumn
+                  key={col}
+                  id={col}
+                  label={LOAN_STAGE_LABELS[col]}
+                  count={cards.length}
+                >
+                  {cards.map((s) => (
+                    <LoanDragCard
+                      key={s.fee.id}
+                      student={s}
+                      dragging={activeId === s.fee.id}
+                      disabled={pending}
+                    />
+                  ))}
                   {!cards.length ? (
                     <p className="px-1 py-4 text-center text-[11px] text-muted">Empty</p>
                   ) : null}
-                </div>
+                </LoanDropColumn>
+              );
+            })}
+          </div>
+          <DragOverlay dropAnimation={null}>
+            {activeStudent ? (
+              <div className="w-64">
+                <LoanDragCard student={activeStudent} dragging overlay disabled />
               </div>
-            );
-          })}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       ) : (
         <div className="panel overflow-x-auto">
           <table className="w-full min-w-[1200px] text-left text-sm">
@@ -704,6 +802,9 @@ function LoansTab({
             <tbody>
               {students.map((s) => {
                 const flags = loanOverdueFlags(s);
+                const stage = normalizeLoanStage(
+                  (s.loan?.stage as string) || "docs_to_share"
+                );
                 return (
                   <tr key={s.fee.id} className="border-b border-border">
                     <td className="px-3 py-2 font-medium text-navy">{s.lead.name}</td>
@@ -723,51 +824,23 @@ function LoansTab({
                         className="input-field w-28 py-1 text-xs"
                         defaultValue={Number(s.loan?.total_fee ?? 0) || ""}
                         disabled={pending}
-                        id={`loan-amt-${s.fee.id}`}
                         onBlur={(e) => {
                           const amt = Number(e.target.value);
                           if (!Number.isFinite(amt)) return;
-                          onMove(
-                            s.fee.id,
-                            (s.loan?.stage as LoanStage) || "docs_to_share",
-                            {
-                              loan_amount: amt,
-                              doc_submission_deadline: s.loan?.doc_submission_deadline ?? null,
-                              remaining_fee_15d_deadline:
-                                s.loan?.remaining_fee_15d_deadline ?? null,
-                              loan_completion_deadline:
-                                s.loan?.loan_completion_deadline ?? null,
-                              disbursement_date: s.loan?.disbursement_date ?? null,
-                            }
-                          );
-                        }}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        className="input-field py-1 text-xs"
-                        disabled={pending}
-                        defaultValue={normalizeLoanStage(
-                          (s.loan?.stage as string) || "docs_to_share"
-                        )}
-                        onChange={(e) =>
-                          onMove(s.fee.id, e.target.value as LoanStage, {
-                            loan_amount: Number(s.loan?.total_fee ?? 0) || undefined,
+                          onMove(s.fee.id, stage, {
+                            loan_amount: amt,
                             doc_submission_deadline: s.loan?.doc_submission_deadline ?? null,
                             remaining_fee_15d_deadline:
                               s.loan?.remaining_fee_15d_deadline ?? null,
                             loan_completion_deadline:
                               s.loan?.loan_completion_deadline ?? null,
                             disbursement_date: s.loan?.disbursement_date ?? null,
-                          })
-                        }
-                      >
-                        {PROGRAM_LOAN_STAGES.map((st) => (
-                          <option key={st} value={st}>
-                            {LOAN_STAGE_LABELS[st]}
-                          </option>
-                        ))}
-                      </select>
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-xs font-medium text-navy">
+                      {LOAN_STAGE_LABELS[stage]}
                     </td>
                     {(
                       [
@@ -778,45 +851,45 @@ function LoansTab({
                       ] as const
                     ).map(([key, val]) => {
                       const tone = deadlineTone(val, {
-                        terminal: TERMINAL_LOAN.includes(
-                          normalizeLoanStage(
-                            (s.loan?.stage as string) || "docs_to_share"
-                          )
-                        ),
+                        terminal: TERMINAL_LOAN.includes(stage),
                       });
                       return (
                         <td key={key} className="px-3 py-2">
                           <input
-                            type="date"
+                            type={key === "doc" ? "datetime-local" : "date"}
                             className={cn(
-                              "input-field py-1 text-xs",
-                              tone !== "muted" && deadlineToneClass(tone)
+                              "input-field w-36 py-1 text-[11px]",
+                              deadlineToneClass(tone)
                             )}
-                            defaultValue={val ? String(val).slice(0, 10) : ""}
                             disabled={pending}
+                            defaultValue={
+                              val
+                                ? key === "doc"
+                                  ? String(val).slice(0, 16)
+                                  : String(val).slice(0, 10)
+                                : ""
+                            }
                             onBlur={(e) => {
                               const v = e.target.value || null;
-                              onMove(
-                                s.fee.id,
-                                (s.loan?.stage as LoanStage) || "docs_to_share",
-                                {
-                                  loan_amount: Number(s.loan?.total_fee ?? 0) || undefined,
-                                  doc_submission_deadline:
-                                    key === "doc"
-                                      ? v
-                                      : s.loan?.doc_submission_deadline ?? null,
-                                  loan_completion_deadline:
-                                    key === "complete"
-                                      ? v
-                                      : s.loan?.loan_completion_deadline ?? null,
-                                  remaining_fee_15d_deadline:
-                                    key === "15d"
-                                      ? v
-                                      : s.loan?.remaining_fee_15d_deadline ?? null,
-                                  disbursement_date:
-                                    key === "disb" ? v : s.loan?.disbursement_date ?? null,
-                                }
-                              );
+                              onMove(s.fee.id, stage, {
+                                loan_amount: Number(s.loan?.total_fee ?? 0) || undefined,
+                                doc_submission_deadline:
+                                  key === "doc"
+                                    ? v
+                                      ? new Date(v).toISOString()
+                                      : null
+                                    : s.loan?.doc_submission_deadline ?? null,
+                                remaining_fee_15d_deadline:
+                                  key === "15d"
+                                    ? v
+                                    : s.loan?.remaining_fee_15d_deadline ?? null,
+                                loan_completion_deadline:
+                                  key === "complete"
+                                    ? v
+                                    : s.loan?.loan_completion_deadline ?? null,
+                                disbursement_date:
+                                  key === "disb" ? v : s.loan?.disbursement_date ?? null,
+                              });
                             }}
                           />
                         </td>
@@ -835,6 +908,11 @@ function LoansTab({
                             {f.label}
                           </span>
                         ))}
+                        {s.fee.drop_email ? (
+                          <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
+                            Drop
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -847,9 +925,102 @@ function LoansTab({
           ) : null}
         </div>
       )}
+
       {view === "board" && !students.length ? (
         <p className="text-center text-sm text-muted">No loan students.</p>
       ) : null}
+    </div>
+  );
+}
+
+function LoanDropColumn({
+  id,
+  label,
+  count,
+  children,
+}: {
+  id: string;
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "w-64 shrink-0 rounded-2xl border bg-[#F7F8FC] p-2",
+        isOver ? "border-periwinkle ring-2 ring-periwinkle/30" : "border-border"
+      )}
+    >
+      <p className="px-1 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+        {label} · {count}
+      </p>
+      <div className="min-h-[4rem] space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function LoanDragCard({
+  student: s,
+  dragging,
+  overlay,
+  disabled,
+}: {
+  student: FeeTrackerStudent;
+  dragging?: boolean;
+  overlay?: boolean;
+  disabled?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: s.fee.id,
+    disabled: Boolean(disabled || overlay),
+  });
+  const flags = loanOverdueFlags(s);
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+
+  return (
+    <div
+      ref={overlay ? undefined : setNodeRef}
+      style={overlay ? undefined : style}
+      className={cn(
+        "rounded-xl border border-border bg-white p-3 shadow-sm",
+        (isDragging || dragging) && "opacity-40 ring-2 ring-gold/60",
+        overlay && "shadow-lg"
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {!overlay ? (
+          <DragHandle listeners={listeners} attributes={attributes} disabled={disabled} />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
+          <p className="text-[11px] text-muted">
+            {s.lead.course_name ?? "—"} · {s.lead.cohort_name ?? "—"}
+          </p>
+          <p className="mt-1 text-xs tabular-nums text-navy">
+            {formatCurrency(Number(s.loan?.total_fee ?? 0) || 0)}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {flags.map((f) => (
+              <span
+                key={f.key}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                  deadlineToneClass(f.tone)
+                )}
+              >
+                {f.label}
+              </span>
+            ))}
+            {s.fee.drop_email ? (
+              <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
+                Drop Email
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -863,228 +1034,245 @@ function DealBoard({
   pending: boolean;
   onSave: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => void;
 }) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [dragError, setDragError] = useState<string | null>(null);
+  const lastOverId = useRef<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
   function stageOf(s: FeeTrackerStudent): FeeDealStage {
     return normalizeDealStage(s.fee, s.loan);
   }
 
-  function moveOptionsFor(stage: FeeDealStage): FeeDealStage[] {
-    const lane = FEE_DEAL_SWIMLANES.find((g) => g.stages.includes(stage));
-    if (!lane) return [...FEE_DEAL_STAGES];
-    if (lane.id === "choosing") {
-      return [
-        ...lane.stages,
-        "instalments",
-        "one_shot",
-        "docs_to_share",
-      ];
+  const activeStudent = students.find((s) => s.fee.id === activeId) ?? null;
+
+  function resolveDealColumn(overId: string | null): FeeDealStage | null {
+    if (!overId) return null;
+    if (isFeeDealStage(overId)) return overId;
+    const card = students.find((s) => s.fee.id === overId);
+    if (card) return stageOf(card);
+    return null;
+  }
+
+  function onDragStart(e: DragStartEvent) {
+    setActiveId(String(e.active.id));
+    setDragError(null);
+    lastOverId.current = null;
+  }
+
+  function onDragOver(e: DragOverEvent) {
+    if (e.over?.id) lastOverId.current = String(e.over.id);
+  }
+
+  function onDragEnd(e: DragEndEvent) {
+    setActiveId(null);
+    const feeId = String(e.active.id);
+    const overId = e.over?.id ? String(e.over.id) : lastOverId.current;
+    lastOverId.current = null;
+    const target = resolveDealColumn(overId);
+    if (!target || pending) return;
+    const s = students.find((row) => row.fee.id === feeId);
+    if (!s) return;
+    const current = stageOf(s);
+    if (current === target) return;
+    if (!allowedDealDrops(current).includes(target)) {
+      setDragError(
+        `Can't move to ${FEE_DEAL_STAGE_LABELS[target]} from ${FEE_DEAL_STAGE_LABELS[current]}. Stay in the same branch (or pick Instalements / One Shot / Loan from Choosing).`
+      );
+      return;
     }
-    return [...lane.stages];
+    onSave(() => updateFeeTrackerStudent(dealMovePayload(s, target)));
   }
 
   return (
-    <div className="space-y-3 overflow-x-auto pb-2">
-      <p className="text-xs text-muted">
-        Cards stay in Choosing until a payment option is picked, then only appear in that
-        branch. Drop Email is a flag on the card — not a column.
-      </p>
-      <div className="flex min-w-max gap-4">
-        {FEE_DEAL_SWIMLANES.map((lane) => (
-          <div
-            key={lane.id}
-            className="rounded-2xl border border-border bg-white/60 p-2"
-          >
-            <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-eyebrow text-navy">
-              {lane.label}
-            </p>
-            <div className="flex gap-2">
-              {lane.stages.map((col) => {
-                const cards = students.filter((s) => stageOf(s) === col);
-                return (
-                  <div
-                    key={col}
-                    className="w-60 shrink-0 rounded-2xl border border-border bg-[#F7F8FC] p-2"
-                  >
-                    <p className="px-1 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
-                      {FEE_DEAL_STAGE_LABELS[col]} · {cards.length}
-                    </p>
-                    <div className="space-y-2">
-                      {cards.map((s) => {
-                        const dl =
-                          s.fee.response_deadline ||
-                          s.fee.active_deadline ||
-                          s.pinnedDeadline;
-                        const tone = deadlineTone(dl, {
-                          terminal: !!s.fee.drop_email || col === "loan_hit_bank",
-                        });
-                        const options = moveOptionsFor(col);
-                        return (
-                          <div
-                            key={s.fee.id}
-                            className={cn(
-                              "rounded-xl border bg-white p-3 shadow-sm",
-                              s.fee.drop_email
-                                ? "border-rose-300 ring-1 ring-rose-200"
-                                : "border-border"
-                            )}
-                          >
-                            <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
-                            <p className="text-[11px] text-muted">
-                              {paymentModeLabel(s.fee.payment_mode)}
-                              {s.fee.program_onboarding_call_done ? " · Onboarded" : ""}
-                            </p>
-                            {s.fee.drop_email ? (
-                              <span className="mt-1 inline-block rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
-                                Drop Email
-                              </span>
-                            ) : null}
-                            {dl ? (
-                              <span
-                                className={cn(
-                                  "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                                  deadlineToneClass(tone)
-                                )}
-                              >
-                                {formatDate(dl)}
-                              </span>
-                            ) : null}
-                            <select
-                              className="input-field mt-2 w-full py-1 text-[11px]"
-                              disabled={pending}
-                              value={col}
-                              onChange={(e) => {
-                                const next = e.target.value as FeeDealStage;
-                                onSave(() =>
-                                  updateFeeTrackerStudent({
-                                    feeId: s.fee.id,
-                                    deal_stage: next,
-                                    payment_method_email_sent:
-                                      next === "awaiting_method" ||
-                                      next === "method_chosen" ||
-                                      s.fee.payment_method_email_sent
-                                        ? true
-                                        : s.fee.payment_method_email_sent,
-                                    payment_mode:
-                                      next === "instalments"
-                                        ? "direct_instalments"
-                                        : next === "one_shot"
-                                          ? "one_shot"
-                                          : next === "docs_to_share" ||
-                                              LOAN_PIPELINE_STAGES.includes(
-                                                next as (typeof LOAN_PIPELINE_STAGES)[number]
-                                              )
-                                            ? "loan"
-                                            : s.fee.payment_mode,
-                                    response_deadline:
-                                      next === "awaiting_method" &&
-                                      !s.fee.response_deadline
-                                        ? new Date(Date.now() + 3 * 86400_000)
-                                            .toISOString()
-                                            .slice(0, 10)
-                                        : s.fee.response_deadline,
-                                  })
-                                );
-                              }}
-                            >
-                              {options.map((st) => (
-                                <option key={st} value={st}>
-                                  → {FEE_DEAL_STAGE_LABELS[st]}
-                                </option>
-                              ))}
-                            </select>
-                            {col === "method_chosen" ? (
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                <button
-                                  type="button"
-                                  className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
-                                  disabled={pending}
-                                  onClick={() =>
-                                    onSave(() =>
-                                      updateFeeTrackerStudent({
-                                        feeId: s.fee.id,
-                                        payment_mode: "direct_instalments",
-                                        deal_stage: "instalments",
-                                      })
-                                    )
-                                  }
-                                >
-                                  → Instalements
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
-                                  disabled={pending}
-                                  onClick={() =>
-                                    onSave(() =>
-                                      updateFeeTrackerStudent({
-                                        feeId: s.fee.id,
-                                        payment_mode: "one_shot",
-                                        deal_stage: "one_shot",
-                                        active_deadline:
-                                          s.fee.one_shot_deadline ||
-                                          s.fee.active_deadline ||
-                                          new Date(Date.now() + 7 * 86400_000)
-                                            .toISOString()
-                                            .slice(0, 10),
-                                      })
-                                    )
-                                  }
-                                >
-                                  → One Shot
-                                </button>
-                                <button
-                                  type="button"
-                                  className="rounded bg-navy/5 px-2 py-1 text-[10px] font-semibold text-navy"
-                                  disabled={pending}
-                                  onClick={() =>
-                                    onSave(() =>
-                                      updateFeeTrackerStudent({
-                                        feeId: s.fee.id,
-                                        payment_mode: "loan",
-                                        deal_stage: "docs_to_share",
-                                      })
-                                    )
-                                  }
-                                >
-                                  → Loan
-                                </button>
-                              </div>
-                            ) : null}
-                            <button
-                              type="button"
-                              className={cn(
-                                "mt-2 text-[10px] font-semibold hover:underline",
-                                s.fee.drop_email ? "text-muted" : "text-rose-700"
-                              )}
-                              disabled={pending}
-                              onClick={() =>
-                                onSave(() =>
-                                  updateFeeTrackerStudent({
-                                    feeId: s.fee.id,
-                                    drop_email: !s.fee.drop_email,
-                                    deal_stage: stageOf(s),
-                                  })
-                                )
-                              }
-                            >
-                              {s.fee.drop_email ? "Clear Drop Email" : "Mark Drop Email"}
-                            </button>
-                          </div>
-                        );
-                      })}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      <div className="space-y-3 overflow-x-auto pb-2">
+        <p className="text-xs text-muted">
+          Drag cards between columns. From Choosing, drop onto Instalements, One Shot, or
+          Documents to be Shared to pick a branch. Drop Email stays a flag on the card.
+        </p>
+        {dragError ? <p className="text-xs text-danger">{dragError}</p> : null}
+        <div className="flex min-w-max gap-4">
+          {FEE_DEAL_SWIMLANES.map((lane) => (
+            <div
+              key={lane.id}
+              className="rounded-2xl border border-border bg-white/60 p-2"
+            >
+              <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-eyebrow text-navy">
+                {lane.label}
+              </p>
+              <div className="flex gap-2">
+                {lane.stages.map((col) => {
+                  const cards = students.filter((s) => stageOf(s) === col);
+                  return (
+                    <DealDropColumn
+                      key={col}
+                      id={col}
+                      label={FEE_DEAL_STAGE_LABELS[col]}
+                      count={cards.length}
+                    >
+                      {cards.map((s) => (
+                        <DealDragCard
+                          key={s.fee.id}
+                          student={s}
+                          stage={col}
+                          dragging={activeId === s.fee.id}
+                          disabled={pending}
+                          onToggleDrop={() =>
+                            onSave(() =>
+                              updateFeeTrackerStudent({
+                                feeId: s.fee.id,
+                                drop_email: !s.fee.drop_email,
+                                deal_stage: stageOf(s),
+                              })
+                            )
+                          }
+                        />
+                      ))}
                       {!cards.length ? (
                         <p className="px-1 py-4 text-center text-[11px] text-muted">Empty</p>
                       ) : null}
-                    </div>
-                  </div>
-                );
-              })}
+                    </DealDropColumn>
+                  );
+                })}
+              </div>
             </div>
+          ))}
+        </div>
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {activeStudent ? (
+          <div className="w-60">
+            <DealDragCard
+              student={activeStudent}
+              stage={stageOf(activeStudent)}
+              dragging
+              overlay
+              disabled
+            />
           </div>
-        ))}
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+function DealDropColumn({
+  id,
+  label,
+  count,
+  children,
+}: {
+  id: string;
+  label: string;
+  count: number;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "w-60 shrink-0 rounded-2xl border bg-[#F7F8FC] p-2",
+        isOver ? "border-periwinkle ring-2 ring-periwinkle/30" : "border-border"
+      )}
+    >
+      <p className="px-1 py-1 text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+        {label} · {count}
+      </p>
+      <div className="min-h-[4rem] space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function DealDragCard({
+  student: s,
+  stage,
+  dragging,
+  overlay,
+  disabled,
+  onToggleDrop,
+}: {
+  student: FeeTrackerStudent;
+  stage: FeeDealStage;
+  dragging?: boolean;
+  overlay?: boolean;
+  disabled?: boolean;
+  onToggleDrop?: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: s.fee.id,
+    disabled: Boolean(disabled || overlay),
+  });
+  const dl = s.fee.response_deadline || s.fee.active_deadline || s.pinnedDeadline;
+  const tone = deadlineTone(dl, {
+    terminal: !!s.fee.drop_email || stage === "loan_hit_bank",
+  });
+  const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+
+  return (
+    <div
+      ref={overlay ? undefined : setNodeRef}
+      style={overlay ? undefined : style}
+      className={cn(
+        "rounded-xl border bg-white p-3 shadow-sm",
+        s.fee.drop_email ? "border-rose-300 ring-1 ring-rose-200" : "border-border",
+        (isDragging || dragging) && "opacity-40 ring-2 ring-gold/60",
+        overlay && "shadow-lg"
+      )}
+    >
+      <div className="flex items-start gap-2">
+        {!overlay ? (
+          <DragHandle listeners={listeners} attributes={attributes} disabled={disabled} />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
+          <p className="text-[11px] text-muted">
+            {paymentModeLabel(s.fee.payment_mode)}
+            {s.fee.program_onboarding_call_done ? " · Onboarded" : ""}
+          </p>
+          {s.fee.drop_email ? (
+            <span className="mt-1 inline-block rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
+              Drop Email
+            </span>
+          ) : null}
+          {dl ? (
+            <span
+              className={cn(
+                "mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                deadlineToneClass(tone)
+              )}
+            >
+              {formatDate(dl)}
+            </span>
+          ) : null}
+          {!overlay && onToggleDrop ? (
+            <button
+              type="button"
+              className={cn(
+                "mt-2 block text-[10px] font-semibold hover:underline",
+                s.fee.drop_email ? "text-muted" : "text-rose-700"
+              )}
+              disabled={disabled}
+              onClick={onToggleDrop}
+            >
+              {s.fee.drop_email ? "Clear Drop Email" : "Mark Drop Email"}
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
+
 
 function StudentEditor({
   student,
