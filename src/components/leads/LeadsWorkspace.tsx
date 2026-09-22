@@ -75,7 +75,8 @@ export function LeadsWorkspace({
       (s) =>
         !s.includes("booked") &&
         !s.includes("reschedule") &&
-        s !== "r1_confirmed"
+        s !== "r1_confirmed" &&
+        s !== "closed_paid"
     );
   }, [funnel?.activeSlugs]);
   const stageLabel = (s: string) =>
@@ -980,6 +981,8 @@ export function LeadsWorkspace({
           isAdmin={isAdmin}
           showClaim={showClaim}
           cohortNums={cohortNums}
+          courses={courses}
+          cohorts={cohorts}
           selectedLeadId={selectedLeadId}
           onSelectLead={setSelectedLeadId}
           onClaim={(id) =>

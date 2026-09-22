@@ -35,6 +35,12 @@ export async function createLead(
     : null;
 
   const courseId = String(formData.get("course_id") || "") || null;
+  let cohortId = String(formData.get("cohort_id") || "") || null;
+  if (courseId && !cohortId) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { resolveCohortForCourse } = await import("@/lib/leads/resolve-cohort");
+    cohortId = await resolveCohortForCourse(createAdminClient(), courseId);
+  }
   let allocatedTo =
     user.role === "admin"
       ? String(formData.get("lead_allocated_to") || "") || null
@@ -51,7 +57,7 @@ export async function createLead(
     phone: String(formData.get("phone") || "").trim(),
     linkedin: String(formData.get("linkedin") || "").trim() || null,
     course_id: courseId,
-    cohort_id: String(formData.get("cohort_id") || "") || null,
+    cohort_id: cohortId,
     source: String(formData.get("source") || "other"),
     years_experience: formData.get("years_experience")
       ? Number(formData.get("years_experience"))
@@ -80,7 +86,13 @@ export async function updateLeadStage(
   leadId: string,
   stage: Stage | string,
   notes?: string,
-  opts?: { studentIntent?: number; skipIntentRequirement?: boolean }
+  opts?: {
+    studentIntent?: number;
+    skipIntentRequirement?: boolean;
+    /** When closing won, may patch program/cohort in the same move */
+    courseId?: string | null;
+    cohortId?: string | null;
+  }
 ): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
@@ -101,7 +113,7 @@ export async function updateLeadStage(
 
   const { data: lead } = await supabase
     .from("leads")
-    .select("stage")
+    .select("stage, course_id, cohort_id")
     .eq("id", leadId)
     .single();
 
@@ -109,6 +121,18 @@ export async function updateLeadStage(
 
   if (lead.stage === stage) {
     return { ok: true };
+  }
+
+  if (stage === "closed_paid") {
+    const courseId = opts?.courseId ?? lead.course_id;
+    const cohortId = opts?.cohortId ?? lead.cohort_id;
+    if (!courseId || !cohortId) {
+      return {
+        ok: false,
+        error:
+          "Confirm program and cohort (with cohort number) before closed won",
+      };
+    }
   }
 
   if (user.role !== "admin") {
@@ -179,6 +203,9 @@ export async function updateLeadStage(
     .update({
       stage,
       stage_reason: reason || null,
+      ...(stage === "closed_paid" && opts?.courseId && opts?.cohortId
+        ? { course_id: opts.courseId, cohort_id: opts.cohortId }
+        : {}),
       ...(rejectKind
         ? {
             reject_kind: rejectKind,

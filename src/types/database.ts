@@ -37,6 +37,10 @@ export type Cohort = {
   course_id: string;
   name: string;
   start_date: string | null;
+  /** Inclusive lead-assignment window start (YYYY-MM-DD) */
+  intake_start?: string | null;
+  /** Inclusive lead-assignment window end (YYYY-MM-DD) */
+  intake_end?: string | null;
   default_total_fee: number;
   active: boolean;
   created_at: string;

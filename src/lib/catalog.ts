@@ -19,7 +19,7 @@ async function fetchActiveCohorts() {
   const { data } = await supabase
     .from("cohorts")
     .select(
-      "id, name, course_id, active, start_date, default_total_fee, cohort_number, year"
+      "id, name, course_id, active, start_date, intake_start, intake_end, default_total_fee, cohort_number, year"
     )
     .eq("active", true)
     .order("name");

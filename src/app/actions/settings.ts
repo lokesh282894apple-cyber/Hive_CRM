@@ -35,17 +35,57 @@ export async function upsertCohort(formData: FormData): Promise<ActionResult> {
     cohortNumber > 0 && year > 0
       ? `Cohort ${cohortNumber} – ${year}`
       : String(formData.get("name") || "").trim();
+  const intakeStart = String(formData.get("intake_start") || "") || null;
+  const intakeEnd = String(formData.get("intake_end") || "") || null;
+  if ((intakeStart && !intakeEnd) || (!intakeStart && intakeEnd)) {
+    return {
+      ok: false,
+      error: "Set both intake from and intake to dates, or leave both empty",
+    };
+  }
+  if (intakeStart && intakeEnd && intakeStart > intakeEnd) {
+    return { ok: false, error: "Intake from must be on or before intake to" };
+  }
+
   const payload = {
     course_id: courseId,
     name: nameFromParts,
     cohort_number: cohortNumber > 0 ? cohortNumber : null,
     year: year > 0 ? year : null,
     start_date: String(formData.get("start_date") || "") || null,
+    intake_start: intakeStart,
+    intake_end: intakeEnd,
     default_total_fee: Number(formData.get("default_total_fee") || 0),
     active: formData.get("active") === "true" || formData.get("active") === "on",
   };
   if (!payload.course_id || !payload.name) {
     return { ok: false, error: "Course and cohort number + year are required" };
+  }
+
+  if (intakeStart && intakeEnd) {
+    const { intakeWindowsOverlap } = await import("@/lib/leads/resolve-cohort");
+    const { data: siblings } = await supabase
+      .from("cohorts")
+      .select("id, intake_start, intake_end")
+      .eq("course_id", courseId)
+      .eq("active", true);
+    for (const s of siblings ?? []) {
+      if (id && s.id === id) continue;
+      if (
+        intakeWindowsOverlap(
+          intakeStart,
+          intakeEnd,
+          s.intake_start,
+          s.intake_end
+        )
+      ) {
+        return {
+          ok: false,
+          error:
+            "Intake window overlaps another active cohort for this program",
+        };
+      }
+    }
   }
 
   const { error } = id

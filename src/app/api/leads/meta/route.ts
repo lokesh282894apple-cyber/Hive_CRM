@@ -118,6 +118,12 @@ export async function POST(request: NextRequest) {
           const allocatedTo = courseId
             ? await pickCounselorForCourse(admin, courseId)
             : null;
+          const { resolveCohortForCourse } = await import(
+            "@/lib/leads/resolve-cohort"
+          );
+          const cohortId = courseId
+            ? await resolveCohortForCourse(admin, courseId)
+            : null;
           const { data, error } = await admin
             .from("leads")
             .insert({
@@ -127,6 +133,7 @@ export async function POST(request: NextRequest) {
               source: "meta_ad",
               stage: "new_lead",
               course_id: courseId,
+              cohort_id: cohortId,
               lead_allocated_to: allocatedTo,
               utm_source: "meta",
               utm_medium: "paid",

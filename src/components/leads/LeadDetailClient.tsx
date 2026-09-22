@@ -27,6 +27,7 @@ import {
   type Stage,
 } from "@/lib/constants";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
+import { ClosedWonConfirmDialog } from "@/components/leads/ClosedWonConfirmDialog";
 import { NoShowDialog } from "@/components/leads/NoShowDialog";
 import { useFunnel } from "@/components/funnel/FunnelProvider";
 import { StageBadge } from "@/components/ui/Primitives";
@@ -135,6 +136,7 @@ export function LeadDetailClient({
   const [stageReason, setStageReason] = useState(lead.stage_reason ?? "");
   const [studentIntent, setStudentIntent] = useState<number | "">("");
   const [showAdmissionReject, setShowAdmissionReject] = useState(false);
+  const [showClosedWon, setShowClosedWon] = useState(false);
   const [noShowRound, setNoShowRound] = useState<InterviewRound | null>(null);
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
@@ -287,6 +289,10 @@ export function LeadDetailClient({
     if (stage === lead.stage) return;
     if (stageRequiresPresetReason(stage) && stage !== lead.stage) {
       setShowAdmissionReject(true);
+      return;
+    }
+    if (stage === "closed_paid") {
+      setShowClosedWon(true);
       return;
     }
     const needsReason =
@@ -1139,6 +1145,28 @@ export function LeadDetailClient({
             setShowAdmissionReject(false);
             setStage("admission_team_rejected");
             setStageReason(reason);
+            setError(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {showClosedWon ? (
+        <ClosedWonConfirmDialog
+          open
+          leadId={lead.id}
+          leadName={lead.name}
+          initialCourseId={lead.course_id}
+          initialCohortId={lead.cohort_id}
+          courses={courses}
+          cohorts={cohorts}
+          onClose={() => {
+            setShowClosedWon(false);
+            setStage(lead.stage);
+          }}
+          onSuccess={() => {
+            setShowClosedWon(false);
+            setStage("closed_paid");
             setError(null);
             router.refresh();
           }}

@@ -9,7 +9,7 @@ import {
 import { CounselorsConfigPanel } from "@/components/admin/CounselorsConfigPanel";
 import { TriggerRulesPanel } from "@/components/admin/TriggerRulesPanel";
 import { MessageSequencesPanel } from "@/components/admin/MessageSequencesPanel";
-import { cohortEntryLabel } from "@/lib/cohorts/display";
+import { cohortEntryLabel, cohortIntakeHint } from "@/lib/cohorts/display";
 import type { AppUser, Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
@@ -158,6 +158,10 @@ export function SettingsClient({
             }}
           >
             <p className="eyebrow">Add cohort</p>
+            <p className="text-xs text-muted">
+              Keep names as Cohort N – Year. Set intake dates so new leads for
+              this program land in the right cohort by signup date.
+            </p>
             <select name="course_id" className="input-field" required>
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -170,7 +174,7 @@ export function SettingsClient({
               type="number"
               min={1}
               className="input-field"
-              placeholder="Cohort number (e.g. 1)"
+              placeholder="Cohort number (e.g. 3)"
               required
             />
             <input
@@ -181,7 +185,28 @@ export function SettingsClient({
               placeholder="Year (e.g. 2026)"
               required
             />
-            <input name="start_date" type="date" className="input-field" />
+            <label className="block text-xs text-muted">
+              Class start (optional)
+              <input name="start_date" type="date" className="input-field mt-1" />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs text-muted">
+                Intake from
+                <input
+                  name="intake_start"
+                  type="date"
+                  className="input-field mt-1"
+                />
+              </label>
+              <label className="block text-xs text-muted">
+                Intake to
+                <input
+                  name="intake_end"
+                  type="date"
+                  className="input-field mt-1"
+                />
+              </label>
+            </div>
             <input
               name="default_total_fee"
               type="number"
@@ -200,6 +225,11 @@ export function SettingsClient({
                     {" "}
                     · ₹{Number(c.default_total_fee).toLocaleString("en-IN")}
                   </span>
+                  {cohortIntakeHint(c) ? (
+                    <span className="mt-0.5 block text-[11px] text-muted">
+                      {cohortIntakeHint(c)}
+                    </span>
+                  ) : null}
                 </li>
               ))}
             </ul>

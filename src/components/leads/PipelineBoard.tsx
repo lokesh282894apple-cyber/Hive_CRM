@@ -4,6 +4,7 @@ import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
 import { StageRejectDialog } from "@/components/leads/StageRejectDialog";
 import { StageAdvanceDialog } from "@/components/leads/StageAdvanceDialog";
+import { ClosedWonConfirmDialog } from "@/components/leads/ClosedWonConfirmDialog";
 import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
 import {
   BOARD_COLUMN_CAP,
@@ -32,7 +33,7 @@ import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
 import { LeadCardApprovals } from "@/components/leads/LeadCardApprovals";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import { leadSourceClassLabel } from "@/lib/leads/source-class";
-import type { LeadWithRelations } from "@/types/database";
+import type { Cohort, Course, LeadWithRelations } from "@/types/database";
 import {
   DndContext,
   DragOverlay,
@@ -563,6 +564,8 @@ export function PipelineBoard({
   showClaim,
   onClaim,
   cohortNums,
+  courses = [],
+  cohorts = [],
   selectedLeadId,
   onSelectLead,
 }: {
@@ -571,6 +574,8 @@ export function PipelineBoard({
   showClaim?: boolean;
   onClaim?: (id: string) => void;
   cohortNums?: Map<string, string>;
+  courses?: Course[];
+  cohorts?: Cohort[];
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
 }) {
@@ -622,6 +627,12 @@ export function PipelineBoard({
     fromStage: string;
     targetStage: Stage;
     offerCallStatus?: string | null;
+  } | null>(null);
+  const [closedWon, setClosedWon] = useState<{
+    leadId: string;
+    leadName: string;
+    courseId: string | null;
+    cohortId: string | null;
   } | null>(null);
   const [dndReady, setDndReady] = useState(false);
   const lastOverId = useRef<string | null>(null);
@@ -853,6 +864,17 @@ export function PipelineBoard({
             setItems(prev);
             setError(res.error);
           }
+        });
+        return;
+      }
+
+      if (!sameStage && nextStage === "closed_paid") {
+        setError(null);
+        setClosedWon({
+          leadId: lead.id,
+          leadName: lead.name,
+          courseId: lead.course_id ?? null,
+          cohortId: lead.cohort_id ?? null,
         });
         return;
       }
@@ -1120,6 +1142,29 @@ export function PipelineBoard({
               });
             }
             setStageAdvance(null);
+          }}
+        />
+      ) : null}
+
+      {closedWon ? (
+        <ClosedWonConfirmDialog
+          open
+          leadId={closedWon.leadId}
+          leadName={closedWon.leadName}
+          initialCourseId={closedWon.courseId}
+          initialCohortId={closedWon.cohortId}
+          courses={courses}
+          cohorts={cohorts}
+          onClose={() => setClosedWon(null)}
+          onSuccess={() => {
+            setItems((prev) =>
+              prev.map((l) =>
+                l.id === closedWon.leadId
+                  ? { ...l, stage: "closed_paid" }
+                  : l
+              )
+            );
+            setClosedWon(null);
           }}
         />
       ) : null}

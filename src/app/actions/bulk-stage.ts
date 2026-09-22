@@ -46,6 +46,14 @@ export async function bulkUpdateLeadStages(input: {
     };
   }
 
+  if (stage === "closed_paid") {
+    return {
+      ok: false,
+      error:
+        "Closed won requires confirming program + cohort on each lead (use the board or lead detail).",
+    };
+  }
+
   const needsReason =
     stageRequiresReason(stage) ||
     funnel.reasonRequiredSlugs.includes(stage) ||

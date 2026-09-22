@@ -87,23 +87,10 @@ async function resolveCourseAndCohort(
   }
 
   if (resolvedCourse && !resolvedCohort) {
-    const { data: scopes } = await admin
-      .from("counselor_scope")
-      .select("cohort_id")
-      .eq("course_id", resolvedCourse)
-      .limit(1);
-    if (scopes?.[0]?.cohort_id) {
-      resolvedCohort = scopes[0].cohort_id;
-    } else {
-      const { data: cohorts } = await admin
-        .from("cohorts")
-        .select("id")
-        .eq("course_id", resolvedCourse)
-        .eq("active", true)
-        .order("name")
-        .limit(1);
-      resolvedCohort = cohorts?.[0]?.id ?? null;
-    }
+    const { resolveCohortForCourse } = await import(
+      "@/lib/leads/resolve-cohort"
+    );
+    resolvedCohort = await resolveCohortForCourse(admin, resolvedCourse);
   }
 
   return { courseId: resolvedCourse, cohortId: resolvedCohort };

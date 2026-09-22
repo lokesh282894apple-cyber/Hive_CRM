@@ -31,6 +31,13 @@ export function cohortEntryLabel(cohort: CohortLike): string {
   return cohort.name;
 }
 
+export function cohortIntakeHint(
+  cohort: Pick<Cohort, "intake_start" | "intake_end">
+): string | null {
+  if (!cohort.intake_start || !cohort.intake_end) return null;
+  return `Leads: ${cohort.intake_start} → ${cohort.intake_end}`;
+}
+
 /**
  * Display cohort as "Cohort {n} – {year}" when those fields exist.
  * When `includeCourse` is true (e.g. mixed course lists), prefix with course name.
