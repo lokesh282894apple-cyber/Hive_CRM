@@ -32,6 +32,9 @@ export type LeadWithCard = LeadWithRelations & {
   cardMetrics?: LeadCardMetrics;
   /** Organic / inorganic from marketing attribution + source heuristics */
   sourceClass?: LeadSourceClass;
+  /** Soonest open task — shown on board/list without opening the lead */
+  nextOpenTask?: { id: string; title: string; due_at: string } | null;
+  openTaskCount?: number;
 };
 
 const IN_CHUNK = 100;

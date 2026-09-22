@@ -12,8 +12,10 @@ import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
+import { loadOpenTasksForLeads } from "@/lib/leads/open-tasks";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
+import Link from "next/link";
 
 export default async function AdminLeadsPage({
   searchParams,
@@ -72,21 +74,25 @@ export default async function AdminLeadsPage({
   ]);
 
   const raw = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
-  const [leadsWithMetrics, attrMap] = await Promise.all([
+  const leadIds = raw.map((l) => l.id);
+  const [leadsWithMetrics, attrMap, openTasks] = await Promise.all([
     loadLeadCardMetrics(supabase, raw),
-    fetchAttributionForLeads(
-      supabase,
-      raw.map((l) => l.id)
-    ),
+    fetchAttributionForLeads(supabase, leadIds),
+    loadOpenTasksForLeads(supabase, leadIds),
   ]);
 
-  const leads = leadsWithMetrics.map((l) => ({
-    ...l,
-    sourceClass: classifyLeadSource(
-      l.source,
-      attrMap.get(l.id)?.source_type ?? null
-    ),
-  }));
+  const leads = leadsWithMetrics.map((l) => {
+    const tasks = openTasks.get(l.id);
+    return {
+      ...l,
+      sourceClass: classifyLeadSource(
+        l.source,
+        attrMap.get(l.id)?.source_type ?? null
+      ),
+      nextOpenTask: tasks?.next ?? null,
+      openTaskCount: tasks?.openCount ?? 0,
+    };
+  });
 
   const attributionByLead: Record<
     string,
@@ -110,6 +116,11 @@ export default async function AdminLeadsPage({
         title="All"
         accent="Leads"
         description="Import HubSpot CSV for cutover, then filter by counselor / course / cohort."
+        actions={
+          <Link href="/leads/tasks" className="btn-secondary">
+            Lead Tasks
+          </Link>
+        }
       />
       <HubspotImportClient />
       <LeadsWorkspace

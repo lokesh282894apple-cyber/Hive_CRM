@@ -13,6 +13,7 @@ import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
+import { loadOpenTasksForLeads } from "@/lib/leads/open-tasks";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 import { viewAsHref } from "@/lib/impersonation";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
@@ -29,6 +30,9 @@ export default async function LeadsPage({
   const basePath = ctx.impersonating
     ? viewAsHref(user.id, "/leads")
     : "/leads";
+  const tasksPath = ctx.impersonating
+    ? viewAsHref(user.id, "/leads/tasks")
+    : "/leads/tasks";
 
   const filters = parseLeadsSearchParams(searchParams, {
     ownership: isAdmin ? "all" : "mine",
@@ -68,21 +72,25 @@ export default async function LeadsPage({
   const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
 
   const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
-  const [leadsWithMetrics, attrMap] = await Promise.all([
+  const leadIds = leadsRaw.map((l) => l.id);
+  const [leadsWithMetrics, attrMap, openTasks] = await Promise.all([
     loadLeadCardMetrics(supabase, leadsRaw),
-    fetchAttributionForLeads(
-      supabase,
-      leadsRaw.map((l) => l.id)
-    ),
+    fetchAttributionForLeads(supabase, leadIds),
+    loadOpenTasksForLeads(supabase, leadIds),
   ]);
 
-  const leads = leadsWithMetrics.map((l) => ({
-    ...l,
-    sourceClass: classifyLeadSource(
-      l.source,
-      attrMap.get(l.id)?.source_type ?? null
-    ),
-  }));
+  const leads = leadsWithMetrics.map((l) => {
+    const tasks = openTasks.get(l.id);
+    return {
+      ...l,
+      sourceClass: classifyLeadSource(
+        l.source,
+        attrMap.get(l.id)?.source_type ?? null
+      ),
+      nextOpenTask: tasks?.next ?? null,
+      openTaskCount: tasks?.openCount ?? 0,
+    };
+  });
 
   const attributionByLead: Record<
     string,
@@ -109,9 +117,14 @@ export default async function LeadsPage({
         accent="Leads"
         description="Mine · open pipeline by default. Claim unassigned leads separately — filters hit the server."
         actions={
-          <Link href={`${basePath}/new`} className="btn-primary">
-            Add Lead
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href={tasksPath} className="btn-secondary">
+              My Tasks
+            </Link>
+            <Link href={`${basePath}/new`} className="btn-primary">
+              Add Lead
+            </Link>
+          </div>
         }
       />
       <LeadsWorkspace

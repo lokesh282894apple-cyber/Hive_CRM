@@ -816,6 +816,7 @@ export function LeadsWorkspace({
                     <th className="eyebrow px-4 py-3">Source</th>
                     <th className="eyebrow px-4 py-3">Course</th>
                     <th className="eyebrow px-4 py-3">Stage</th>
+                    <th className="eyebrow px-4 py-3">Next task</th>
                     <th className="eyebrow px-4 py-3">Convert %</th>
                     <th className="eyebrow px-4 py-3">Work</th>
                     <th className="eyebrow px-4 py-3">Interview / deadline</th>
@@ -936,6 +937,32 @@ export function LeadsWorkspace({
                           </td>
                           <td className="px-4 py-3">
                             <StageBadge stage={l.stage} />
+                          </td>
+                          <td className="px-4 py-3 text-[11px]">
+                            {l.nextOpenTask ? (
+                              <div
+                                className={cn(
+                                  "max-w-[160px]",
+                                  new Date(l.nextOpenTask.due_at).getTime() <
+                                    Date.now()
+                                    ? "text-rose-700"
+                                    : "text-navy"
+                                )}
+                                title={`Due ${formatDate(l.nextOpenTask.due_at)}`}
+                              >
+                                <p className="line-clamp-2 font-medium">
+                                  {l.nextOpenTask.title}
+                                </p>
+                                <p className="text-muted">
+                                  {formatRelativeAgo(l.nextOpenTask.due_at)}
+                                  {(l.openTaskCount ?? 0) > 1
+                                    ? ` · +${(l.openTaskCount ?? 1) - 1}`
+                                    : ""}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-muted">
                             {l.intent_score != null ? `${l.intent_score}%` : "—"}

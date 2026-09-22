@@ -112,6 +112,22 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
           Reject · {rejectReason}
         </p>
       ) : null}
+      {lead.nextOpenTask ? (
+        <p
+          className={cn(
+            "line-clamp-2 font-medium",
+            new Date(lead.nextOpenTask.due_at).getTime() < Date.now()
+              ? "text-rose-700"
+              : "text-navy"
+          )}
+          title={`Due ${formatDate(lead.nextOpenTask.due_at)}`}
+        >
+          Task · {lead.nextOpenTask.title}
+          {(lead.openTaskCount ?? 0) > 1
+            ? ` · +${(lead.openTaskCount ?? 1) - 1} more`
+            : ""}
+        </p>
+      ) : null}
       {noCall ? (
         <p>Call not logged since {formatDurationSince(lead.created_at)}</p>
       ) : null}
