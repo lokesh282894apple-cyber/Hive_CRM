@@ -22,7 +22,13 @@ const ROWS: { key: keyof ConversionPercents; label: string }[] = [
   { key: "leadsToConverts", label: "Leads :: Converts" },
 ];
 
-export function ConversionYearChart({ months }: { months: MonthStripRow[] }) {
+export function ConversionYearChart({
+  rows,
+  grain = "month",
+}: {
+  rows: MonthStripRow[];
+  grain?: "month" | "week";
+}) {
   const [enabled, setEnabled] = useState(() => new Set(ROWS.map((r) => r.key)));
 
   const series: HoverSeries[] = useMemo(
@@ -31,15 +37,15 @@ export function ConversionYearChart({ months }: { months: MonthStripRow[] }) {
         id: r.key,
         label: r.label,
         color: chartColor(i),
-        points: months
+        points: rows
           .map((m) => {
             const v = m.conversionPercents[r.key];
             if (v == null) return null;
-            return { date: `${m.month}-01`, value: v };
+            return { date: m.pointDate, value: v };
           })
           .filter(Boolean) as { date: string; value: number }[],
       })),
-    [months, enabled]
+    [rows, enabled]
   );
 
   function toggle(key: keyof ConversionPercents) {
@@ -51,9 +57,11 @@ export function ConversionYearChart({ months }: { months: MonthStripRow[] }) {
     });
   }
 
-  if (!months.length) {
+  if (!rows.length) {
     return (
-      <p className="text-sm text-muted">No monthly data for this range.</p>
+      <p className="text-sm text-muted">
+        No {grain === "week" ? "weekly" : "monthly"} data for this range.
+      </p>
     );
   }
 

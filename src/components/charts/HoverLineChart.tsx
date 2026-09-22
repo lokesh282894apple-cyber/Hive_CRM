@@ -175,6 +175,25 @@ export function HoverLineChart({
               />
             );
           })}
+          {/* Always show markers so single-month / sparse series stay visible */}
+          {series.map((s) =>
+            s.points.map((pt) => {
+              const i = dates.indexOf(pt.date);
+              if (i < 0) return null;
+              return (
+                <circle
+                  key={`${s.id}-${pt.date}`}
+                  cx={xAt(i)}
+                  cy={yAt(pt.value)}
+                  r={dates.length <= 2 ? 4.5 : 3}
+                  fill={s.color}
+                  stroke="#fff"
+                  strokeWidth={1.25}
+                  opacity={s.dim ? 0.45 : 0.95}
+                />
+              );
+            })
+          )}
           {hover ? (
             <>
               <line
@@ -186,22 +205,6 @@ export function HoverLineChart({
                 strokeOpacity={0.25}
                 strokeDasharray="3 3"
               />
-              {series.map((s) => {
-                const pt = s.points.find((p) => p.date === activeDate);
-                if (!pt) return null;
-                return (
-                  <circle
-                    key={`${s.id}-dot`}
-                    cx={xAt(hover.index)}
-                    cy={yAt(pt.value)}
-                    r={4}
-                    fill={s.color}
-                    stroke="#fff"
-                    strokeWidth={1.5}
-                    opacity={s.dim ? 0.5 : 1}
-                  />
-                );
-              })}
             </>
           ) : null}
         </svg>

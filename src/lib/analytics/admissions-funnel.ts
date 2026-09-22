@@ -96,6 +96,8 @@ export type AdmissionsPulse = {
 export type MonthStripRow = {
   month: string;
   label: string;
+  /** X-axis date for charts (month start or week start). */
+  pointDate: string;
   leadTotals: LeadTotals;
   r1OnCalendar: number;
   offered: number;
@@ -114,6 +116,8 @@ export type AdmissionsFunnel = {
   offerFunnel: OfferMetrics;
   conversionPercents: ConversionPercents;
   byMonth: MonthStripRow[];
+  /** Populated when the selected period is a single calendar month. */
+  byWeek: MonthStripRow[];
   dayWise: DayWiseRow[];
   weekRollups: WeekRollup[];
   byCohort: CohortFunnelSummary[];
@@ -695,12 +699,69 @@ function filterAttr(facts: LeadFacts[], attribution: FunnelAttribution): LeadFac
   return facts.filter((f) => f.attr === attribution);
 }
 
+function buildStripRow(opts: {
+  key: string;
+  label: string;
+  pointDate: string;
+  leads: LeadRow[];
+  history: HistoryRow[];
+  bookings: BookingRow[];
+  attrMap: Map<string, string | null>;
+  start: string;
+  endExclusive: string;
+  attribution: FunnelAttribution;
+}): MonthStripRow {
+  const monthFactsMap = buildLeadFacts(
+    opts.leads,
+    opts.history,
+    opts.bookings,
+    opts.attrMap,
+    opts.start,
+    opts.endExclusive
+  );
+  const monthAll = Array.from(monthFactsMap.values());
+  const created = createdBetween(monthAll, opts.start, opts.endExclusive);
+  const activity =
+    opts.attribution === "all"
+      ? monthAll
+      : filterAttr(monthAll, opts.attribution);
+  const rf = roundBundle(activity, "period");
+  const of = computeOffer(activity, "period");
+  const createdForConv =
+    opts.attribution === "all"
+      ? created
+      : createdBetween(activity, opts.start, opts.endExclusive);
+  return {
+    month: opts.key,
+    label: opts.label,
+    pointDate: opts.pointDate,
+    leadTotals: leadTotalsOf(created),
+    r1OnCalendar: rf.R1.onCalendar,
+    offered: of.offered,
+    won: of.won,
+    roundFunnel: rf,
+    offerFunnel: of,
+    conversionPercents: computeConversions(createdForConv, of),
+  };
+}
+
+function weekLabel(n: number, start: string, end: string): string {
+  const fmt = (iso: string) => {
+    const d = new Date(`${iso}T12:00:00`);
+    return d.toLocaleString("en-US", { month: "short", day: "numeric" });
+  };
+  return `Week ${n} · ${fmt(start)}–${fmt(end)}`;
+}
+
 export async function fetchAdmissionsFunnel(
   supabase: SupabaseClient,
   opts?: {
     month?: string | null;
     fromDate?: string | null;
     toDate?: string | null;
+    /** Optional wider window for year charts / month strip (defaults to from–to). */
+    chartFromDate?: string | null;
+    chartToDate?: string | null;
     mode?: FunnelMode;
     attribution?: FunnelAttribution;
     counselorId?: string | null;
@@ -802,39 +863,70 @@ export async function fetchAdmissionsFunnel(
   }));
   const weekRollups = buildWeekRollups(dayWise);
 
-  // Month strip: activity per calendar month spanning the selected range.
+  // Month strip + year charts: prefer explicit chart window (full year),
+  // so focusing one month for matrices still shows Jan–Dec trends.
+  const chartFromOk =
+    opts?.chartFromDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.chartFromDate)
+      ? opts.chartFromDate
+      : null;
+  const chartToOk =
+    opts?.chartToDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.chartToDate)
+      ? opts.chartToDate
+      : null;
+  let chartStart = chartFromOk ?? periodStart;
+  let chartEnd = chartToOk ?? periodEnd;
+  if (chartStart > chartEnd) {
+    const tmp = chartStart;
+    chartStart = chartEnd;
+    chartEnd = tmp;
+  }
+
   const byMonth: MonthStripRow[] = [];
-  for (const key of monthsInRange(periodStart, periodEnd)) {
+  for (const key of monthsInRange(chartStart, chartEnd)) {
     const b = monthBounds(key);
-    const monthFactsMap = buildLeadFacts(
-      leads,
-      history,
-      bookings,
-      attrMap,
-      b.start,
-      b.endExclusive
+    byMonth.push(
+      buildStripRow({
+        key,
+        label: monthLabel(key),
+        pointDate: `${key}-01`,
+        leads,
+        history,
+        bookings,
+        attrMap,
+        start: b.start,
+        endExclusive: b.endExclusive,
+        attribution,
+      })
     );
-    const monthAll = Array.from(monthFactsMap.values());
-    const created = createdBetween(monthAll, b.start, b.endExclusive);
-    const activity =
-      attribution === "all" ? monthAll : filterAttr(monthAll, attribution);
-    const rf = roundBundle(activity, "period");
-    const of = computeOffer(activity, "period");
-    const createdForConv =
-      attribution === "all"
-        ? created
-        : createdBetween(activity, b.start, b.endExclusive);
-    byMonth.push({
-      month: key,
-      label: monthLabel(key),
-      leadTotals: leadTotalsOf(created),
-      r1OnCalendar: rf.R1.onCalendar,
-      offered: of.offered,
-      won: of.won,
-      roundFunnel: rf,
-      offerFunnel: of,
-      conversionPercents: computeConversions(createdForConv, of),
-    });
+  }
+
+  // When viewing a single month, also bucket that month into weeks for charts.
+  const byWeek: MonthStripRow[] = [];
+  if (periodStart.slice(0, 7) === periodEnd.slice(0, 7)) {
+    const monthDays = daysInRange(periodStart, periodEnd);
+    for (let i = 0; i < monthDays.length; i += 7) {
+      const slice = monthDays.slice(i, i + 7);
+      const start = slice[0]!;
+      const end = slice[slice.length - 1]!;
+      const next = new Date(`${end}T12:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      const endEx = next.toISOString().slice(0, 10);
+      const n = Math.floor(i / 7) + 1;
+      byWeek.push(
+        buildStripRow({
+          key: `${periodStart.slice(0, 7)}-w${n}`,
+          label: weekLabel(n, start, end),
+          pointDate: start,
+          leads,
+          history,
+          bookings,
+          attrMap,
+          start,
+          endExclusive: endEx,
+          attribution,
+        })
+      );
+    }
   }
 
   const cohorts = base.cohorts.map((c) => ({ id: c.id, name: c.name }));
@@ -861,6 +953,7 @@ export async function fetchAdmissionsFunnel(
     offerFunnel,
     conversionPercents,
     byMonth,
+    byWeek,
     dayWise,
     weekRollups,
     byCohort,

@@ -220,7 +220,7 @@ function defaultEnabled(defs: SeriesDef[]): Set<string> {
 }
 
 function toSeries(
-  months: MonthStripRow[],
+  rows: MonthStripRow[],
   defs: SeriesDef[],
   enabled: Set<string>
 ): HoverSeries[] {
@@ -230,17 +230,23 @@ function toSeries(
       id: d.id,
       label: d.label,
       color: chartColor(i),
-      points: months
+      points: rows
         .map((m) => {
           const v = d.value(m);
           if (v == null) return null;
-          return { date: `${m.month}-01`, value: v };
+          return { date: m.pointDate, value: v };
         })
         .filter(Boolean) as { date: string; value: number }[],
     }));
 }
 
-export function RoundYearCharts({ months }: { months: MonthStripRow[] }) {
+export function RoundYearCharts({
+  rows,
+  grain = "month",
+}: {
+  rows: MonthStripRow[];
+  grain?: "month" | "week";
+}) {
   const [round, setRound] = useState<RoundKey>("R1");
   const [enabled, setEnabled] = useState<Record<RoundKey, Set<string>>>(() => ({
     R1: defaultEnabled(R1_SERIES),
@@ -252,12 +258,12 @@ export function RoundYearCharts({ months }: { months: MonthStripRow[] }) {
   const on = enabled[round];
 
   const countSeries = useMemo(
-    () => toSeries(months, defs.filter((d) => d.kind === "count"), on),
-    [months, defs, on]
+    () => toSeries(rows, defs.filter((d) => d.kind === "count"), on),
+    [rows, defs, on]
   );
   const rateSeries = useMemo(
-    () => toSeries(months, defs.filter((d) => d.kind === "rate"), on),
-    [months, defs, on]
+    () => toSeries(rows, defs.filter((d) => d.kind === "rate"), on),
+    [rows, defs, on]
   );
 
   function toggle(id: string) {
@@ -269,9 +275,11 @@ export function RoundYearCharts({ months }: { months: MonthStripRow[] }) {
     });
   }
 
-  if (!months.length) {
+  if (!rows.length) {
     return (
-      <p className="text-sm text-muted">No monthly data for this range.</p>
+      <p className="text-sm text-muted">
+        No {grain === "week" ? "weekly" : "monthly"} data for this range.
+      </p>
     );
   }
 

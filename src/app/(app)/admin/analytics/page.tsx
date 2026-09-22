@@ -6,7 +6,7 @@ import {
   type FunnelAttribution,
   type FunnelMode,
 } from "@/lib/analytics/admissions-funnel";
-import { resolveStructuredRange, monthBounds } from "@/lib/analytics/date-range";
+import { resolveStructuredRange, monthBounds, yearBounds } from "@/lib/analytics/date-range";
 import { DateRangeBar } from "@/components/admin/DateRangeBar";
 import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/FunnelMatrix";
@@ -156,10 +156,16 @@ export default async function AdminAnalyticsPage({
       ? dateRange.month
       : toDate.slice(0, 7);
 
+  // Year charts always use the selected calendar year so month-focus
+  // (from/to = one month) still shows Jan–Dec lines.
+  const chartYear = yearBounds(dateRange.year);
+
   const funnel = await fetchAdmissionsFunnel(supabase, {
     month: funnelMonth,
     fromDate,
     toDate,
+    chartFromDate: chartYear.from,
+    chartToDate: chartYear.to,
     mode,
     attribution,
     courseId,
@@ -417,13 +423,21 @@ export default async function AdminAnalyticsPage({
         {funnel.byMonth.length > 0 ? (
           <div className="mt-6 border-t border-border pt-5">
             <p className="mb-1 text-sm font-semibold text-navy">
-              R1 / R2 / R3 year chart
+              {funnel.byWeek.length > 0
+                ? "R1 / R2 / R3 week chart"
+                : "R1 / R2 / R3 year chart"}
             </p>
             <p className="mb-4 text-xs text-muted">
-              Monthly volumes and rates for the selected range · toggle series
-              below
+              {funnel.byWeek.length > 0
+                ? "Weekly volumes and rates for the selected month · toggle series below"
+                : "Monthly volumes and rates for the selected year · toggle series below"}
             </p>
-            <RoundYearCharts months={funnel.byMonth} />
+            <RoundYearCharts
+              rows={
+                funnel.byWeek.length > 0 ? funnel.byWeek : funnel.byMonth
+              }
+              grain={funnel.byWeek.length > 0 ? "week" : "month"}
+            />
           </div>
         ) : null}
       </Section>
@@ -436,12 +450,21 @@ export default async function AdminAnalyticsPage({
         {funnel.byMonth.length > 0 ? (
           <div className="mt-6 border-t border-border pt-5">
             <p className="mb-1 text-sm font-semibold text-navy">
-              Full-year conversion rates
+              {funnel.byWeek.length > 0
+                ? "Weekly conversion rates"
+                : "Full-year conversion rates"}
             </p>
             <p className="mb-4 text-xs text-muted">
-              Same ratios as the table, month by month
+              {funnel.byWeek.length > 0
+                ? "Same ratios as the table, week by week in this month"
+                : "Same ratios as the table, month by month"}
             </p>
-            <ConversionYearChart months={funnel.byMonth} />
+            <ConversionYearChart
+              rows={
+                funnel.byWeek.length > 0 ? funnel.byWeek : funnel.byMonth
+              }
+              grain={funnel.byWeek.length > 0 ? "week" : "month"}
+            />
           </div>
         ) : null}
       </Section>
