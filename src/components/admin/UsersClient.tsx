@@ -3,6 +3,8 @@
 import {
   createUserAccount,
   deleteUserAccount,
+  generateMissingTempPasswords,
+  generateUserTempPassword,
   resetUserTempPassword,
   setCounselorScopes,
   updateUserProfile,
@@ -14,13 +16,34 @@ import type { AppUser, Cohort, CounselorScope, Course } from "@/types/database";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
 
-function PasswordCell({ password }: { password: string | null | undefined }) {
+function PasswordCell({
+  password,
+  pending,
+  onGenerate,
+}: {
+  password: string | null | undefined;
+  pending: boolean;
+  onGenerate: () => void;
+}) {
   const [show, setShow] = useState(false);
   if (!password) {
     return (
-      <span className="text-xs text-muted" title="Unknown after the user changed it">
-        —
-      </span>
+      <div className="flex flex-col gap-1">
+        <span
+          className="text-xs text-muted"
+          title="Auth only stores hashes — old passwords cannot be recovered"
+        >
+          Not stored
+        </span>
+        <button
+          type="button"
+          className="text-left text-[11px] font-semibold text-periwinkle hover:underline disabled:opacity-50"
+          disabled={pending}
+          onClick={onGenerate}
+        >
+          Generate
+        </button>
+      </div>
     );
   }
   return (
@@ -153,9 +176,35 @@ export function UsersClient({
       </form>
 
       <div className="panel overflow-hidden lg:col-span-3">
-        <div className="border-b border-border px-4 py-2 text-xs text-muted">
-          Password column shows the last admin-set temp password. It clears after the user
-          changes their own password (Auth never stores recoverable hashes).
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
+          <p className="text-xs text-muted">
+            Shows the last admin-set temp password. Older accounts show “Not stored” because
+            Auth never keeps recoverable hashes — use Generate to create a visible one.
+          </p>
+          <button
+            type="button"
+            className="btn-ghost shrink-0 text-xs"
+            disabled={pending || users.every((u) => u.admin_temp_password)}
+            onClick={() => {
+              if (
+                !confirm(
+                  "Generate new temp passwords for every active user without one? Their current login password will be replaced and they must change it on next login."
+                )
+              ) {
+                return;
+              }
+              startTransition(async () => {
+                const res = await generateMissingTempPasswords();
+                if (!res.ok) setError(res.error);
+                else {
+                  setError(null);
+                  router.refresh();
+                }
+              });
+            }}
+          >
+            Generate missing passwords
+          </button>
         </div>
         <table className="w-full text-left text-sm">
           <thead className="border-b border-border bg-navy/[0.02]">
@@ -196,7 +245,20 @@ export function UsersClient({
                     ) : null}
                   </td>
                   <td className="px-4 py-3">
-                    <PasswordCell password={u.admin_temp_password} />
+                    <PasswordCell
+                      password={u.admin_temp_password}
+                      pending={pending}
+                      onGenerate={() => {
+                        startTransition(async () => {
+                          const res = await generateUserTempPassword(u.id);
+                          if (!res.ok) setError(res.error);
+                          else {
+                            setError(null);
+                            router.refresh();
+                          }
+                        });
+                      }}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     <select

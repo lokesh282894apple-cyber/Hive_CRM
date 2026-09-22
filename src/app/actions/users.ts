@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "crypto";
 import { requireUser } from "@/lib/auth";
 import type { Role } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -7,6 +8,15 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+/** Readable temp password for admin visibility (Auth still stores only the hash). */
+function generateTempPassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = randomBytes(10);
+  let out = "Hive-";
+  for (const b of bytes) out += alphabet[b % alphabet.length];
+  return out;
+}
 
 export async function createUserAccount(input: {
   name: string;
@@ -184,4 +194,56 @@ export async function resetUserTempPassword(input: {
 
   revalidatePath("/admin/users");
   return { ok: true };
+}
+
+/** Generate a new temp password for one user and store it for admin visibility. */
+export async function generateUserTempPassword(
+  userId: string
+): Promise<ActionResult & { password?: string }> {
+  await requireUser(["admin"]);
+  const password = generateTempPassword();
+  const res = await resetUserTempPassword({ userId, password });
+  if (!res.ok) return res;
+  return { ok: true, password };
+}
+
+/**
+ * For every active user without a stored admin_temp_password, generate one,
+ * reset Auth, and save it. Old passwords cannot be recovered from Auth hashes.
+ */
+export async function generateMissingTempPasswords(): Promise<
+  ActionResult & { count?: number }
+> {
+  await requireUser(["admin"]);
+  const admin = createAdminClient();
+
+  const { data: rows, error } = await admin
+    .from("users")
+    .select("id")
+    .eq("active", true)
+    .is("admin_temp_password", null);
+  if (error) return { ok: false, error: error.message };
+
+  const ids = (rows ?? []).map((r) => r.id as string);
+  let count = 0;
+  for (const userId of ids) {
+    const password = generateTempPassword();
+    const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+      password,
+    });
+    if (authError) return { ok: false, error: authError.message };
+
+    const { error: updateError } = await admin
+      .from("users")
+      .update({
+        admin_temp_password: password,
+        must_change_password: true,
+      })
+      .eq("id", userId);
+    if (updateError) return { ok: false, error: updateError.message };
+    count += 1;
+  }
+
+  revalidatePath("/admin/users");
+  return { ok: true, count };
 }
