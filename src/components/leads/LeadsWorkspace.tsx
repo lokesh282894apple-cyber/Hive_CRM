@@ -65,9 +65,6 @@ export function LeadsWorkspace({
   const [uniqueCallsLocal, setUniqueCallsLocal] = useState(
     filters.uniqueCalls != null ? String(filters.uniqueCalls) : ""
   );
-  const [minCallsLocal, setMinCallsLocal] = useState(
-    filters.minCalls != null ? String(filters.minCalls) : ""
-  );
   const [noCallDaysLocal, setNoCallDaysLocal] = useState(
     filters.callNotLoggedDays != null
       ? String(filters.callNotLoggedDays)
@@ -102,10 +99,6 @@ export function LeadsWorkspace({
       filters.uniqueCalls != null ? String(filters.uniqueCalls) : ""
     );
   }, [filters.uniqueCalls]);
-
-  useEffect(() => {
-    setMinCallsLocal(filters.minCalls != null ? String(filters.minCalls) : "");
-  }, [filters.minCalls]);
 
   useEffect(() => {
     setMinStageCallsLocal(
@@ -179,24 +172,49 @@ export function LeadsWorkspace({
   }, [qLocal]);
 
   function applyMetricFilters() {
-    const days =
-      noCallDaysLocal.trim() === "" ? null : Number(noCallDaysLocal);
-    const uDays =
-      uniqueDaysLocal.trim() === "" ? null : Number(uniqueDaysLocal);
-    const uCalls =
-      uniqueCallsLocal.trim() === "" ? null : Number(uniqueCallsLocal);
-    const minC = minCallsLocal.trim() === "" ? null : Number(minCallsLocal);
+    if (activeCallFamily === "new") {
+      const days =
+        noCallDaysLocal.trim() === "" ? null : Number(noCallDaysLocal);
+      pushFilters({
+        callNotLoggedHours:
+          days != null && Number.isFinite(days) ? days * 24 : null,
+        callNotLoggedDays: days != null && Number.isFinite(days) ? days : null,
+        uniqueDays: null,
+        uniqueCalls: null,
+        minCalls: null,
+        minCallsSinceStage: null,
+        maxAvgCallsPerDay: null,
+        page: 1,
+      });
+      return;
+    }
+    if (activeCallFamily === "nurture") {
+      const uDays =
+        uniqueDaysLocal.trim() === "" ? null : Number(uniqueDaysLocal);
+      const uCalls =
+        uniqueCallsLocal.trim() === "" ? null : Number(uniqueCallsLocal);
+      pushFilters({
+        callNotLoggedHours: null,
+        callNotLoggedDays: null,
+        uniqueDays: uDays != null && Number.isFinite(uDays) ? uDays : null,
+        uniqueCalls: uCalls != null && Number.isFinite(uCalls) ? uCalls : null,
+        minCalls: null,
+        minCallsSinceStage: null,
+        maxAvgCallsPerDay: null,
+        page: 1,
+      });
+      return;
+    }
     const minStage =
       minStageCallsLocal.trim() === "" ? null : Number(minStageCallsLocal);
     const maxAvg =
       maxAvgDayLocal.trim() === "" ? null : Number(maxAvgDayLocal);
     pushFilters({
-      callNotLoggedHours:
-        days != null && Number.isFinite(days) ? days * 24 : null,
-      callNotLoggedDays: days != null && Number.isFinite(days) ? days : null,
-      uniqueDays: uDays != null && Number.isFinite(uDays) ? uDays : null,
-      uniqueCalls: uCalls != null && Number.isFinite(uCalls) ? uCalls : null,
-      minCalls: minC != null && Number.isFinite(minC) ? minC : null,
+      callNotLoggedHours: null,
+      callNotLoggedDays: null,
+      uniqueDays: null,
+      uniqueCalls: null,
+      minCalls: null,
       minCallsSinceStage:
         minStage != null && Number.isFinite(minStage) ? minStage : null,
       maxAvgCallsPerDay:
@@ -218,29 +236,131 @@ export function LeadsWorkspace({
     });
   }
 
+  type CallFilterFamily = "new" | "nurture" | "round";
+
+  function familyForStageGroup(group: StageGroupId): CallFilterFamily | "pick" {
+    if (group === "r1" || group === "r2" || group === "r3") return "round";
+    if (
+      group === "offer" ||
+      group === "offer_call_not_booked" ||
+      group === "offer_call_booked" ||
+      group === "offer_call_done"
+    ) {
+      return "round";
+    }
+    if (group === "pre_r1" || group === "open" || group === "all") return "pick";
+    return "pick";
+  }
+
+  const stageFamilyHint = familyForStageGroup(filters.stageGroup);
+  const [callFilterFamily, setCallFilterFamily] = useState<CallFilterFamily>(
+    () => (stageFamilyHint === "pick" ? "new" : stageFamilyHint)
+  );
+
+  useEffect(() => {
+    if (stageFamilyHint !== "pick") {
+      setCallFilterFamily(stageFamilyHint);
+      // Keep only filters that belong to the locked family
+      if (stageFamilyHint === "round") {
+        setNoCallDaysLocal("");
+        setUniqueDaysLocal("");
+        setUniqueCallsLocal("");
+        if (
+          filters.callNotLoggedHours != null ||
+          filters.uniqueDays != null ||
+          filters.uniqueCalls != null
+        ) {
+          pushFilters({
+            callNotLoggedHours: null,
+            callNotLoggedDays: null,
+            uniqueDays: null,
+            uniqueCalls: null,
+            minCalls: null,
+            page: 1,
+          });
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageFamilyHint]);
+
   const NO_CALL_PRESETS: { label: string; hours: number }[] = [
-    { label: "<1h", hours: 1 },
-    { label: "<12h", hours: 12 },
-    { label: "<1d", hours: 24 },
-    { label: "<2d", hours: 48 },
-    { label: "<3d", hours: 72 },
+    { label: "1d", hours: 24 },
+    { label: "2d", hours: 48 },
+    { label: "3d", hours: 72 },
+    { label: "7d", hours: 168 },
   ];
 
-  const NO_CALL_DAY_PRESETS = [3, 5, 7];
+  const activeCallFamily =
+    stageFamilyHint === "pick" ? callFilterFamily : stageFamilyHint;
 
-  const g = filters.stageGroup;
-  const showAllMetricGroups = g === "open" || g === "all";
-  const showNewLeadFilters = showAllMetricGroups || g === "pre_r1";
-  const showNurtureDnpFilters = showAllMetricGroups || g === "pre_r1";
-  const showRoundOfferFilters =
-    showAllMetricGroups ||
-    g === "r1" ||
-    g === "r2" ||
-    g === "r3" ||
-    g === "offer" ||
-    g === "offer_call_not_booked" ||
-    g === "offer_call_booked" ||
-    g === "offer_call_done";
+  const hasMetricFilters =
+    filters.callNotLoggedHours != null ||
+    filters.uniqueDays != null ||
+    filters.uniqueCalls != null ||
+    filters.minCallsSinceStage != null ||
+    filters.maxAvgCallsPerDay != null;
+
+  function clearMetricFilters() {
+    setNoCallDaysLocal("");
+    setUniqueDaysLocal("");
+    setUniqueCallsLocal("");
+    setMinStageCallsLocal("");
+    setMaxAvgDayLocal("");
+    pushFilters({
+      callNotLoggedHours: null,
+      callNotLoggedDays: null,
+      uniqueDays: null,
+      uniqueCalls: null,
+      minCalls: null,
+      minCallsSinceStage: null,
+      maxAvgCallsPerDay: null,
+      page: 1,
+    });
+  }
+
+  function switchCallFamily(next: CallFilterFamily) {
+    setCallFilterFamily(next);
+    // Drop filters from other families so only one story is active
+    if (next === "new") {
+      setUniqueDaysLocal("");
+      setUniqueCallsLocal("");
+      setMinStageCallsLocal("");
+      setMaxAvgDayLocal("");
+      pushFilters({
+        uniqueDays: null,
+        uniqueCalls: null,
+        minCalls: null,
+        minCallsSinceStage: null,
+        maxAvgCallsPerDay: null,
+        page: 1,
+      });
+    } else if (next === "nurture") {
+      setNoCallDaysLocal("");
+      setMinStageCallsLocal("");
+      setMaxAvgDayLocal("");
+      pushFilters({
+        callNotLoggedHours: null,
+        callNotLoggedDays: null,
+        minCalls: null,
+        minCallsSinceStage: null,
+        maxAvgCallsPerDay: null,
+        page: 1,
+      });
+    } else {
+      setNoCallDaysLocal("");
+      setUniqueDaysLocal("");
+      setUniqueCallsLocal("");
+      pushFilters({
+        callNotLoggedHours: null,
+        callNotLoggedDays: null,
+        uniqueDays: null,
+        uniqueCalls: null,
+        minCalls: null,
+        page: 1,
+      });
+    }
+  }
 
   const filteredCohorts = useMemo(
     () =>
@@ -571,173 +691,6 @@ export function LeadsWorkspace({
             Stale {STALE_LEAD_DAYS}d+
           </label>
 
-          <div className="flex w-full flex-col gap-2">
-            {showNewLeadFilters ? (
-              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/80 bg-white/70 px-2.5 py-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-                  New lead · Call not logged
-                </span>
-                {NO_CALL_PRESETS.map((p) => {
-                  const active = filters.callNotLoggedHours === p.hours;
-                  return (
-                    <button
-                      key={p.hours}
-                      type="button"
-                      className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
-                        active
-                          ? "border-navy bg-navy text-white"
-                          : "border-border bg-white text-navy"
-                      }`}
-                      onClick={() =>
-                        pushFilters({
-                          callNotLoggedHours: active ? null : p.hours,
-                          callNotLoggedDays:
-                            active || p.hours < 24
-                              ? null
-                              : Math.ceil(p.hours / 24),
-                          page: 1,
-                        })
-                      }
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
-                {NO_CALL_DAY_PRESETS.map((d) => {
-                  const hours = d * 24;
-                  const active = filters.callNotLoggedHours === hours;
-                  return (
-                    <button
-                      key={`d-${d}`}
-                      type="button"
-                      className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
-                        active
-                          ? "border-navy bg-navy text-white"
-                          : "border-border bg-white text-navy"
-                      }`}
-                      onClick={() => {
-                        setNoCallDaysLocal(active ? "" : String(d));
-                        pushFilters({
-                          callNotLoggedHours: active ? null : hours,
-                          callNotLoggedDays: active ? null : d,
-                          page: 1,
-                        });
-                      }}
-                    >
-                      {d}d
-                    </button>
-                  );
-                })}
-                <label className="inline-flex items-center gap-1 text-[11px] text-muted">
-                  Days
-                  <input
-                    className="input-field w-14 py-1 text-xs"
-                    type="number"
-                    min={0}
-                    step={1}
-                    placeholder="N"
-                    value={noCallDaysLocal}
-                    onChange={(e) => setNoCallDaysLocal(e.target.value)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="rounded-pill border border-border px-2 py-1 text-[11px] font-medium text-navy hover:bg-surface"
-                  onClick={() => {
-                    const days =
-                      noCallDaysLocal.trim() === ""
-                        ? null
-                        : Number(noCallDaysLocal);
-                    pushFilters({
-                      callNotLoggedHours:
-                        days != null && Number.isFinite(days)
-                          ? days * 24
-                          : null,
-                      callNotLoggedDays:
-                        days != null && Number.isFinite(days) ? days : null,
-                      page: 1,
-                    });
-                  }}
-                >
-                  Apply
-                </button>
-              </div>
-            ) : null}
-
-            {showNurtureDnpFilters ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-white/70 px-2.5 py-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-                  Nurturing / DNP
-                </span>
-                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-                  Unique days ≤
-                  <input
-                    className="input-field w-16 py-1 text-xs"
-                    type="number"
-                    min={0}
-                    placeholder="N"
-                    value={uniqueDaysLocal}
-                    onChange={(e) => setUniqueDaysLocal(e.target.value)}
-                  />
-                </label>
-                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-                  Unique calls ≤
-                  <input
-                    className="input-field w-16 py-1 text-xs"
-                    type="number"
-                    min={0}
-                    placeholder="N"
-                    value={uniqueCallsLocal}
-                    onChange={(e) => setUniqueCallsLocal(e.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
-
-            {showRoundOfferFilters ? (
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-white/70 px-2.5 py-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-                  R1–R3 / Offer · Since stage
-                </span>
-                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-                  Total calls ≥
-                  <input
-                    className="input-field w-16 py-1 text-xs"
-                    type="number"
-                    min={0}
-                    placeholder="N"
-                    value={minStageCallsLocal}
-                    onChange={(e) => setMinStageCallsLocal(e.target.value)}
-                  />
-                </label>
-                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-                  Avg calls/day ≤
-                  <input
-                    className="input-field w-16 py-1 text-xs"
-                    type="number"
-                    min={0}
-                    step={0.1}
-                    placeholder="N"
-                    value={maxAvgDayLocal}
-                    onChange={(e) => setMaxAvgDayLocal(e.target.value)}
-                  />
-                </label>
-              </div>
-            ) : null}
-
-            {(showNurtureDnpFilters || showRoundOfferFilters) && (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  className="btn-secondary text-xs"
-                  onClick={applyMetricFilters}
-                >
-                  Apply filters
-                </button>
-              </div>
-            )}
-          </div>
-
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
             <input
@@ -751,6 +704,197 @@ export function LeadsWorkspace({
           {isAdmin ? (
             <button type="button" className="btn-secondary text-xs" onClick={exportCsv}>
               Export CSV
+            </button>
+          ) : null}
+        </div>
+
+        {/* One call-filter family at a time — keeps the strip readable */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border/70 pt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-navy">
+              Call filter
+            </span>
+            {stageFamilyHint === "pick" ? (
+              <div className="flex rounded-lg border border-border bg-[#F7F8FC] p-0.5">
+                {(
+                  [
+                    { id: "new" as const, label: "New lead" },
+                    { id: "nurture" as const, label: "Nurturing / DNP" },
+                    { id: "round" as const, label: "Interview / Offer" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => switchCallFamily(opt.id)}
+                    className={cn(
+                      "rounded-md px-2.5 py-1 text-[11px] font-medium transition",
+                      activeCallFamily === opt.id
+                        ? "bg-white text-navy shadow-sm"
+                        : "text-muted hover:text-navy"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[11px] text-muted">
+                {activeCallFamily === "round"
+                  ? "Interview / Offer"
+                  : activeCallFamily === "nurture"
+                    ? "Nurturing / DNP"
+                    : "New lead"}
+              </span>
+            )}
+          </div>
+
+          {activeCallFamily === "new" ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted">No call for</span>
+              {NO_CALL_PRESETS.map((p) => {
+                const active = filters.callNotLoggedHours === p.hours;
+                return (
+                  <button
+                    key={p.hours}
+                    type="button"
+                    className={cn(
+                      "rounded-md border px-2 py-1 text-[11px] font-medium transition",
+                      active
+                        ? "border-navy bg-navy text-white"
+                        : "border-border bg-white text-navy hover:border-navy/40"
+                    )}
+                    onClick={() => {
+                      setNoCallDaysLocal(active ? "" : String(p.hours / 24));
+                      pushFilters({
+                        callNotLoggedHours: active ? null : p.hours,
+                        callNotLoggedDays: active ? null : p.hours / 24,
+                        uniqueDays: null,
+                        uniqueCalls: null,
+                        minCallsSinceStage: null,
+                        maxAvgCallsPerDay: null,
+                        page: 1,
+                      });
+                    }}
+                  >
+                    {p.label}+
+                  </button>
+                );
+              })}
+              <label className="ml-1 inline-flex items-center gap-1 text-[11px] text-muted">
+                or
+                <input
+                  className="input-field w-12 py-1 text-xs"
+                  type="number"
+                  min={0}
+                  step={1}
+                  placeholder="N"
+                  value={noCallDaysLocal}
+                  onChange={(e) => setNoCallDaysLocal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyMetricFilters();
+                  }}
+                />
+                days
+              </label>
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-navy hover:underline"
+                onClick={applyMetricFilters}
+              >
+                Apply
+              </button>
+            </div>
+          ) : null}
+
+          {activeCallFamily === "nurture" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 text-[11px] text-muted">
+                Unique days ≤
+                <input
+                  className="input-field w-14 py-1 text-xs"
+                  type="number"
+                  min={0}
+                  placeholder="—"
+                  value={uniqueDaysLocal}
+                  onChange={(e) => setUniqueDaysLocal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyMetricFilters();
+                  }}
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-[11px] text-muted">
+                Unique calls ≤
+                <input
+                  className="input-field w-14 py-1 text-xs"
+                  type="number"
+                  min={0}
+                  placeholder="—"
+                  value={uniqueCallsLocal}
+                  onChange={(e) => setUniqueCallsLocal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyMetricFilters();
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-navy hover:underline"
+                onClick={applyMetricFilters}
+              >
+                Apply
+              </button>
+            </div>
+          ) : null}
+
+          {activeCallFamily === "round" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 text-[11px] text-muted">
+                Calls since stage ≥
+                <input
+                  className="input-field w-14 py-1 text-xs"
+                  type="number"
+                  min={0}
+                  placeholder="—"
+                  value={minStageCallsLocal}
+                  onChange={(e) => setMinStageCallsLocal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyMetricFilters();
+                  }}
+                />
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-[11px] text-muted">
+                Avg / day ≤
+                <input
+                  className="input-field w-14 py-1 text-xs"
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  placeholder="—"
+                  value={maxAvgDayLocal}
+                  onChange={(e) => setMaxAvgDayLocal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") applyMetricFilters();
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-navy hover:underline"
+                onClick={applyMetricFilters}
+              >
+                Apply
+              </button>
+            </div>
+          ) : null}
+
+          {hasMetricFilters ? (
+            <button
+              type="button"
+              className="text-[11px] font-medium text-muted hover:text-navy"
+              onClick={clearMetricFilters}
+            >
+              Clear call filter
             </button>
           ) : null}
         </div>
