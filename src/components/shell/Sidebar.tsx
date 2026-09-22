@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/constants";
+import { useImpersonation } from "@/components/shell/ImpersonationProvider";
 import {
   BarChart3,
   Calendar,
@@ -158,7 +159,11 @@ export function Sidebar({
   userName: string;
 }) {
   const pathname = usePathname();
+  const { href: withViewAs, targetUserId } = useImpersonation();
   const items = navForRole(role);
+  const effectivePath = targetUserId
+    ? pathname.replace(new RegExp(`^/view/${targetUserId}`), "") || "/"
+    : pathname;
 
   return (
     <aside className="sticky top-0 flex h-dvh w-60 shrink-0 flex-col bg-navy text-white">
@@ -171,18 +176,20 @@ export function Sidebar({
             ? "Marketing"
             : role === "program"
               ? "Program"
-              : "Admissions"}
+              : targetUserId
+                ? "View as"
+                : "Admissions"}
         </p>
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {items.map((item) => {
-          const active = navItemActive(pathname, item);
+          const active = navItemActive(effectivePath, item);
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={withViewAs(item.href)}
               className={cn(
                 "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition active:scale-[0.98]",
                 active
@@ -196,7 +203,7 @@ export function Sidebar({
             </Link>
           );
         })}
-        {role === "admin" ? (
+        {role === "admin" && !targetUserId ? (
           <>
             <div className="pt-4">
               <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-eyebrow text-white/40">

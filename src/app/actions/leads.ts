@@ -1,6 +1,6 @@
 "use server";
 
-import { requireUser } from "@/lib/auth";
+import { requireAuth, requireUser } from "@/lib/auth";
 import type { Stage } from "@/lib/constants";
 import {
   isBookingRequiredStage,
@@ -317,16 +317,22 @@ export async function claimLead(leadId: string): Promise<ActionResult> {
 }
 
 export async function createCallLog(formData: FormData): Promise<ActionResult> {
-  const user = await requireUser(["counselor", "admin"]);
+  const ctx = await requireAuth(["counselor", "admin"]);
+  // Attribute to real admin when View as (audit); otherwise effective user
+  const counselorId = ctx.impersonating ? ctx.actor.id : ctx.user.id;
   const supabase = createClient();
 
   const leadId = String(formData.get("lead_id") || "");
+  const rawNotes = String(formData.get("notes") || "").trim();
+  const notes = ctx.impersonating
+    ? `${rawNotes}${rawNotes ? " · " : ""}View as ${ctx.user.name}`
+    : rawNotes;
   const payload = {
     lead_id: leadId,
-    counselor_id: user.id,
+    counselor_id: counselorId,
     outcome: String(formData.get("outcome") || "other"),
     duration: formData.get("duration") ? Number(formData.get("duration")) : null,
-    notes: String(formData.get("notes") || "").trim() || null,
+    notes: notes || null,
     recording_url: String(formData.get("recording_url") || "").trim() || null,
   };
 

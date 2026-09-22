@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
@@ -12,6 +12,7 @@ import {
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
+import { viewAsHref } from "@/lib/impersonation";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
 
 export default async function LeadsPage({
@@ -19,9 +20,14 @@ export default async function LeadsPage({
 }: {
   searchParams: Record<string, string | string[] | undefined>;
 }) {
-  const user = await requireUser(["counselor", "admin"]);
+  const ctx = await requireAuth(["counselor", "admin"]);
+  const user = ctx.user;
   const supabase = createClient();
-  const isAdmin = user.role === "admin";
+  // View as must behave as the target counselor (never admin "all leads")
+  const isAdmin = user.role === "admin" && !ctx.impersonating;
+  const basePath = ctx.impersonating
+    ? viewAsHref(user.id, "/leads")
+    : "/leads";
 
   const filters = parseLeadsSearchParams(searchParams, {
     ownership: isAdmin ? "all" : "mine",
@@ -77,7 +83,7 @@ export default async function LeadsPage({
         accent="Leads"
         description="Mine · open pipeline by default. Claim unassigned leads separately — filters hit the server."
         actions={
-          <Link href="/leads/new" className="btn-primary">
+          <Link href={`${basePath}/new`} className="btn-primary">
             Add Lead
           </Link>
         }
@@ -89,7 +95,7 @@ export default async function LeadsPage({
         courses={courses as Course[]}
         cohorts={cohorts as Cohort[]}
         isAdmin={isAdmin}
-        basePath="/leads"
+        basePath={basePath}
         attributionByLead={attributionByLead}
       />
     </div>

@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { LeadDetailClient } from "@/components/leads/LeadDetailClient";
 import type { LeadMarketingData } from "@/components/leads/LeadMarketingTab";
@@ -7,6 +7,7 @@ import { buildFormOrigin } from "@/lib/leads/form-origin";
 import { explainLeadScore } from "@/lib/leads/score";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { isTwilioConfigured } from "@/lib/twilio";
+import { viewAsHref } from "@/lib/impersonation";
 import { notFound } from "next/navigation";
 
 export default async function LeadDetailPage({
@@ -14,11 +15,21 @@ export default async function LeadDetailPage({
 }: {
   params: { id: string };
 }) {
-  const user = await requireUser(["counselor", "admin", "marketing"]);
+  const ctx = await requireAuth(["counselor", "admin", "marketing"]);
+  const user = ctx.user;
   const supabase = createClient();
 
   const { data: lead } = await supabase.from("leads").select("*").eq("id", params.id).maybeSingle();
   if (!lead) notFound();
+
+  // View as: only show leads owned by the target (or unassigned they could claim)
+  if (
+    ctx.impersonating &&
+    lead.lead_allocated_to &&
+    lead.lead_allocated_to !== user.id
+  ) {
+    notFound();
+  }
 
   const [
     courses,
@@ -225,7 +236,7 @@ export default async function LeadDetailPage({
       cohorts={cohorts}
       history={history ?? []}
       callLogs={callLogs ?? []}
-      isAdmin={user.role === "admin"}
+      isAdmin={user.role === "admin" && !ctx.impersonating}
       counselorName={allocated?.name}
       counselors={counselors ?? []}
       allocatedToId={lead.lead_allocated_to}
@@ -245,6 +256,9 @@ export default async function LeadDetailPage({
           : null
       }
       twilioConfigured={isTwilioConfigured()}
+      leadsBasePath={
+        ctx.impersonating ? viewAsHref(user.id, "/leads") : "/leads"
+      }
     />
   );
 }

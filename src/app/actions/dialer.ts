@@ -1,6 +1,6 @@
 "use server";
 
-import { requireUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   appPublicUrl,
@@ -23,7 +23,8 @@ export async function startClickToCall(input: {
   /** Counselor's phone to ring first (E.164 preferred). */
   agentPhone: string;
 }): Promise<DialerResult> {
-  const user = await requireUser(["counselor", "admin"]);
+  const ctx = await requireAuth(["counselor", "admin"]);
+  const user = ctx.impersonating ? ctx.actor : ctx.user;
   if (!isTwilioConfigured()) {
     return {
       ok: false,
@@ -62,7 +63,9 @@ export async function startClickToCall(input: {
       lead_id: lead.id,
       counselor_id: user.id,
       outcome: "dialing",
-      notes: `Click-to-call started · agent ${agentE164}`,
+      notes: ctx.impersonating
+        ? `Click-to-call started · agent ${agentE164} · View as ${ctx.user.name}`
+        : `Click-to-call started · agent ${agentE164}`,
       call_status: "initiated",
       call_source: "twilio",
     })

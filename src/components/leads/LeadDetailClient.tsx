@@ -85,6 +85,7 @@ export function LeadDetailClient({
   marketing = null,
   feeSummary = null,
   twilioConfigured = false,
+  leadsBasePath = "/leads",
 }: {
   lead: Lead;
   courses: Course[];
@@ -102,6 +103,8 @@ export function LeadDetailClient({
   marketing?: LeadMarketingData | null;
   feeSummary?: LeadFeeSummary;
   twilioConfigured?: boolean;
+  /** Prefix for in-app lead links (supports /view/[userId]/leads). */
+  leadsBasePath?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -175,7 +178,9 @@ export function LeadDetailClient({
 
   function setTab(next: Tab) {
     const url =
-      next === "info" ? `/leads/${lead.id}` : `/leads/${lead.id}?tab=${next}`;
+      next === "info"
+        ? `${leadsBasePath}/${lead.id}`
+        : `${leadsBasePath}/${lead.id}?tab=${next}`;
     router.push(url);
   }
 
@@ -318,10 +323,10 @@ export function LeadDetailClient({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href={`/leads/${lead.id}/book-interview`} className="btn-secondary">
+          <Link href={`${leadsBasePath}/${lead.id}/book-interview`} className="btn-secondary">
             Book interview
           </Link>
-          <Link href={`/leads/${lead.id}/fees`} className="btn-primary">
+          <Link href={`${leadsBasePath}/${lead.id}/fees`} className="btn-primary">
             Fees
           </Link>
         </div>
@@ -350,7 +355,7 @@ export function LeadDetailClient({
               {!isAdmin ? " · amount locked (admin only)" : null}
             </p>
           </div>
-          <Link href={`/leads/${lead.id}/fees`} className="btn-secondary text-xs">
+          <Link href={`${leadsBasePath}/${lead.id}/fees`} className="btn-secondary text-xs">
             {isAdmin ? "Manage fee" : "Record payments"}
           </Link>
         </div>
@@ -362,7 +367,7 @@ export function LeadDetailClient({
               : "Offer fee not set yet. Only an admin can set this lead’s fee — you can collect once it’s set."}
           </p>
           {isAdmin ? (
-            <Link href={`/leads/${lead.id}/fees`} className="btn-secondary text-xs">
+            <Link href={`${leadsBasePath}/${lead.id}/fees`} className="btn-secondary text-xs">
               Set offer fee
             </Link>
           ) : (
@@ -747,7 +752,7 @@ export function LeadDetailClient({
                 </ul>
               )}
               <Link
-                href={`/leads/${lead.id}/book-interview`}
+                href={`${leadsBasePath}/${lead.id}/book-interview`}
                 className="mt-3 inline-block text-sm font-medium text-periwinkle hover:underline"
               >
                 Book / reschedule →

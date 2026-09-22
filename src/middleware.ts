@@ -1,4 +1,11 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import {
+  IMPERSONATE_HEADER,
+  VIEW_AS_ROLES,
+  isViewAsAllowedRestPath,
+  parseViewAsPath,
+  viewAsHome,
+} from "@/lib/impersonation";
 import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_PATHS = [
@@ -17,6 +24,7 @@ function isPublicPath(path: string) {
   return (
     PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/")) ||
     path.startsWith("/api/cron/") ||
+    path.startsWith("/api/twilio/") ||
     path.startsWith("/_next") ||
     path.includes(".")
   );
@@ -67,14 +75,25 @@ function setRoleCookie(
   });
 }
 
+function clearRoleCookie(response: NextResponse) {
+  response.cookies.set({
+    name: ROLE_COOKIE,
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+  });
+}
+
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Missing env on Vercel previously threw and produced MIDDLEWARE_INVOCATION_FAILED.
   if (!supabaseUrl || !supabaseAnonKey) {
-    if (path === "/login" || isPublicPath(path)) {
+    if (path === "/login" || path.startsWith("/login/") || isPublicPath(path)) {
       return NextResponse.next();
     }
     return redirectTo(request, "/login");
@@ -87,37 +106,46 @@ export async function middleware(request: NextRequest) {
   try {
     const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
       cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
+        getAll() {
+          return request.cookies.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options });
+        setAll(
+          cookiesToSet: {
+            name: string;
+            value: string;
+            options: CookieOptions;
+          }[]
+        ) {
+          cookiesToSet.forEach(({ name, value }) => {
+            request.cookies.set(name, value);
+          });
           response = NextResponse.next({
             request: { headers: request.headers },
           });
-          response.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: "", ...options });
-          response = NextResponse.next({
-            request: { headers: request.headers },
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
           });
-          response.cookies.set({ name, value: "", ...options });
         },
       },
     });
 
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser();
 
-    const isPublic = isPublicPath(path);
+    if (userError) {
+      console.error("[middleware] getUser", userError.message);
+    }
+
+    const isPublic = isPublicPath(path) || path.startsWith("/login");
 
     if (!user && !isPublic && path !== "/") {
       return redirectTo(request, "/login");
     }
 
     if (!user) {
+      clearRoleCookie(response);
       return response;
     }
 
@@ -135,8 +163,61 @@ export async function middleware(request: NextRequest) {
       setRoleCookie(response, user.id, role);
     }
 
-    if (path === "/login" || path === "/") {
+    // Inactive account → force login
+    if (!role && !path.startsWith("/login")) {
+      return redirectTo(request, "/login?error=inactive");
+    }
+
+    // Root only — login stays reachable for Continue as / Switch account
+    if (path === "/") {
       return redirectTo(request, homeForRole(role));
+    }
+
+    // Path-based View as: /view/:userId/... (admin only, counselor MVP surfaces)
+    const viewAs = parseViewAsPath(path);
+    if (viewAs) {
+      if (role !== "admin") {
+        return redirectTo(request, homeForRole(role));
+      }
+      if (viewAs.targetUserId === user.id) {
+        return redirectTo(request, homeForRole(role));
+      }
+      if (!isViewAsAllowedRestPath(viewAs.restPath)) {
+        return redirectTo(request, viewAsHome(viewAs.targetUserId));
+      }
+
+      const { data: target } = await supabase
+        .from("users")
+        .select("id, role, active")
+        .eq("id", viewAs.targetUserId)
+        .maybeSingle();
+
+      if (
+        !target?.active ||
+        !VIEW_AS_ROLES.includes(target.role as (typeof VIEW_AS_ROLES)[number])
+      ) {
+        return redirectTo(request, "/admin/users");
+      }
+
+      // MVP: counselor surfaces only for counselor targets
+      if (target.role !== "counselor") {
+        return redirectTo(request, "/admin/users");
+      }
+
+      const requestHeaders = new Headers(request.headers);
+      requestHeaders.set(IMPERSONATE_HEADER, viewAs.targetUserId);
+
+      const rewriteUrl = request.nextUrl.clone();
+      rewriteUrl.pathname = viewAs.restPath;
+
+      const rewrite = NextResponse.rewrite(rewriteUrl, {
+        request: { headers: requestHeaders },
+      });
+      // Preserve auth cookies refreshed above
+      response.cookies.getAll().forEach((c) => {
+        rewrite.cookies.set(c.name, c.value);
+      });
+      return rewrite;
     }
 
     if (path.startsWith("/admin/marketing") && role !== "admin") {
@@ -151,7 +232,11 @@ export async function middleware(request: NextRequest) {
       return redirectTo(request, homeForRole(role));
     }
 
-    if (path.startsWith("/interviewer") && role !== "interviewer" && role !== "admin") {
+    if (
+      path.startsWith("/interviewer") &&
+      role !== "interviewer" &&
+      role !== "admin"
+    ) {
       return redirectTo(request, homeForRole(role));
     }
 
@@ -193,10 +278,16 @@ export async function middleware(request: NextRequest) {
     }
 
     return response;
-  } catch {
-    // Auth/network failures must not take down every route on Edge.
-    if (path === "/login" || isPublicPath(path)) {
+  } catch (err) {
+    console.error("[middleware]", err);
+    // Don't kick authenticated-looking navigations on transient errors
+    if (path === "/login" || path.startsWith("/login/") || isPublicPath(path)) {
       return NextResponse.next();
+    }
+    if (request.cookies.getAll().some((c) => c.name.includes("auth-token"))) {
+      return NextResponse.next({
+        request: { headers: request.headers },
+      });
     }
     return redirectTo(request, "/login");
   }

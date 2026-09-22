@@ -2,6 +2,7 @@
 
 import { createUserAccount, deleteUserAccount, setCounselorScopes, updateUserProfile } from "@/app/actions/users";
 import { ROLES, type Role } from "@/lib/constants";
+import { viewAsHome } from "@/lib/impersonation";
 import { StatusBadge } from "@/components/ui/Primitives";
 import type { AppUser, Cohort, CounselorScope, Course } from "@/types/database";
 import { useRouter } from "next/navigation";
@@ -189,6 +190,16 @@ export function UsersClient({
                     >
                       {u.active ? "Deactivate" : "Activate"}
                     </button>
+                    {u.active && u.role === "counselor" ? (
+                      <a
+                        href={viewAsHome(u.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-ghost block text-xs text-periwinkle"
+                      >
+                        View as
+                      </a>
+                    ) : null}
                     <button
                       type="button"
                       className="btn-ghost block text-xs text-danger"

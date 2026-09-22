@@ -22,7 +22,12 @@ SEED_COUNSELOR_EMAIL=   # or legacy SEED_COUNSELLOR_EMAIL
 SEED_COUNSELOR_PASSWORD=
 SEED_INTERVIEWER_EMAIL=interviewer@hiveschool.in
 SEED_INTERVIEWER_PASSWORD=Interviewer2026!
+NEXT_PUBLIC_APP_URL=   # production URL; required for password-reset emails + Twilio webhooks
 ```
+
+Password reset: add `{NEXT_PUBLIC_APP_URL}/login/reset` to Supabase Auth → URL configuration → Redirect URLs.
+
+**View as (admin):** Users & Roles → **View as** opens that counselor in a new tab under `/view/{id}/…` without signing out of admin.
 
 2. Apply the schema migration (replaces any old Phase-1 work-desk tables):
 

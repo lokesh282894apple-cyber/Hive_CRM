@@ -1,29 +1,37 @@
-import { requireUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { evaluateAttentionReasons } from "@/lib/attention";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StageBadge } from "@/components/ui/Primitives";
 import type { Stage } from "@/lib/constants";
+import { viewAsHref } from "@/lib/impersonation";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
 
 export default async function AttentionPage() {
-  const user = await requireUser(["counselor", "admin"]);
+  const ctx = await requireAuth(["counselor", "admin"]);
+  const user = ctx.user;
   const supabase = createClient();
+  const asCounselor = user.role === "counselor" || ctx.impersonating;
+  const vid = ctx.impersonating ? user.id : null;
 
-  const [{ data: settings }, { data: leads }, { data: overdueInst }] = await Promise.all([
-    supabase.from("app_settings").select("*"),
-    user.role === "admin"
-      ? supabase.from("leads").select("id, name, stage, last_contacted_at, created_at").limit(500)
-      : supabase
-          .from("leads")
-          .select("id, name, stage, last_contacted_at, created_at")
-          .eq("lead_allocated_to", user.id)
-          .limit(500),
-    supabase
-      .from("installments")
-      .select("fee_record_id, fee_records(lead_id)")
-      .eq("status", "overdue"),
-  ]);
+  const [{ data: settings }, { data: leads }, { data: overdueInst }] =
+    await Promise.all([
+      supabase.from("app_settings").select("*"),
+      asCounselor
+        ? supabase
+            .from("leads")
+            .select("id, name, stage, last_contacted_at, created_at")
+            .eq("lead_allocated_to", user.id)
+            .limit(500)
+        : supabase
+            .from("leads")
+            .select("id, name, stage, last_contacted_at, created_at")
+            .limit(500),
+      supabase
+        .from("installments")
+        .select("fee_record_id, fee_records(lead_id)")
+        .eq("status", "overdue"),
+    ]);
 
   const map = Object.fromEntries((settings ?? []).map((s) => [s.key, s.value]));
   const noContactDaysThreshold = Number(map.attention_no_contact_days ?? 3);
@@ -59,7 +67,8 @@ export default async function AttentionPage() {
       />
       <div className="mb-4 rounded-panel border border-warning/30 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
         Rules shipped for prototype: overdue installment, no contact in N days (default{" "}
-        {noContactDaysThreshold}), unresolved no-show after X days (default {unresolvedNoshowDays}
+        {noContactDaysThreshold}), unresolved no-show after X days (default{" "}
+        {unresolvedNoshowDays}
         ). Edit thresholds in System Config / app_settings.
       </div>
       <div className="panel overflow-hidden">
@@ -77,7 +86,7 @@ export default async function AttentionPage() {
               <tr key={lead.id} className="border-b border-border last:border-0">
                 <td className="px-4 py-3">
                   <Link
-                    href={`/leads/${lead.id}`}
+                    href={viewAsHref(vid, `/leads/${lead.id}`)}
                     className="font-medium text-navy hover:text-periwinkle"
                   >
                     {lead.name}

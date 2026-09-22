@@ -1,4 +1,4 @@
-import { requireUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader, EmptyState } from "@/components/ui/Primitives";
 import { fetchAdmissionsAnalytics } from "@/lib/analytics/admissions";
@@ -6,6 +6,7 @@ import { fetchCounselorAttributionGlance } from "@/lib/marketing/queries";
 import { DualTrend, HBarList } from "@/components/charts/SimpleCharts";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
+import { viewAsHref } from "@/lib/impersonation";
 import Link from "next/link";
 
 function Metric({
@@ -53,9 +54,10 @@ export default async function CounselorDashboardPage({
 }: {
   searchParams: { range?: string };
 }) {
-  const user = await requireUser(["counselor", "admin"]);
+  const ctx = await requireAuth(["counselor", "admin"]);
+  const user = ctx.user;
   const supabase = createClient();
-  const isCounselor = user.role === "counselor";
+  const isCounselor = user.role === "counselor" || ctx.impersonating;
   const rangeDays = ["7", "30", "90"].includes(searchParams.range ?? "")
     ? Number(searchParams.range)
     : 30;
@@ -68,6 +70,8 @@ export default async function CounselorDashboardPage({
   const myLeadIds = data.leadRows.map((l) => l.id);
   const attribution = await fetchCounselorAttributionGlance(supabase, myLeadIds);
   const ranges = [7, 30, 90];
+  const vid = ctx.impersonating ? user.id : null;
+  const h = (path: string) => viewAsHref(vid, path);
 
   return (
     <div className="space-y-8">
@@ -78,11 +82,11 @@ export default async function CounselorDashboardPage({
         description="Work queues first, then your funnel and sources."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/leads/new" className="btn-primary">
+            <Link href={h("/leads/new")} className="btn-primary">
               Add Lead
             </Link>
             <Link
-              href="/leads"
+              href={h("/leads")}
               className="rounded-xl border border-border px-3 py-1.5 text-xs font-semibold text-navy"
             >
               My leads
@@ -91,7 +95,7 @@ export default async function CounselorDashboardPage({
               {ranges.map((r) => (
                 <Link
                   key={r}
-                  href={`/dashboard?range=${r}`}
+                  href={h(`/dashboard?range=${r}`)}
                   className={
                     r === rangeDays
                       ? "btn-primary px-3 py-1 text-xs"
@@ -165,7 +169,7 @@ export default async function CounselorDashboardPage({
               {data.attentionList.map((l) => (
                 <Link
                   key={l.id}
-                  href={`/leads/${l.id}`}
+                  href={h(`/leads/${l.id}`)}
                   className="flex items-center justify-between gap-2 py-1 text-sm"
                 >
                   <span className="truncate font-medium text-navy">{l.name}</span>
@@ -245,7 +249,7 @@ export default async function CounselorDashboardPage({
           ) : (
             <ul className="space-y-2">
               {data.recentLeads.slice(0, 6).map((l) => (
-                <Link key={l.id} href={`/leads/${l.id}`} className="block py-1">
+                <Link key={l.id} href={h(`/leads/${l.id}`)} className="block py-1">
                   <p className="truncate text-sm font-medium text-navy">{l.name}</p>
                   <p className="truncate text-xs text-muted">
                     {STAGE_LABELS[l.stage as Stage] ?? l.stage}
