@@ -29,10 +29,21 @@ export type PanelistRow = {
   name: string;
   totals: PanelistRoundStats;
   byRound: Record<"R1" | "R2" | "R3", PanelistRoundStats>;
+  /** Selected ÷ conducted */
   selectedPct: number;
   rejectPct: number;
   tbbPct: number;
+  /** Conducted ÷ booked */
+  conductedPct: number;
+  /** Selected ÷ booked */
+  selectedOfBookedPct: number;
+  /** Offered after selection ÷ conducted */
+  conductedToOfferedPct: number;
+  /** Won after ÷ offered after */
+  offeredToWonPct: number;
+  /** @deprecated use conductedToOfferedPct — kept for callers */
   offeredAfterPct: number;
+  /** @deprecated use offeredToWonPct */
   wonAfterPct: number;
   avgProfileScore: number | null;
   avgIntentScore: number | null;
@@ -212,6 +223,8 @@ export async function fetchPanelPerformance(
     .map(([interviewerId, acc]) => {
       const t = acc.totals;
       const denom = t.conducted || t.booked;
+      const conductedToOffered = pct(t.offeredAfter, t.conducted);
+      const offeredToWon = pct(t.wonAfter, t.offeredAfter);
       return {
         interviewerId,
         name: acc.name,
@@ -220,8 +233,12 @@ export async function fetchPanelPerformance(
         selectedPct: pct(t.selected, denom),
         rejectPct: pct(t.reject, denom),
         tbbPct: pct(t.tbb, denom),
-        offeredAfterPct: pct(t.offeredAfter, t.selected),
-        wonAfterPct: pct(t.wonAfter, t.selected),
+        conductedPct: pct(t.conducted, t.booked),
+        selectedOfBookedPct: pct(t.selected, t.booked),
+        conductedToOfferedPct: conductedToOffered,
+        offeredToWonPct: offeredToWon,
+        offeredAfterPct: conductedToOffered,
+        wonAfterPct: offeredToWon,
         avgProfileScore: null as number | null,
         avgIntentScore: null as number | null,
       };

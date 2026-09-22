@@ -111,6 +111,10 @@ export default async function AdminPanelPage({
   const courseMap = new Map(courses.map((c) => [c.id, c.name]));
   const t = panel.totals;
   const selectedPct = t.conducted > 0 ? (t.selected / t.conducted) * 100 : 0;
+  const conductedToOfferedPct =
+    t.conducted > 0 ? (t.offeredAfter / t.conducted) * 100 : 0;
+  const offeredToWonPct =
+    t.offeredAfter > 0 ? (t.wonAfter / t.offeredAfter) * 100 : 0;
   const years = uniqueCohortYears(cohorts);
   const dateCohorts = cohorts.map((c) => ({
     id: c.id,
@@ -216,16 +220,24 @@ export default async function AdminPanelPage({
           value={t.selected}
           hint={`${selectedPct.toFixed(0)}% of conducted`}
         />
-        <StatCard label="Offered after" value={t.offeredAfter} hint="From selections" />
-        <StatCard label="Won after" value={t.wonAfter} hint="From selections" />
+        <StatCard
+          label="Offered after"
+          value={t.offeredAfter}
+          hint={`${conductedToOfferedPct.toFixed(0)}% of conducted`}
+        />
+        <StatCard
+          label="Won after"
+          value={t.wonAfter}
+          hint={`${offeredToWonPct.toFixed(0)}% of offered`}
+        />
       </div>
 
       <section className="panel overflow-hidden">
         <div className="border-b border-border px-5 py-3">
           <p className="eyebrow">Panelists</p>
           <p className="mt-0.5 text-xs text-muted">
-            Selected = interview outcome confirmed. Offered/won after = lead reached that stage
-            after the selection.
+            Selected = interview outcome confirmed. Conducted → Offered and Offered → Won are
+            conversion rates after the panelist’s selection path.
           </p>
         </div>
         {panel.rows.length === 0 ? (
@@ -243,7 +255,9 @@ export default async function AdminPanelPage({
                   <th className="eyebrow px-3 py-2.5 text-right">Reject</th>
                   <th className="eyebrow px-3 py-2.5 text-right">TBB</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Offered</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">Cond → Off %</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Won</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">Off → Won %</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Avg profile</th>
                   <th className="eyebrow px-5 py-2.5 text-right">Avg intent</th>
                 </tr>
@@ -257,6 +271,9 @@ export default async function AdminPanelPage({
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.conducted}
+                      <span className="ml-1 text-[11px] text-muted/80">
+                        ({r.conductedPct.toFixed(0)}%)
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-navy">
                       {r.totals.selected}
@@ -273,8 +290,14 @@ export default async function AdminPanelPage({
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.offeredAfter}
                     </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-navy">
+                      {r.conductedToOfferedPct.toFixed(0)}%
+                    </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.wonAfter}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-navy">
+                      {r.offeredToWonPct.toFixed(0)}%
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.avgProfileScore ?? "—"}
@@ -294,6 +317,9 @@ export default async function AdminPanelPage({
         <section className="panel mt-6 overflow-hidden">
           <div className="border-b border-border px-5 py-3">
             <p className="eyebrow">By round</p>
+            <p className="mt-0.5 text-xs text-muted">
+              Done :: Booked % and Selected :: Booked % for each round.
+            </p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -301,7 +327,7 @@ export default async function AdminPanelPage({
                 <tr>
                   <th className="eyebrow px-5 py-2.5">Panelist</th>
                   {(["R1", "R2", "R3"] as const).map((r) => (
-                    <th key={r} colSpan={3} className="eyebrow px-2 py-2.5 text-center">
+                    <th key={r} colSpan={5} className="eyebrow px-2 py-2.5 text-center">
                       {r}
                     </th>
                   ))}
@@ -312,7 +338,9 @@ export default async function AdminPanelPage({
                     <Fragment key={r}>
                       <th className="eyebrow px-2 py-1 text-right">Booked</th>
                       <th className="eyebrow px-2 py-1 text-right">Done</th>
+                      <th className="eyebrow px-2 py-1 text-right">Done %</th>
                       <th className="eyebrow px-2 py-1 text-right">Sel</th>
+                      <th className="eyebrow px-2 py-1 text-right">Sel %</th>
                     </Fragment>
                   ))}
                 </tr>
@@ -323,6 +351,10 @@ export default async function AdminPanelPage({
                     <td className="px-5 py-2.5 font-medium text-navy">{row.name}</td>
                     {(["R1", "R2", "R3"] as const).map((r) => {
                       const s = row.byRound[r];
+                      const donePct =
+                        s.booked > 0 ? (s.conducted / s.booked) * 100 : 0;
+                      const selPct =
+                        s.booked > 0 ? (s.selected / s.booked) * 100 : 0;
                       return (
                         <Fragment key={r}>
                           <td className="px-2 py-2.5 text-right tabular-nums text-muted">
@@ -332,7 +364,13 @@ export default async function AdminPanelPage({
                             {s.conducted}
                           </td>
                           <td className="px-2 py-2.5 text-right tabular-nums text-navy">
+                            {s.booked > 0 ? `${donePct.toFixed(0)}%` : "—"}
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-navy">
                             {s.selected}
+                          </td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-navy">
+                            {s.booked > 0 ? `${selPct.toFixed(0)}%` : "—"}
                           </td>
                         </Fragment>
                       );
