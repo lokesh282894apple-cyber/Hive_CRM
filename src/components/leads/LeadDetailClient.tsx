@@ -8,6 +8,10 @@ import {
   updateLeadInfo,
   updateLeadStage,
 } from "@/app/actions/leads";
+import {
+  fetchLeadMarketing,
+  fetchLeadScoreBreakdown,
+} from "@/app/actions/lead-detail";
 import { markNoShowOrReschedule } from "@/app/actions/interviews";
 import {
   CALL_OUTCOMES,
@@ -83,9 +87,11 @@ export function LeadDetailClient({
   allocatedToId = null,
   interviewBookings = [],
   scoreBreakdown = null,
+  loadScoreOnDemand = false,
   messageLogs = [],
   touchpoints = [],
   marketing = null,
+  loadMarketingOnDemand = false,
   feeSummary = null,
   twilioConfigured = false,
   leadsBasePath = "/leads",
@@ -101,9 +107,13 @@ export function LeadDetailClient({
   allocatedToId?: string | null;
   interviewBookings?: LeadInterviewSummary[];
   scoreBreakdown?: ScoreBreakdown | null;
+  /** When true, fetch score breakdown after paint (faster first load). */
+  loadScoreOnDemand?: boolean;
   messageLogs?: import("@/components/leads/LeadActivityTimeline").MessageLogItem[];
   touchpoints?: import("@/components/leads/LeadActivityTimeline").TouchpointItem[];
   marketing?: LeadMarketingData | null;
+  /** When true, fetch marketing journey only when that tab opens. */
+  loadMarketingOnDemand?: boolean;
   feeSummary?: LeadFeeSummary;
   twilioConfigured?: boolean;
   /** Prefix for in-app lead links (supports /view/[userId]/leads). */
@@ -111,7 +121,9 @@ export function LeadDetailClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tab = (searchParams.get("tab") as Tab) || "info";
+  const [tab, setTabState] = useState<Tab>(
+    () => (searchParams.get("tab") as Tab) || "info"
+  );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>(lead.stage);
@@ -120,10 +132,72 @@ export function LeadDetailClient({
   const [noShowRound, setNoShowRound] = useState<InterviewRound | null>(null);
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
+  const [liveScore, setLiveScore] = useState<ScoreBreakdown | null>(scoreBreakdown);
+  const [liveMarketing, setLiveMarketing] = useState<LeadMarketingData | null>(
+    marketing
+  );
+  const [marketingLoading, setMarketingLoading] = useState(false);
+  const [scoreLoading, setScoreLoading] = useState(false);
+
+  const [marketingLoaded, setMarketingLoaded] = useState(false);
 
   useEffect(() => {
     setOwnerId(allocatedToId ?? "");
   }, [allocatedToId]);
+
+  useEffect(() => {
+    if (scoreBreakdown) setLiveScore(scoreBreakdown);
+  }, [scoreBreakdown]);
+
+  useEffect(() => {
+    if (marketing && (marketing.events?.length || marketing.session || marketing.attribution)) {
+      setLiveMarketing(marketing);
+      setMarketingLoaded(true);
+    }
+  }, [marketing]);
+
+  // Score breakdown off the critical path
+  useEffect(() => {
+    if (!loadScoreOnDemand) return;
+    let cancelled = false;
+    setScoreLoading(true);
+    fetchLeadScoreBreakdown(lead.id)
+      .then((data) => {
+        if (!cancelled) setLiveScore(data);
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setScoreLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lead.id, loadScoreOnDemand]);
+
+  // Marketing journey only when tab is opened (once per lead)
+  useEffect(() => {
+    if (tab !== "marketing" || !loadMarketingOnDemand || marketingLoaded) return;
+    let cancelled = false;
+    setMarketingLoading(true);
+    fetchLeadMarketing(lead.id)
+      .then((data) => {
+        if (!cancelled) {
+          setLiveMarketing(data);
+          setMarketingLoaded(true);
+        }
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setMarketingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, lead.id, loadMarketingOnDemand, marketingLoaded]);
+
+  useEffect(() => {
+    setMarketingLoaded(false);
+  }, [lead.id]);
 
   const filteredCohorts = useMemo(
     () => cohorts.filter((c) => c.course_id === courseId),
@@ -181,11 +255,13 @@ export function LeadDetailClient({
   const totalCalls = callLogs.length;
 
   function setTab(next: Tab) {
+    setTabState(next);
+    // Update URL without re-running the server page (was the main lag source)
     const url =
       next === "info"
         ? `${leadsBasePath}/${lead.id}`
         : `${leadsBasePath}/${lead.id}?tab=${next}`;
-    router.push(url);
+    window.history.replaceState(window.history.state, "", url);
   }
 
   function onSaveInfo(e: FormEvent<HTMLFormElement>) {
@@ -402,7 +478,7 @@ export function LeadDetailClient({
             Form / source
           </p>
           <p className="mt-1 text-sm font-medium text-navy" title={lead.source ?? undefined}>
-            {marketing?.formOrigin?.label ?? lead.source ?? "—"}
+            {liveMarketing?.formOrigin?.label ?? lead.source ?? "—"}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
@@ -562,9 +638,9 @@ export function LeadDetailClient({
         <div className="space-y-6">
           <LeadScoreSummary
             intentScore={lead.intent_score}
-            scoreAuto={lead.score_auto ?? scoreBreakdown?.score ?? null}
+            scoreAuto={lead.score_auto ?? liveScore?.score ?? null}
             scoreOverride={lead.score_override ?? null}
-            breakdown={scoreBreakdown}
+            breakdown={liveScore}
           />
 
           <LeadQualificationPanel
@@ -841,12 +917,15 @@ export function LeadDetailClient({
           <LeadScoreCard
             leadId={lead.id}
             intentScore={lead.intent_score}
-            scoreAuto={lead.score_auto ?? scoreBreakdown?.score ?? null}
+            scoreAuto={lead.score_auto ?? liveScore?.score ?? null}
             scoreOverride={lead.score_override ?? null}
             scoreOverrideReason={lead.score_override_reason ?? null}
             scoreOverrideAt={lead.score_override_at ?? null}
-            breakdown={scoreBreakdown}
+            breakdown={liveScore}
           />
+          {scoreLoading ? (
+            <p className="mt-2 text-xs text-muted">Loading score detail…</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -984,17 +1063,21 @@ export function LeadDetailClient({
       ) : null}
 
       {tab === "marketing" ? (
-        <LeadMarketingTab
-          data={
-            marketing ?? {
-              attribution: null,
-              session: null,
-              creativeName: null,
-              events: [],
-              legacySource: lead.source,
+        marketingLoading && !liveMarketing?.session && !liveMarketing?.events?.length ? (
+          <div className="panel p-8 text-sm text-muted">Loading marketing journey…</div>
+        ) : (
+          <LeadMarketingTab
+            data={
+              liveMarketing ?? {
+                attribution: null,
+                session: null,
+                creativeName: null,
+                events: [],
+                legacySource: lead.source,
+              }
             }
-          }
-        />
+          />
+        )
       ) : null}
 
       {showAdmissionReject ? (
