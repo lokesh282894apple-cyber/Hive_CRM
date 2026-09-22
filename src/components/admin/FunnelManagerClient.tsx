@@ -313,7 +313,10 @@ export function FunnelManagerClient({ initial }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm text-muted">
           Drag stages to reorder. Click a stage to edit. Hover between stages for{" "}
-          <span className="font-semibold text-navy">+</span> to insert.
+          <span className="font-semibold text-navy">+</span> to insert. The leads
+          Kanban follows this config:{" "}
+          <span className="font-semibold text-navy">Show on board</span>, order,
+          labels, booking/reason flags, and allowed transitions.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-white px-3 py-1.5 text-xs font-medium text-navy">

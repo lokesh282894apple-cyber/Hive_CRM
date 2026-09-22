@@ -21,6 +21,7 @@ import {
   STAGE_TRANSITIONS,
   STAGES,
   stageRequiresReason,
+  stageRequiresStudentIntent,
   stageRequiresPresetReason,
   type InterviewRound,
   type Stage,
@@ -299,7 +300,7 @@ export function LeadDetailClient({
       );
       return;
     }
-    if (studentIntent === "") {
+    if (studentIntent === "" && stageRequiresStudentIntent(stage)) {
       setError("Student intent (1–5) is required when moving stages");
       return;
     }
@@ -308,7 +309,9 @@ export function LeadDetailClient({
         lead.id,
         stage,
         stageReason.trim() || undefined,
-        { studentIntent }
+        stageRequiresStudentIntent(stage)
+          ? { studentIntent: studentIntent as number }
+          : { skipIntentRequirement: true }
       );
       if (!res.ok) setError(res.error);
       else {
@@ -789,7 +792,8 @@ export function LeadDetailClient({
                 </p>
               ) : null}
               {stage !== lead.stage &&
-              !stageRequiresPresetReason(stage) ? (
+              !stageRequiresPresetReason(stage) &&
+              stageRequiresStudentIntent(stage) ? (
                 <label className="mt-3 block text-xs font-semibold text-muted">
                   Student intent (1–5, required)
                   <select

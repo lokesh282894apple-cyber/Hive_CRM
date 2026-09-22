@@ -1,7 +1,5 @@
-import Link from "next/link";
 import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { PageHeader } from "@/components/ui/Primitives";
 import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import {
   LEAD_LIST_SELECT,
@@ -107,28 +105,17 @@ export default async function LeadsPage({
       : leads.length);
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Pipeline"
-        title="My"
-        accent="Leads"
-        description="Mine · open pipeline by default. Claim unassigned leads separately — filters hit the server."
-        actions={
-          <Link href={`${basePath}/new`} className="btn-primary">
-            Add Lead
-          </Link>
-        }
-      />
-      <LeadsWorkspace
-        leads={leads}
-        totalEstimate={totalEstimate}
-        filters={filters}
-        courses={courses as Course[]}
-        cohorts={cohorts as Cohort[]}
-        isAdmin={isAdmin}
-        basePath={basePath}
-        attributionByLead={attributionByLead}
-      />
-    </div>
+    <LeadsWorkspace
+      leads={leads}
+      totalEstimate={totalEstimate}
+      filters={filters}
+      courses={courses as Course[]}
+      cohorts={cohorts as Cohort[]}
+      isAdmin={isAdmin}
+      basePath={basePath}
+      attributionByLead={attributionByLead}
+      showImport={isAdmin}
+      addLeadHref={`${basePath}/new`}
+    />
   );
 }

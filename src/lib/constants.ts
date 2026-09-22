@@ -158,6 +158,11 @@ export function stageRequiresReason(stage: string): boolean {
   );
 }
 
+/** DNP is a call outcome lane — no student-intent score on move. */
+export function stageRequiresStudentIntent(stage: string): boolean {
+  return stage !== "dnp" && stage !== "no_show" && stage !== "reschedule";
+}
+
 export function stageRequiresPresetReason(stage: string): boolean {
   return (
     stage === "admission_team_rejected" ||

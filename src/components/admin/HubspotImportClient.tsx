@@ -21,8 +21,11 @@ const SAMPLE_HEADERS =
 
 export function HubspotImportClient({
   defaultTarget = "leads",
+  compact = false,
 }: {
   defaultTarget?: "leads" | "fees";
+  /** Inline trigger for filter bars (no bottom margin) */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<"leads" | "fees">(defaultTarget);
@@ -107,7 +110,11 @@ export function HubspotImportClient({
 
   if (!open) {
     return (
-      <button type="button" className="btn-secondary mb-4" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className={compact ? "btn-secondary text-xs" : "btn-secondary mb-4"}
+        onClick={() => setOpen(true)}
+      >
         Import CSV
       </button>
     );
@@ -115,17 +122,30 @@ export function HubspotImportClient({
 
   const fields = target === "fees" ? FEE_IMPORT_FIELDS : IMPORT_FIELDS;
 
-  return (
-    <div className="mb-6 rounded-panel border border-border bg-white p-5">
+  const panel = (
+    <div
+      className={
+        compact
+          ? "rounded-xl border border-border bg-white p-4 shadow-lg"
+          : "mb-6 rounded-panel border border-border bg-white p-5"
+      }
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="eyebrow">Data import</p>
-          <h2 className="mt-1 text-lg font-semibold text-navy">Upload → map columns → import</h2>
+          <h2 className="mt-1 text-lg font-semibold text-navy">
+            Upload → map columns → import
+          </h2>
           <p className="mt-1 max-w-2xl text-sm text-muted">
-            Generic CSV. Map columns to CRM fields. Fees only apply to Offered / Closed-won leads.
+            Generic CSV. Map columns to CRM fields. Fees only apply to Offered /
+            Closed-won leads.
           </p>
         </div>
-        <button type="button" className="btn-ghost text-sm" onClick={() => setOpen(false)}>
+        <button
+          type="button"
+          className="btn-ghost text-sm"
+          onClick={() => setOpen(false)}
+        >
           Close
         </button>
       </div>
@@ -283,4 +303,14 @@ export function HubspotImportClient({
       {result ? <p className="mt-3 text-sm text-navy">{result}</p> : null}
     </div>
   );
+
+  if (compact) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-navy/40 p-4 pt-16">
+        <div className="w-full max-w-3xl">{panel}</div>
+      </div>
+    );
+  }
+
+  return panel;
 }

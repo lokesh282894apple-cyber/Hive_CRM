@@ -2,6 +2,7 @@
 
 import { updateLeadStage } from "@/app/actions/leads";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
+import { useFunnel } from "@/components/funnel/FunnelProvider";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -23,6 +24,7 @@ export function StageAdvanceDialog({
   onSuccess?: () => void;
 }) {
   const router = useRouter();
+  const funnel = useFunnel();
   const [pending, startTransition] = useTransition();
   const [intent, setIntent] = useState<number | "">("");
   const [note, setNote] = useState("");
@@ -31,9 +33,13 @@ export function StageAdvanceDialog({
   if (!open) return null;
 
   const toLabel =
-    STAGE_LABELS[targetStage as Stage] ?? String(targetStage);
+    funnel?.labels[targetStage] ??
+    STAGE_LABELS[targetStage as Stage] ??
+    String(targetStage);
   const fromLabel = fromStage
-    ? STAGE_LABELS[fromStage as Stage] ?? fromStage
+    ? funnel?.labels[fromStage] ??
+      STAGE_LABELS[fromStage as Stage] ??
+      fromStage
     : null;
 
   return (

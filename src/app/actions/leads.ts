@@ -8,6 +8,7 @@ import {
   STAGE_TRANSITIONS,
   stageRequiresReason,
   stageRequiresPresetReason,
+  stageRequiresStudentIntent,
   isValidRejectionReasonForStage,
   rejectAtStageFromLeadStage,
 } from "@/lib/constants";
@@ -135,7 +136,9 @@ export async function updateLeadStage(
   }
 
   const intent = opts?.studentIntent;
-  if (!opts?.skipIntentRequirement) {
+  const needsIntent =
+    !opts?.skipIntentRequirement && stageRequiresStudentIntent(stage);
+  if (needsIntent) {
     if (
       intent == null ||
       !Number.isInteger(intent) ||

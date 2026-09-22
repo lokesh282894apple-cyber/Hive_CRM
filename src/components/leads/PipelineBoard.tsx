@@ -1,6 +1,6 @@
 "use client";
 
-import { updateLeadCardFields } from "@/app/actions/leads";
+import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
 import { StageRejectDialog } from "@/components/leads/StageRejectDialog";
 import { StageAdvanceDialog } from "@/components/leads/StageAdvanceDialog";
@@ -8,12 +8,11 @@ import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
 import {
   BOARD_COLUMN_CAP,
   BOARD_WIP_WARN,
-  BOOKING_REQUIRED_STAGES,
   STAGE_LABELS,
   STAGE_TRANSITIONS,
   STALE_LEAD_DAYS,
-  columnsForDensity,
   stageRequiresReason,
+  stageRequiresStudentIntent,
   type BoardColumnDef,
   type BoardDensity,
   type Stage,
@@ -22,6 +21,11 @@ import {
   CONVERT_PROBABILITY_LABELS,
   type ConvertProbability,
 } from "@/lib/constants";
+import { useFunnel } from "@/components/funnel/FunnelProvider";
+import {
+  columnsFromFunnel,
+  sectionJumpOrderFromFunnel,
+} from "@/lib/funnel/board-columns";
 import { StageBadge } from "@/components/ui/Primitives";
 import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
@@ -405,6 +409,9 @@ function BoardColumn({
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
 }) {
+  const funnel = useFunnel();
+  const labelFor = (s: string) =>
+    funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     disabled: Boolean(disableDrag),
@@ -465,7 +472,7 @@ function BoardColumn({
               <button
                 key={stage}
                 type="button"
-                title={`Focus: ${STAGE_LABELS[stage]}`}
+                title={`Focus: ${labelFor(stage)}`}
                 onClick={() => onJumpStage?.(stage)}
                 className={cn(
                   "rounded-pill border px-1.5 py-0.5 text-[10px] font-medium transition",
@@ -474,7 +481,7 @@ function BoardColumn({
                     : "border-border/60 text-muted"
                 )}
               >
-                {STAGE_LABELS[stage].replace(/^R\d\s/, "")}
+                {labelFor(stage).replace(/^R\d\s/, "")}
                 <span className="ml-1 tabular-nums text-periwinkle">{count}</span>
               </button>
             ))}
@@ -538,7 +545,7 @@ function SectionDivider({ label }: { label: string }) {
   );
 }
 
-const SECTION_JUMP_ORDER = [
+const SECTION_JUMP_ORDER_FALLBACK = [
   "Pre-interview",
   "Round 1",
   "Round 2",
@@ -546,6 +553,7 @@ const SECTION_JUMP_ORDER = [
   "Offer",
   "Closed",
   "Interviews",
+  "Offered",
   "Close",
 ] as const;
 
@@ -566,6 +574,29 @@ export function PipelineBoard({
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
 }) {
+  const funnel = useFunnel();
+  const stageLabel = (s: string) =>
+    funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
+  const bookingRequired = useMemo(
+    () =>
+      new Set(
+        funnel?.bookingRequiredSlugs?.length
+          ? funnel.bookingRequiredSlugs
+          : ["r1_booked", "r2_booked", "r3_booked", "r1_reschedule", "r2_reschedule", "r3_reschedule"]
+      ),
+    [funnel?.bookingRequiredSlugs]
+  );
+  const reasonRequired = useMemo(
+    () => new Set(funnel?.reasonRequiredSlugs ?? []),
+    [funnel?.reasonRequiredSlugs]
+  );
+  const sectionJumpOrder = useMemo(
+    () =>
+      funnel
+        ? sectionJumpOrderFromFunnel(funnel)
+        : [...SECTION_JUMP_ORDER_FALLBACK],
+    [funnel]
+  );
   const [items, setItems] = useState(leads);
   const [density, setDensity] = useState<BoardDensity>("grouped");
   const [focusStage, setFocusStage] = useState<Stage | null>(null);
@@ -617,7 +648,10 @@ export function PipelineBoard({
     window.localStorage.setItem("hive-board-density", next);
   }
 
-  const columns = useMemo(() => columnsForDensity(density), [density]);
+  const columns = useMemo(
+    () => columnsFromFunnel(funnel, density),
+    [funnel, density]
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -678,8 +712,12 @@ export function PipelineBoard({
 
   const jumpSections = useMemo(() => {
     const present = new Set(sectioned.map((g) => g.section));
-    return SECTION_JUMP_ORDER.filter((s) => present.has(s));
-  }, [sectioned]);
+    const ordered = sectionJumpOrder.filter((s) => present.has(s));
+    for (const s of Array.from(present)) {
+      if (!ordered.includes(s)) ordered.push(s);
+    }
+    return ordered;
+  }, [sectioned, sectionJumpOrder]);
 
   function scrollToSection(section: string) {
     const root = scrollerRef.current;
@@ -749,16 +787,19 @@ export function PipelineBoard({
       const nextStage = targetCol.dropStage;
 
       if (!sameStage && !isAdmin) {
-        const allowed = STAGE_TRANSITIONS[lead.stage] ?? [];
+        const allowed =
+          funnel?.transitions[lead.stage] ??
+          STAGE_TRANSITIONS[lead.stage] ??
+          [];
         if (!allowed.includes(nextStage)) {
           setError(
-            `Can't move ${STAGE_LABELS[lead.stage]} → ${STAGE_LABELS[nextStage]}. Open the lead to pick a valid stage.`
+            `Can't move ${stageLabel(lead.stage)} → ${stageLabel(nextStage)}. Open the lead to pick a valid stage.`
           );
           return;
         }
       }
 
-      if (!sameStage && (BOOKING_REQUIRED_STAGES as readonly string[]).includes(nextStage)) {
+      if (!sameStage && bookingRequired.has(nextStage)) {
         openBookingDialog(lead, nextStage);
         return;
       }
@@ -784,7 +825,10 @@ export function PipelineBoard({
         return;
       }
 
-      if (!sameStage && stageRequiresReason(nextStage)) {
+      if (
+        !sameStage &&
+        (reasonRequired.has(nextStage) || stageRequiresReason(nextStage))
+      ) {
         setError("This stage needs a reason — open the lead to set it.");
         return;
       }
@@ -808,6 +852,26 @@ export function PipelineBoard({
           if (!res.ok) {
             setItems(prev);
             setError(res.error);
+          }
+        });
+        return;
+      }
+
+      if (!sameStage && !stageRequiresStudentIntent(nextStage)) {
+        const prev = items;
+        const next = items.map((l) =>
+          l.id === leadId ? { ...l, stage: nextStage } : l
+        );
+        setItems(next);
+        startTransition(async () => {
+          const res = await updateLeadStage(leadId, nextStage, undefined, {
+            skipIntentRequirement: true,
+          });
+          if (!res.ok) {
+            setItems(prev);
+            setError(res.error);
+          } else {
+            router.refresh();
           }
         });
         return;
@@ -861,7 +925,7 @@ export function PipelineBoard({
               className="rounded-pill border border-periwinkle/40 bg-periwinkle/10 px-3 py-1.5 text-xs font-medium text-navy"
               onClick={() => setFocusStage(null)}
             >
-              Showing {STAGE_LABELS[focusStage]} · Clear
+              Showing {stageLabel(focusStage)} · Clear
             </button>
           ) : null}
         </div>

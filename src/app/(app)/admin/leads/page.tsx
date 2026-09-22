@@ -1,8 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { PageHeader } from "@/components/ui/Primitives";
 import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
-import { HubspotImportClient } from "@/components/admin/HubspotImportClient";
 import {
   LEAD_LIST_SELECT,
   applyLeadsFilters,
@@ -109,25 +107,17 @@ export default async function AdminLeadsPage({
     (leads.length >= BOARD_FETCH_MAX ? BOARD_FETCH_MAX : leads.length);
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Admin · Leads"
-        title="All"
-        accent="Leads"
-        description="Import HubSpot CSV for cutover, then filter by counselor / course / cohort."
-      />
-      <HubspotImportClient />
-      <LeadsWorkspace
-        leads={leads}
-        totalEstimate={totalEstimate}
-        filters={filters}
-        courses={courses as Course[]}
-        cohorts={cohorts as Cohort[]}
-        counselors={(counselors as AppUser[]) ?? []}
-        isAdmin
-        basePath="/admin/leads"
-        attributionByLead={attributionByLead}
-      />
-    </div>
+    <LeadsWorkspace
+      leads={leads}
+      totalEstimate={totalEstimate}
+      filters={filters}
+      courses={courses as Course[]}
+      cohorts={cohorts as Cohort[]}
+      counselors={(counselors as AppUser[]) ?? []}
+      isAdmin
+      basePath="/admin/leads"
+      attributionByLead={attributionByLead}
+      showImport
+    />
   );
 }

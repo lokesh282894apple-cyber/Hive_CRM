@@ -6,6 +6,7 @@ import {
   isBookingRequiredStage,
   stageRequiresPresetReason,
   stageRequiresReason,
+  stageRequiresStudentIntent,
   STAGES,
   type Stage,
 } from "@/lib/constants";
@@ -55,13 +56,16 @@ export async function bulkUpdateLeadStages(input: {
   }
 
   const intent = input.studentIntent;
-  if (
-    intent == null ||
-    !Number.isInteger(intent) ||
-    intent < 1 ||
-    intent > 5
-  ) {
-    return { ok: false, error: "Student intent (1–5) is required" };
+  const needsIntent = stageRequiresStudentIntent(stage);
+  if (needsIntent) {
+    if (
+      intent == null ||
+      !Number.isInteger(intent) ||
+      intent < 1 ||
+      intent > 5
+    ) {
+      return { ok: false, error: "Student intent (1–5) is required" };
+    }
   }
 
   let updated = 0;
@@ -71,7 +75,9 @@ export async function bulkUpdateLeadStages(input: {
       id,
       stage,
       needsReason ? reason : undefined,
-      { studentIntent: intent }
+      needsIntent
+        ? { studentIntent: intent }
+        : { skipIntentRequirement: true }
     );
     if (res.ok) updated += 1;
     else failed.push({ id, error: res.error });

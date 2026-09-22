@@ -2,9 +2,11 @@
 
 import { claimLead, reassignLead } from "@/app/actions/leads";
 import { bulkUpdateLeadStages } from "@/app/actions/bulk-stage";
+import { HubspotImportClient } from "@/components/admin/HubspotImportClient";
 import { PipelineBoard, initials, isStale } from "@/components/leads/PipelineBoard";
 import { LeadInspectorPanel } from "@/components/leads/LeadInspectorPanel";
 import { StageBadge } from "@/components/ui/Primitives";
+import { useFunnel } from "@/components/funnel/FunnelProvider";
 import {
   LEAD_LIST_TABS,
   LIST_PAGE_SIZE,
@@ -13,6 +15,7 @@ import {
   STAGE_LABELS,
   STALE_LEAD_DAYS,
   STAGES,
+  stageRequiresStudentIntent,
   type OwnershipView,
   type Stage,
   type StageGroupId,
@@ -41,6 +44,8 @@ export function LeadsWorkspace({
   isAdmin,
   basePath = "/leads",
   attributionByLead = {},
+  showImport = false,
+  addLeadHref,
 }: {
   leads: LeadWithCard[];
   /** For list pagination — count of matching rows if known, else leads.length */
@@ -53,10 +58,28 @@ export function LeadsWorkspace({
   basePath?: string;
   /** lead_id → campaign/channel label for Source column */
   attributionByLead?: Record<string, { campaign_name: string | null; channel_name: string | null }>;
+  /** Admin CSV import control in the filter bar */
+  showImport?: boolean;
+  /** Optional “Add lead” link in the filter bar (counselor pipeline) */
+  addLeadHref?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const funnel = useFunnel();
+  const bulkStageOptions = useMemo(() => {
+    const slugs = funnel?.activeSlugs?.length
+      ? funnel.activeSlugs
+      : [...STAGES];
+    return slugs.filter(
+      (s) =>
+        !s.includes("booked") &&
+        !s.includes("reschedule") &&
+        s !== "r1_confirmed"
+    );
+  }, [funnel?.activeSlugs]);
+  const stageLabel = (s: string) =>
+    funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
   const [pending, startTransition] = useTransition();
   const [qLocal, setQLocal] = useState(filters.q);
   const [uniqueDaysLocal, setUniqueDaysLocal] = useState(
@@ -577,6 +600,15 @@ export function LeadsWorkspace({
               List
             </button>
           </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {showImport ? <HubspotImportClient compact /> : null}
+            {addLeadHref ? (
+              <Link href={addLeadHref} className="btn-primary text-xs">
+                Add lead
+              </Link>
+            ) : null}
+          </div>
         </div>
 
         {/* Server filters */}
@@ -972,14 +1004,9 @@ export function LeadsWorkspace({
                   onChange={(e) => setBulkStage((e.target.value as Stage) || "")}
                 >
                   <option value="">Pick stage</option>
-                  {STAGES.filter(
-                    (s) =>
-                      !s.includes("booked") &&
-                      !s.includes("reschedule") &&
-                      s !== "r1_confirmed"
-                  ).map((s) => (
+                  {bulkStageOptions.map((s) => (
                     <option key={s} value={s}>
-                      {STAGE_LABELS[s] ?? s}
+                      {stageLabel(s)}
                     </option>
                   ))}
                 </select>
@@ -993,35 +1020,45 @@ export function LeadsWorkspace({
                   placeholder="Optional / required for rejects"
                 />
               </label>
-              <label className="text-xs text-muted">
-                Student intent
-                <select
-                  className="input-field mt-1 py-1.5 text-xs"
-                  value={bulkIntent === "" ? "" : String(bulkIntent)}
-                  onChange={(e) =>
-                    setBulkIntent(e.target.value ? Number(e.target.value) : "")
-                  }
-                >
-                  <option value="">1–5 required</option>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {bulkStage && stageRequiresStudentIntent(bulkStage) ? (
+                <label className="text-xs text-muted">
+                  Student intent
+                  <select
+                    className="input-field mt-1 py-1.5 text-xs"
+                    value={bulkIntent === "" ? "" : String(bulkIntent)}
+                    onChange={(e) =>
+                      setBulkIntent(e.target.value ? Number(e.target.value) : "")
+                    }
+                  >
+                    <option value="">1–5 required</option>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <button
                 type="button"
                 className="btn-primary text-xs"
-                disabled={pending || !bulkStage || bulkIntent === ""}
+                disabled={
+                  pending ||
+                  !bulkStage ||
+                  (stageRequiresStudentIntent(bulkStage) && bulkIntent === "")
+                }
                 onClick={() =>
                   startTransition(async () => {
-                    if (!bulkStage || bulkIntent === "") return;
+                    if (!bulkStage) return;
+                    const needsIntent = stageRequiresStudentIntent(bulkStage);
+                    if (needsIntent && bulkIntent === "") return;
                     const res = await bulkUpdateLeadStages({
                       leadIds: Array.from(selectedIds),
                       stage: bulkStage,
                       reason: bulkReason || undefined,
-                      studentIntent: bulkIntent,
+                      studentIntent: needsIntent
+                        ? (bulkIntent as number)
+                        : undefined,
                     });
                     if (!res.ok) {
                       setBulkMsg(res.error);
