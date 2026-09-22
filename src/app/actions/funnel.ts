@@ -103,19 +103,112 @@ export async function setFunnelStageActive(
   return { ok: true };
 }
 
-export async function reorderFunnelStage(
-  id: string,
-  sort_order: number
+export async function reorderFunnelStages(
+  items: { id: string; sort_order: number; group_key: string }[]
+): Promise<FunnelActionResult> {
+  await requireUser(["admin"]);
+  if (!items.length) return { ok: true };
+  const supabase = createClient();
+  const now = new Date().toISOString();
+  for (const item of items) {
+    const { error } = await supabase
+      .from("funnel_stages")
+      .update({
+        sort_order: item.sort_order,
+        group_key: item.group_key,
+        updated_at: now,
+      })
+      .eq("id", item.id);
+    if (error) return { ok: false, error: error.message };
+  }
+  touch();
+  return { ok: true };
+}
+
+/** Soft-hide a stage from the board. Does not delete historical lead data. */
+export async function deleteFunnelStage(
+  id: string
 ): Promise<FunnelActionResult> {
   await requireUser(["admin"]);
   const supabase = createClient();
+  const { data: stage } = await supabase
+    .from("funnel_stages")
+    .select("id, slug, label")
+    .eq("id", id)
+    .maybeSingle();
+  if (!stage) return { ok: false, error: "Stage not found" };
+
   const { error } = await supabase
     .from("funnel_stages")
-    .update({ sort_order, updated_at: new Date().toISOString() })
+    .update({
+      active: false,
+      show_on_board: false,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   touch();
   return { ok: true };
+}
+
+export async function insertFunnelStageBetween(input: {
+  label: string;
+  group_key: string;
+  /** Insert after this stage id; if omitted, append at end of group */
+  afterId?: string | null;
+  beforeId?: string | null;
+}): Promise<FunnelActionResult> {
+  await requireUser(["admin"]);
+  const supabase = createClient();
+  const label = input.label.trim();
+  if (!label) return { ok: false, error: "Label is required" };
+  if (!input.group_key) return { ok: false, error: "Group is required" };
+
+  const { data: siblings } = await supabase
+    .from("funnel_stages")
+    .select("id, sort_order")
+    .eq("group_key", input.group_key)
+    .order("sort_order");
+
+  const list = siblings ?? [];
+  let sort_order = 10;
+  if (input.afterId) {
+    const idx = list.findIndex((s) => s.id === input.afterId);
+    const prev = list[idx]?.sort_order ?? 0;
+    const next = list[idx + 1]?.sort_order;
+    sort_order =
+      next != null ? Math.floor((prev + next) / 2) || prev + 1 : prev + 10;
+    if (next != null && sort_order === prev) {
+      // Collision — shift following rows
+      for (let i = idx + 1; i < list.length; i++) {
+        await supabase
+          .from("funnel_stages")
+          .update({
+            sort_order: (list[i]!.sort_order ?? 0) + 10,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", list[i]!.id);
+      }
+      sort_order = prev + 10;
+    }
+  } else if (input.beforeId) {
+    const idx = list.findIndex((s) => s.id === input.beforeId);
+    const next = list[idx]?.sort_order ?? 10;
+    const prev = list[idx - 1]?.sort_order;
+    sort_order =
+      prev != null ? Math.floor((prev + next) / 2) || next - 1 : Math.max(1, next - 10);
+  } else if (list.length) {
+    sort_order = (list[list.length - 1]!.sort_order ?? 0) + 10;
+  }
+
+  return upsertFunnelStage({
+    label,
+    group_key: input.group_key,
+    sort_order,
+    tone: "blue",
+    show_on_board: true,
+    active: true,
+  });
 }
 
 export async function upsertFunnelGroup(input: {

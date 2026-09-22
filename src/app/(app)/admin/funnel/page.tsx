@@ -20,7 +20,7 @@ export default async function AdminFunnelPage() {
         eyebrow="Admin · Pipeline"
         title="Funnel"
         accent="Manager"
-        description="Add or rename stages, control counselor transitions, and group the admissions funnel — no code deploy needed for day-to-day edits."
+        description="Kanban view of your admissions stages — drag to reorder, click to edit, hover between for +."
       />
       {!(allStages?.length) ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
