@@ -12,15 +12,27 @@ import Link from "next/link";
 export default async function AdminPaymentsPage({
   searchParams,
 }: {
-  searchParams: { cohort?: string; course?: string };
+  searchParams: {
+    cohort?: string;
+    course?: string;
+    createdFrom?: string;
+    createdTo?: string;
+  };
 }) {
   await requireUser(["admin"]);
   const supabase = createClient();
   const courseId = searchParams.course || null;
   const cohortId = searchParams.cohort || null;
+  const createdFrom = searchParams.createdFrom || null;
+  const createdTo = searchParams.createdTo || null;
 
   const [data, courses, cohorts] = await Promise.all([
-    fetchPaymentsDashboard(supabase, { courseId, cohortId }),
+    fetchPaymentsDashboard(supabase, {
+      courseId,
+      cohortId,
+      createdFrom,
+      createdTo,
+    }),
     getAllCourses(),
     getAllCohorts(),
   ]);
@@ -64,9 +76,32 @@ export default async function AdminPaymentsPage({
             ))}
           </select>
         </label>
+        <label className="text-xs font-semibold text-muted">
+          Created from
+          <input
+            type="date"
+            name="createdFrom"
+            className="input-field mt-1"
+            defaultValue={createdFrom ?? ""}
+          />
+        </label>
+        <label className="text-xs font-semibold text-muted">
+          Created to
+          <input
+            type="date"
+            name="createdTo"
+            className="input-field mt-1"
+            defaultValue={createdTo ?? ""}
+          />
+        </label>
         <button type="submit" className="btn-primary text-xs">
           Apply
         </button>
+        {(createdFrom || createdTo || courseId || cohortId) && (
+          <Link href="/admin/payments" className="btn-ghost border border-border text-xs">
+            Clear
+          </Link>
+        )}
       </form>
 
       <section className="panel overflow-hidden">
@@ -110,22 +145,25 @@ export default async function AdminPaymentsPage({
           <p className="eyebrow">Payments pipeline</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] text-left text-sm">
+          <table className="w-full min-w-[1100px] text-left text-sm">
             <thead className="border-b border-border bg-navy/[0.02]">
               <tr>
                 <th className="eyebrow px-5 py-2.5">Payer</th>
                 <th className="eyebrow px-4 py-2.5">Student</th>
                 <th className="eyebrow px-4 py-2.5">Course</th>
                 <th className="eyebrow px-4 py-2.5 text-right">Revenue</th>
-                <th className="eyebrow px-4 py-2.5 text-right">Loan amount</th>
-                <th className="eyebrow px-4 py-2.5 text-right">Days left</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Booked</th>
+                <th className="eyebrow px-4 py-2.5 text-right">EMIs</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Collected</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Outstanding</th>
+                <th className="eyebrow px-4 py-2.5 text-right">Loan</th>
                 <th className="eyebrow px-5 py-2.5">Status</th>
               </tr>
             </thead>
             <tbody>
               {data.cards.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-sm text-muted">
+                  <td colSpan={10} className="px-5 py-8 text-sm text-muted">
                     No fee records yet.
                   </td>
                 </tr>
@@ -143,10 +181,27 @@ export default async function AdminPaymentsPage({
                       {formatCurrency(row.revenueAmount)}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {row.loan ? formatCurrency(row.loan.amount) : "—"}
+                      {row.installmentSummary
+                        ? formatCurrency(row.installmentSummary.booked)
+                        : formatCurrency(row.total)}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
-                      {row.loan?.daysRemaining ?? "—"}
+                      {row.installmentSummary
+                        ? `${row.installmentSummary.paidCount}/${row.installmentSummary.count}`
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {row.installmentSummary
+                        ? formatCurrency(row.installmentSummary.collected)
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {row.installmentSummary
+                        ? formatCurrency(row.installmentSummary.outstanding)
+                        : formatCurrency(row.remaining)}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {row.loan ? formatCurrency(row.loan.amount) : "—"}
                     </td>
                     <td className="px-5 py-3">{row.paymentStatus ?? row.overallStatus}</td>
                   </tr>
@@ -253,10 +308,27 @@ export default async function AdminPaymentsPage({
                 <dt className="text-muted">Invoice</dt>
                 <dd className="font-medium text-navy">{c.invoiceNumber ?? "—"}</dd>
               </div>
-              <div>
-                <dt className="text-muted">Remaining</dt>
-                <dd className="font-medium text-navy">{formatCurrency(c.remaining)}</dd>
-              </div>
+              {c.installmentSummary ? (
+                <>
+                  <div>
+                    <dt className="text-muted">Collected</dt>
+                    <dd className="font-medium text-navy">
+                      {formatCurrency(c.installmentSummary.collected)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Outstanding</dt>
+                    <dd className="font-medium text-navy">
+                      {formatCurrency(c.installmentSummary.outstanding)}
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <dt className="text-muted">Remaining</dt>
+                  <dd className="font-medium text-navy">{formatCurrency(c.remaining)}</dd>
+                </div>
+              )}
             </dl>
             {c.paymentMode === "one_shot" && c.oneShotDeadline ? (
               <p className="mt-2 text-xs text-muted">
@@ -267,7 +339,9 @@ export default async function AdminPaymentsPage({
               <ul className="mt-2 space-y-1 text-[11px] text-muted">
                 {c.installments.map((i) => (
                   <li key={i.n}>
-                    EMI {i.n}: {formatCurrency(i.amount)} · {formatDate(i.deadline)} · {i.status}
+                    EMI {i.n}: {formatCurrency(i.amount)}
+                    {i.paid > 0 ? ` · paid ${formatCurrency(i.paid)}` : ""} ·{" "}
+                    {formatDate(i.deadline)} · {i.status}
                   </li>
                 ))}
               </ul>

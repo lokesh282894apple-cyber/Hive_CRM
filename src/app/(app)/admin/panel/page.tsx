@@ -243,7 +243,9 @@ export default async function AdminPanelPage({
                   <th className="eyebrow px-3 py-2.5 text-right">Reject</th>
                   <th className="eyebrow px-3 py-2.5 text-right">TBB</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Offered</th>
-                  <th className="eyebrow px-5 py-2.5 text-right">Won</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">Won</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">Avg profile</th>
+                  <th className="eyebrow px-5 py-2.5 text-right">Avg intent</th>
                 </tr>
               </thead>
               <tbody>
@@ -271,8 +273,14 @@ export default async function AdminPanelPage({
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.offeredAfter}
                     </td>
-                    <td className="px-5 py-2.5 text-right tabular-nums text-muted">
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.wonAfter}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted">
+                      {r.avgProfileScore ?? "—"}
+                    </td>
+                    <td className="px-5 py-2.5 text-right tabular-nums text-muted">
+                      {r.avgIntentScore ?? "—"}
                     </td>
                   </tr>
                 ))}

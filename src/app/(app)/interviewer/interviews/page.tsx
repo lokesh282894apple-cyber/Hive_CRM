@@ -9,7 +9,7 @@ export default async function InterviewerInterviewsPage() {
 
   let query = supabase
     .from("interview_bookings")
-    .select("*, leads(name, email, phone, stage)")
+    .select("*, leads(id, name, email, phone, stage)")
     .order("scheduled_at", { ascending: true });
   if (user.role === "interviewer") {
     query = query.eq("interviewer_id", user.id);

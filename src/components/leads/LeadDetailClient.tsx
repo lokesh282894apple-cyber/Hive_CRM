@@ -22,6 +22,7 @@ import {
   type Stage,
 } from "@/lib/constants";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
+import { NoShowDialog } from "@/components/leads/NoShowDialog";
 import { useFunnel } from "@/components/funnel/FunnelProvider";
 import { StageBadge } from "@/components/ui/Primitives";
 import {
@@ -33,6 +34,7 @@ import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
 import { LeadScoreCard, LeadScoreSummary } from "@/components/leads/LeadScoreCard";
 import { LeadQualificationPanel } from "@/components/leads/LeadQualificationPanel";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
+import { resendOfferLetter } from "@/app/actions/offer-letter";
 import type { ScoreBreakdown } from "@/lib/leads/score";
 import type {
   AppUser,
@@ -115,6 +117,7 @@ export function LeadDetailClient({
   const [stage, setStage] = useState<Stage>(lead.stage);
   const [stageReason, setStageReason] = useState(lead.stage_reason ?? "");
   const [showAdmissionReject, setShowAdmissionReject] = useState(false);
+  const [noShowRound, setNoShowRound] = useState<InterviewRound | null>(null);
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
 
@@ -481,6 +484,54 @@ export function LeadDetailClient({
           Counselor intent & offer
         </p>
         <LeadOfferFields lead={lead} />
+        {(() => {
+          const offerMsg = messageLogs.find(
+            (m) => m.trigger_key === "offered" || m.trigger_key === "yet_to_offer"
+          );
+          if (!offerMsg && lead.stage !== "offered" && lead.stage !== "yet_to_offer") {
+            return null;
+          }
+          return (
+            <div className="mt-3 rounded-lg border border-border bg-[#F7F8FC] px-3 py-2 text-xs">
+              <p className="font-semibold text-navy">Offer email</p>
+              {offerMsg ? (
+                <p className="mt-0.5 text-muted">
+                  Last send: <span className="font-medium text-navy">{offerMsg.status}</span>
+                  {offerMsg.to_address ? ` → ${offerMsg.to_address}` : ""}
+                  {" · "}
+                  {formatDateTime(offerMsg.created_at)}
+                  {offerMsg.error ? (
+                    <span className="block text-danger">{offerMsg.error}</span>
+                  ) : null}
+                </p>
+              ) : (
+                <p className="mt-0.5 text-muted">
+                  No offer email logged yet. Moving to Offered sends the template from Config →
+                  WA + Email triggers (if enabled).
+                </p>
+              )}
+              {(lead.stage === "offered" || lead.stage === "yet_to_offer") && (
+                <button
+                  type="button"
+                  className="btn-secondary mt-2 text-xs"
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      const res = await resendOfferLetter(lead.id);
+                      if (!res.ok) setError(res.error);
+                      else {
+                        setError(null);
+                        router.refresh();
+                      }
+                    })
+                  }
+                >
+                  Send / resend offer email
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="mb-6 flex gap-1 rounded-pill border border-border bg-white p-1 w-fit">
@@ -667,16 +718,7 @@ export function LeadDetailClient({
                     <button
                       type="button"
                       className="btn-ghost border border-border text-xs"
-                      onClick={() =>
-                        startTransition(async () => {
-                          await markNoShowOrReschedule({
-                            leadId: lead.id,
-                            round,
-                            kind: "no_show",
-                          });
-                          router.refresh();
-                        })
-                      }
+                      onClick={() => setNoShowRound(round)}
                     >
                       {round} No Show
                     </button>
@@ -969,6 +1011,19 @@ export function LeadDetailClient({
             setStage("admission_team_rejected");
             setStageReason(reason);
             setError(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {noShowRound ? (
+        <NoShowDialog
+          open
+          leadId={lead.id}
+          round={noShowRound}
+          onClose={() => setNoShowRound(null)}
+          onDone={() => {
+            setNoShowRound(null);
             router.refresh();
           }}
         />

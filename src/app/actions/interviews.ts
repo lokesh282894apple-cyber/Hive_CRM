@@ -72,6 +72,31 @@ export async function removeAvailabilitySlot(id: string): Promise<ActionResult> 
   return { ok: true };
 }
 
+function validateScorePair(
+  profileScore: number | undefined,
+  intentScore: number | undefined,
+  notes: string | undefined,
+  notesLabel: string
+): ActionResult | null {
+  const profile = Number(profileScore);
+  const intent = Number(intentScore);
+  const text = (notes || "").trim();
+  if (
+    !Number.isInteger(profile) ||
+    profile < 1 ||
+    profile > 5 ||
+    !Number.isInteger(intent) ||
+    intent < 1 ||
+    intent > 5
+  ) {
+    return { ok: false, error: "Profile and intent scores must be 1–5" };
+  }
+  if (text.length < 2) {
+    return { ok: false, error: `${notesLabel} is required` };
+  }
+  return null;
+}
+
 export async function bookInterview(input: {
   leadId: string;
   round: InterviewRound;
@@ -79,9 +104,24 @@ export async function bookInterview(input: {
   availabilitySlotId: string;
   scheduledAt: string;
   rescheduleBookingId?: string;
+  /** SC-1: required when booking R1 (not reschedule) */
+  profileScore?: number;
+  intentScore?: number;
+  profileNotes?: string;
 }): Promise<ActionResult> {
   await requireUser(["counselor", "admin"]);
   const supabase = createClient();
+
+  // SC-1: admission team booking into R1
+  if (input.round === "R1" && !input.rescheduleBookingId) {
+    const bad = validateScorePair(
+      input.profileScore,
+      input.intentScore,
+      input.profileNotes,
+      "Profile notes"
+    );
+    if (bad) return bad;
+  }
 
   let previousEventId: string | null = null;
 
@@ -226,6 +266,19 @@ export async function bookInterview(input: {
     }
   }
 
+  if (input.round === "R1" && !input.rescheduleBookingId) {
+    const { recordLeadStageScore } = await import("@/app/actions/scores");
+    const scored = await recordLeadStageScore({
+      leadId: input.leadId,
+      context: "admission_r1",
+      round: "R1",
+      profileScore: Number(input.profileScore),
+      intentScore: Number(input.intentScore),
+      notes: String(input.profileNotes || ""),
+    });
+    if (!scored.ok) return scored;
+  }
+
   revalidatePath(`/leads/${input.leadId}`);
   revalidatePath(`/leads/${input.leadId}/book-interview`);
   revalidatePath("/interviewer/interviews");
@@ -263,9 +316,22 @@ export async function bookInterviewManual(input: {
   /** Duration minutes, default 30 */
   durationMinutes?: number;
   rescheduleBookingId?: string;
+  profileScore?: number;
+  intentScore?: number;
+  profileNotes?: string;
 }): Promise<ActionResult> {
   await requireUser(["counselor", "admin"]);
   const supabase = createClient();
+
+  if (input.round === "R1" && !input.rescheduleBookingId) {
+    const bad = validateScorePair(
+      input.profileScore,
+      input.intentScore,
+      input.profileNotes,
+      "Profile notes"
+    );
+    if (bad) return bad;
+  }
 
   if (!input.interviewerId) {
     return { ok: false, error: "Pick a panelist" };
@@ -411,6 +477,19 @@ export async function bookInterviewManual(input: {
     }
   }
 
+  if (input.round === "R1" && !input.rescheduleBookingId) {
+    const { recordLeadStageScore } = await import("@/app/actions/scores");
+    const scored = await recordLeadStageScore({
+      leadId: input.leadId,
+      context: "admission_r1",
+      round: "R1",
+      profileScore: Number(input.profileScore),
+      intentScore: Number(input.intentScore),
+      notes: String(input.profileNotes || ""),
+    });
+    if (!scored.ok) return scored;
+  }
+
   revalidatePath(`/leads/${input.leadId}`);
   revalidatePath(`/leads/${input.leadId}/book-interview`);
   revalidatePath("/interviewer/interviews");
@@ -451,6 +530,9 @@ export async function submitInterviewOutcome(input: {
   feedbackNotes?: string;
   gradeTier?: "A" | "B" | "C";
   gradeScore?: number;
+  /** SC-2: mandatory on every conducted round */
+  profileScore?: number;
+  intentScore?: number;
 }): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin", "interviewer"]);
   const supabase = createClient();
@@ -465,6 +547,14 @@ export async function submitInterviewOutcome(input: {
   if (user.role === "interviewer" && booking.interviewer_id !== user.id) {
     return { ok: false, error: "Not your interview" };
   }
+
+  const scoreBad = validateScorePair(
+    input.profileScore,
+    input.intentScore,
+    input.feedbackNotes,
+    "Interview feedback"
+  );
+  if (scoreBad) return scoreBad;
 
   if (booking.round === "R3" && input.outcome === "reject") {
     await supabase
@@ -493,6 +583,18 @@ export async function submitInterviewOutcome(input: {
     }
   }
 
+  const round = booking.round as InterviewRound;
+  const { recordLeadStageScore } = await import("@/app/actions/scores");
+  const scored = await recordLeadStageScore({
+    leadId: booking.lead_id,
+    context: `panel_${round.toLowerCase()}`,
+    round,
+    profileScore: Number(input.profileScore),
+    intentScore: Number(input.intentScore),
+    notes: String(input.feedbackNotes || ""),
+  });
+  if (!scored.ok) return scored;
+
   const { recomputeLeadScore } = await import("@/lib/leads/score");
   await recomputeLeadScore(supabase, booking.lead_id);
 
@@ -514,6 +616,9 @@ export async function markNoShowOrReschedule(input: {
   leadId: string;
   round: InterviewRound;
   kind: "no_show" | "reschedule";
+  /** RR-5: required for no_show — true if student informed us */
+  noShowInformed?: boolean;
+  noShowReason?: string;
 }): Promise<ActionResult> {
   await requireUser(["counselor", "admin"]);
   if (input.kind === "reschedule") {
@@ -523,17 +628,80 @@ export async function markNoShowOrReschedule(input: {
         "Reschedule needs a new date, time, and panelist. Open Book interview and pick a slot (or use Manual override).",
     };
   }
+
+  if (input.noShowInformed == null) {
+    return {
+      ok: false,
+      error: "Say whether the student ghosted or informed us",
+    };
+  }
+  const reason = (input.noShowReason || "").trim();
+  if (input.noShowInformed && reason.length < 2) {
+    return { ok: false, error: "Reason is required when the student informed us" };
+  }
+  if (!input.noShowInformed && !reason) {
+    // ghosted — store a clear default
+  }
+
   const supabase = createClient();
   const stageMap: Record<InterviewRound, Stage> = {
     R1: "r1_no_show",
     R2: "r2_no_show",
     R3: "r3_no_show",
   };
+  const storedReason = reason || (input.noShowInformed ? "" : "Ghosted completely");
+  if (input.noShowInformed && storedReason.length < 2) {
+    return { ok: false, error: "Reason is required when the student informed us" };
+  }
+
   const { error } = await supabase
     .from("leads")
     .update({ stage: stageMap[input.round] })
     .eq("id", input.leadId);
   if (error) return { ok: false, error: error.message };
+
+  // Attach reason to the latest open booking for this round
+  const { data: openBooking } = await supabase
+    .from("interview_bookings")
+    .select("id")
+    .eq("lead_id", input.leadId)
+    .eq("round", input.round)
+    .is("outcome", null)
+    .order("scheduled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (openBooking?.id) {
+    await supabase
+      .from("interview_bookings")
+      .update({
+        no_show_informed: input.noShowInformed,
+        no_show_reason: storedReason,
+        feedback_notes: storedReason,
+        submitted_at: new Date().toISOString(),
+      })
+      .eq("id", openBooking.id);
+  } else {
+    // Still record on most recent booking for the round if any
+    const { data: latest } = await supabase
+      .from("interview_bookings")
+      .select("id")
+      .eq("lead_id", input.leadId)
+      .eq("round", input.round)
+      .order("scheduled_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latest?.id) {
+      await supabase
+        .from("interview_bookings")
+        .update({
+          no_show_informed: input.noShowInformed,
+          no_show_reason: storedReason,
+        })
+        .eq("id", latest.id);
+    }
+  }
+
   const { recomputeLeadScore } = await import("@/lib/leads/score");
   await recomputeLeadScore(supabase, input.leadId);
   revalidatePath(`/leads/${input.leadId}`);

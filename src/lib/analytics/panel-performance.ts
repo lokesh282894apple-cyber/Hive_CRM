@@ -34,6 +34,8 @@ export type PanelistRow = {
   tbbPct: number;
   offeredAfterPct: number;
   wonAfterPct: number;
+  avgProfileScore: number | null;
+  avgIntentScore: number | null;
 };
 
 export type PanelPerformance = {
@@ -220,6 +222,8 @@ export async function fetchPanelPerformance(
         tbbPct: pct(t.tbb, denom),
         offeredAfterPct: pct(t.offeredAfter, t.selected),
         wonAfterPct: pct(t.wonAfter, t.selected),
+        avgProfileScore: null as number | null,
+        avgIntentScore: null as number | null,
       };
     })
     .sort(
@@ -227,6 +231,33 @@ export async function fetchPanelPerformance(
         b.totals.selected - a.totals.selected ||
         b.totals.conducted - a.totals.conducted
     );
+
+  // SC-4 panelist score averages
+  const panelIds = rows.map((r) => r.interviewerId);
+  if (panelIds.length) {
+    const { data: scores } = await db
+      .from("lead_stage_scores")
+      .select("scored_by, profile_score, intent_score")
+      .in("scored_by", panelIds)
+      .gte("created_at", sinceIso);
+    const byScorer = new Map<string, { p: number[]; i: number[] }>();
+    for (const s of scores ?? []) {
+      const cur = byScorer.get(s.scored_by) ?? { p: [], i: [] };
+      cur.p.push(s.profile_score);
+      cur.i.push(s.intent_score);
+      byScorer.set(s.scored_by, cur);
+    }
+    for (const r of rows) {
+      const vals = byScorer.get(r.interviewerId);
+      if (!vals?.p.length) continue;
+      r.avgProfileScore = Number(
+        (vals.p.reduce((a, b) => a + b, 0) / vals.p.length).toFixed(2)
+      );
+      r.avgIntentScore = Number(
+        (vals.i.reduce((a, b) => a + b, 0) / vals.i.length).toFixed(2)
+      );
+    }
+  }
 
   return {
     rangeDays,

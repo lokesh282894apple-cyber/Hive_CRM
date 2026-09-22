@@ -252,6 +252,8 @@ export default async function AdminCounselorPage({
                 <th className="eyebrow px-4 py-3">Offer</th>
                 <th className="eyebrow px-4 py-3">Stu rej</th>
                 <th className="eyebrow px-4 py-3">Hive rej</th>
+                <th className="eyebrow px-4 py-3">Avg profile</th>
+                <th className="eyebrow px-4 py-3">Avg intent</th>
                 <th className="eyebrow px-4 py-3">Offer→conv</th>
                 <th className="eyebrow px-4 py-3">Not conv %</th>
               </tr>
@@ -296,6 +298,8 @@ export default async function AdminCounselorPage({
                   <td className="px-4 py-3">{r.pipeline.offer}</td>
                   <td className="px-4 py-3">{r.pipeline.studentReject}</td>
                   <td className="px-4 py-3">{r.pipeline.hiveReject}</td>
+                  <td className="px-4 py-3">{r.avgProfileScore ?? "—"}</td>
+                  <td className="px-4 py-3">{r.avgIntentScore ?? "—"}</td>
                   <td className="px-4 py-3">{r.pipeline.convertedAfterOffer}</td>
                   <td className="px-4 py-3">
                     {r.pipeline.notConvertedAfterOfferPct != null

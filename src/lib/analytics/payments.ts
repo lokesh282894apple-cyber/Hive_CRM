@@ -19,12 +19,23 @@ export type PaymentCard = {
   remaining: number;
   total: number;
   oneShotDeadline: string | null;
+  createdAt: string | null;
   installments: {
     n: number;
     amount: number;
+    paid: number;
     deadline: string;
     status: string;
   }[];
+  /** PY-3 summary for in-house installments */
+  installmentSummary: {
+    count: number;
+    booked: number;
+    collected: number;
+    outstanding: number;
+    paidCount: number;
+    pendingCount: number;
+  } | null;
   loan: {
     amount: number;
     deadline: string | null;
@@ -77,14 +88,19 @@ function resolveRevenue(fee: {
 
 export async function fetchPaymentsDashboard(
   supabase: SupabaseClient,
-  opts?: { cohortId?: string | null; courseId?: string | null }
+  opts?: {
+    cohortId?: string | null;
+    courseId?: string | null;
+    createdFrom?: string | null;
+    createdTo?: string | null;
+  }
 ): Promise<PaymentsDashboard> {
   const [{ data: fees }, { data: leads }, { data: courses }, { data: cohorts }] =
     await Promise.all([
       supabase.from("fee_records").select("*"),
       supabase
         .from("leads")
-        .select("id, name, course_id, cohort_id, stage")
+        .select("id, name, course_id, cohort_id, stage, created_at")
         .in("stage", ["offered", "closed_paid"]),
       supabase.from("courses").select("id, name"),
       supabase
@@ -118,12 +134,22 @@ export async function fetchPaymentsDashboard(
   }
   const loanByFee = new Map((loans ?? []).map((l) => [l.fee_record_id, l]));
 
+  const fromMs = opts?.createdFrom
+    ? new Date(`${opts.createdFrom}T00:00:00`).getTime()
+    : null;
+  const toMs = opts?.createdTo
+    ? new Date(`${opts.createdTo}T23:59:59.999`).getTime()
+    : null;
+
   const cards: PaymentCard[] = [];
   for (const fee of fees ?? []) {
     const lead = leadMap.get(fee.lead_id);
     if (!lead) continue;
     if (opts?.courseId && lead.course_id !== opts.courseId) continue;
     if (opts?.cohortId && lead.cohort_id !== opts.cohortId) continue;
+    const createdMs = lead.created_at ? new Date(lead.created_at).getTime() : null;
+    if (fromMs != null && (createdMs == null || createdMs < fromMs)) continue;
+    if (toMs != null && (createdMs == null || createdMs > toMs)) continue;
 
     const cohort = allCohorts.find((c) => c.id === lead.cohort_id);
     const mode = (fee.payment_mode as PaymentMode) || "direct_instalments";
@@ -136,6 +162,31 @@ export async function fetchPaymentsDashboard(
       paymentStatus || (remaining <= 0 ? "Paid" : "Yet to Pay");
     if (!paymentStatus && mode === "loan" && loan) {
       overallStatus = LOAN_STAGE_LABELS[loan.stage as LoanStage] ?? loan.stage;
+    }
+
+    const instRows = (instByFee.get(fee.id) ?? []).map((i) => ({
+      n: i.installment_number,
+      amount: Number(i.amount_to_realise),
+      paid: Number(i.amount_realised) || 0,
+      deadline: i.deadline,
+      status: i.status,
+    }));
+
+    let installmentSummary: PaymentCard["installmentSummary"] = null;
+    if (mode === "direct_instalments" && instRows.length) {
+      const booked = instRows.reduce((s, i) => s + i.amount, 0);
+      const collected = instRows.reduce((s, i) => s + i.paid, 0);
+      const paidCount = instRows.filter(
+        (i) => i.status === "paid" || i.paid >= i.amount
+      ).length;
+      installmentSummary = {
+        count: instRows.length,
+        booked,
+        collected,
+        outstanding: Math.max(0, booked - collected),
+        paidCount,
+        pendingCount: instRows.length - paidCount,
+      };
     }
 
     cards.push({
@@ -160,12 +211,9 @@ export async function fetchPaymentsDashboard(
       remaining,
       total,
       oneShotDeadline: fee.one_shot_deadline ?? null,
-      installments: (instByFee.get(fee.id) ?? []).map((i) => ({
-        n: i.installment_number,
-        amount: Number(i.amount_to_realise),
-        deadline: i.deadline,
-        status: i.status,
-      })),
+      createdAt: lead.created_at ?? null,
+      installments: instRows,
+      installmentSummary,
       loan: loan
         ? {
             amount: Number(loan.total_fee),

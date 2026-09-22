@@ -94,6 +94,28 @@ export function RejectionFunnelPanel({ data }: { data: RejectionFunnel }) {
             {!data.hiveReasons.length ? <li>—</li> : null}
           </ul>
         </div>
+        <div>
+          <p className="text-xs font-semibold text-navy">No-show reasons</p>
+          <ul className="mt-2 space-y-1 text-sm text-muted">
+            {data.noShowReasons.slice(0, 5).map((r) => (
+              <li key={r.reason}>
+                {r.reason} · {r.count}
+              </li>
+            ))}
+            {!data.noShowReasons.length ? <li>—</li> : null}
+          </ul>
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-semibold text-navy">Top student reasons</p>
+        <ul className="mt-2 space-y-1 text-sm text-muted">
+          {data.studentReasons.slice(0, 8).map((r) => (
+            <li key={r.reason}>
+              {r.reason} · {r.count}
+            </li>
+          ))}
+          {!data.studentReasons.length ? <li>—</li> : null}
+        </ul>
       </div>
     </section>
   );

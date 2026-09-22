@@ -67,6 +67,9 @@ export type CounselorRow = {
   name: string;
   calling: CounselorCallingStats;
   pipeline: CounselorPipelineStats;
+  /** SC-4: avg of scores this counselor gave */
+  avgProfileScore: number | null;
+  avgIntentScore: number | null;
 };
 
 export type CounselorDashboard = {
@@ -225,6 +228,8 @@ async function fetchCounselorDashboardUncached(
       name: c.name,
       calling: emptyCalling(),
       pipeline: emptyPipeline(),
+      avgProfileScore: null,
+      avgIntentScore: null,
     });
   }
 
@@ -248,6 +253,8 @@ async function fetchCounselorDashboardUncached(
         name: "Unknown",
         calling: emptyCalling(),
         pipeline: emptyPipeline(),
+        avgProfileScore: null,
+        avgIntentScore: null,
       };
       byCounselor.set(cid, row);
     }
@@ -433,6 +440,43 @@ async function fetchCounselorDashboardUncached(
     if (dnpLeadIds.size && dnpDays.size) {
       row.calling.avgCallsPerDayOnDnp = Number(
         (dnpCalls.length / Math.max(1, dnpDays.size)).toFixed(2)
+      );
+    }
+  }
+
+  // SC-4: average profile/intent scores given by each counselor
+  const scorerIds = Array.from(byCounselor.keys());
+  if (scorerIds.length) {
+    const scoreRows = await fetchAllPages<{
+      scored_by: string;
+      profile_score: number;
+      intent_score: number;
+    }>((from, to) => {
+      let q = supabase
+        .from("lead_stage_scores")
+        .select("scored_by, profile_score, intent_score")
+        .in("scored_by", scorerIds)
+        .gte("created_at", since)
+        .lt("created_at", until)
+        .order("created_at", { ascending: true });
+      return q.range(from, to);
+    }, "counselor-scores").catch(() => [] as { scored_by: string; profile_score: number; intent_score: number }[]);
+
+    const byScorer = new Map<string, { p: number[]; i: number[] }>();
+    for (const s of scoreRows) {
+      const cur = byScorer.get(s.scored_by) ?? { p: [], i: [] };
+      cur.p.push(s.profile_score);
+      cur.i.push(s.intent_score);
+      byScorer.set(s.scored_by, cur);
+    }
+    for (const [cid, vals] of Array.from(byScorer.entries())) {
+      const row = byCounselor.get(cid);
+      if (!row || !vals.p.length) continue;
+      row.avgProfileScore = Number(
+        (vals.p.reduce((a, b) => a + b, 0) / vals.p.length).toFixed(2)
+      );
+      row.avgIntentScore = Number(
+        (vals.i.reduce((a, b) => a + b, 0) / vals.i.length).toFixed(2)
       );
     }
   }

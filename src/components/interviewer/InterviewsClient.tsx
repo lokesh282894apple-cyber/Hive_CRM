@@ -1,14 +1,16 @@
 "use client";
 
 import { submitInterviewOutcome } from "@/app/actions/interviews";
+import { StageScoreFields } from "@/components/leads/StageScoreFields";
 import { INTERVIEW_OUTCOMES, type InterviewOutcome } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
 import type { InterviewBooking } from "@/types/database";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 type BookingRow = InterviewBooking & {
-  leads?: { name: string; email: string | null; phone: string; stage: string } | null;
+  leads?: { id?: string; name: string; email: string | null; phone: string; stage: string } | null;
 };
 
 export function InterviewsClient({
@@ -23,7 +25,10 @@ export function InterviewsClient({
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [outcomes, setOutcomes] = useState<Record<string, InterviewOutcome>>({});
   const [tiers, setTiers] = useState<Record<string, "A" | "B" | "C">>({});
-  const [scores, setScores] = useState<Record<string, string>>({});
+  const [gradeScores, setGradeScores] = useState<Record<string, string>>({});
+  const [profileScores, setProfileScores] = useState<Record<string, number | "">>({});
+  const [intentScores, setIntentScores] = useState<Record<string, number | "">>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   return (
     <div className="space-y-8">
@@ -48,8 +53,16 @@ export function InterviewsClient({
                       Join Meet
                     </a>
                   ) : null}
+                  {b.leads?.id ? (
+                    <Link
+                      href={`/leads/${b.leads.id}`}
+                      className="ml-2 text-xs font-semibold text-periwinkle hover:underline"
+                    >
+                      Open lead →
+                    </Link>
+                  ) : null}
                 </div>
-                <div className="flex flex-col gap-2 sm:w-64">
+                <div className="flex w-full flex-col gap-2 sm:w-72">
                   <select
                     className="input-field py-1.5"
                     value={outcomes[b.id] ?? "confirmed"}
@@ -66,13 +79,19 @@ export function InterviewsClient({
                       </option>
                     ))}
                   </select>
-                  <textarea
-                    className="input-field min-h-[60px]"
-                    placeholder="Feedback notes"
-                    value={notes[b.id] ?? ""}
-                    onChange={(e) =>
-                      setNotes((prev) => ({ ...prev, [b.id]: e.target.value }))
+                  <StageScoreFields
+                    profileScore={profileScores[b.id] ?? ""}
+                    intentScore={intentScores[b.id] ?? ""}
+                    notes={notes[b.id] ?? ""}
+                    onProfileChange={(v) =>
+                      setProfileScores((prev) => ({ ...prev, [b.id]: v }))
                     }
+                    onIntentChange={(v) =>
+                      setIntentScores((prev) => ({ ...prev, [b.id]: v }))
+                    }
+                    onNotesChange={(v) => setNotes((prev) => ({ ...prev, [b.id]: v }))}
+                    notesLabel="Interview feedback"
+                    notesPlaceholder="Mandatory feedback for this round"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <select
@@ -95,25 +114,55 @@ export function InterviewsClient({
                       min={0}
                       max={5}
                       step={0.1}
-                      placeholder="Score /5"
-                      value={scores[b.id] ?? ""}
+                      placeholder="Grade /5"
+                      value={gradeScores[b.id] ?? ""}
                       onChange={(e) =>
-                        setScores((prev) => ({ ...prev, [b.id]: e.target.value }))
+                        setGradeScores((prev) => ({ ...prev, [b.id]: e.target.value }))
                       }
                     />
                   </div>
+                  {errors[b.id] ? (
+                    <p className="text-xs text-danger">{errors[b.id]}</p>
+                  ) : null}
                   <button
                     type="button"
                     className="btn-primary"
                     disabled={pending}
                     onClick={() =>
                       startTransition(async () => {
-                        await submitInterviewOutcome({
+                        const profile = profileScores[b.id];
+                        const intent = intentScores[b.id];
+                        const feedback = notes[b.id] ?? "";
+                        if (
+                          profile === "" ||
+                          intent === "" ||
+                          feedback.trim().length < 2
+                        ) {
+                          setErrors((prev) => ({
+                            ...prev,
+                            [b.id]: "Profile, intent, and feedback are required",
+                          }));
+                          return;
+                        }
+                        const res = await submitInterviewOutcome({
                           bookingId: b.id,
                           outcome: outcomes[b.id] ?? "confirmed",
-                          feedbackNotes: notes[b.id],
+                          feedbackNotes: feedback,
+                          profileScore: Number(profile),
+                          intentScore: Number(intent),
                           gradeTier: tiers[b.id] ?? "B",
-                          gradeScore: scores[b.id] ? Number(scores[b.id]) : undefined,
+                          gradeScore: gradeScores[b.id]
+                            ? Number(gradeScores[b.id])
+                            : undefined,
+                        });
+                        if (!res.ok) {
+                          setErrors((prev) => ({ ...prev, [b.id]: res.error }));
+                          return;
+                        }
+                        setErrors((prev) => {
+                          const next = { ...prev };
+                          delete next[b.id];
+                          return next;
                         });
                         router.refresh();
                       })
@@ -141,8 +190,23 @@ export function InterviewsClient({
             >
               <span>
                 {b.leads?.name} · {b.round} · {b.outcome}
+                {b.feedback_notes ? (
+                  <span className="mt-0.5 block text-xs text-muted line-clamp-1">
+                    {b.feedback_notes}
+                  </span>
+                ) : null}
               </span>
-              <span className="text-xs text-muted">{formatDateTime(b.scheduled_at)}</span>
+              <span className="flex items-center gap-2 text-xs text-muted">
+                {formatDateTime(b.scheduled_at)}
+                {b.leads?.id ? (
+                  <Link
+                    href={`/leads/${b.leads.id}`}
+                    className="font-semibold text-periwinkle hover:underline"
+                  >
+                    Lead
+                  </Link>
+                ) : null}
+              </span>
             </li>
           ))}
           {past.length === 0 ? <li className="text-sm text-muted">No history yet.</li> : null}

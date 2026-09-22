@@ -1,6 +1,7 @@
 "use client";
 
 import { bookInterview, bookInterviewManual } from "@/app/actions/interviews";
+import { StageScoreFields } from "@/components/leads/StageScoreFields";
 import { INTERVIEW_ROUNDS, type InterviewRound } from "@/lib/constants";
 import { cn, formatDateTime } from "@/lib/utils";
 import type { AppUser, InterviewBooking, InterviewerAvailability } from "@/types/database";
@@ -79,6 +80,10 @@ export function BookInterviewClient({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [successNote, setSuccessNote] = useState<string | null>(null);
+  const [profileScore, setProfileScore] = useState<number | "">("");
+  const [intentScore, setIntentScore] = useState<number | "">("");
+  const [profileNotes, setProfileNotes] = useState("");
+  const needsR1Scores = round === "R1" && !rescheduleId;
 
   const interviewers = useMemo(() => {
     const map = new Map<string, string>();
@@ -150,6 +155,12 @@ export function BookInterviewClient({
 
   function confirmBooking() {
     if (!selected) return;
+    if (needsR1Scores) {
+      if (profileScore === "" || intentScore === "" || profileNotes.trim().length < 2) {
+        setError("Profile score, intent score, and profile notes are required for R1.");
+        return;
+      }
+    }
     const scheduledAt = `${selected.date}T${selected.start_time}`;
     startTransition(async () => {
       const res = await bookInterview({
@@ -159,6 +170,13 @@ export function BookInterviewClient({
         availabilitySlotId: selected.id,
         scheduledAt,
         rescheduleBookingId: rescheduleId || undefined,
+        ...(needsR1Scores
+          ? {
+              profileScore: Number(profileScore),
+              intentScore: Number(intentScore),
+              profileNotes,
+            }
+          : {}),
       });
       handleBookResult(res);
     });
@@ -169,6 +187,12 @@ export function BookInterviewClient({
       setError("Panelist and date/time are required for manual booking.");
       return;
     }
+    if (needsR1Scores) {
+      if (profileScore === "" || intentScore === "" || profileNotes.trim().length < 2) {
+        setError("Profile score, intent score, and profile notes are required for R1.");
+        return;
+      }
+    }
     startTransition(async () => {
       const res = await bookInterviewManual({
         leadId,
@@ -177,6 +201,13 @@ export function BookInterviewClient({
         startLocal: manualStart,
         durationMinutes: manualDuration,
         rescheduleBookingId: rescheduleId || undefined,
+        ...(needsR1Scores
+          ? {
+              profileScore: Number(profileScore),
+              intentScore: Number(intentScore),
+              profileNotes,
+            }
+          : {}),
       });
       handleBookResult(res);
     });
@@ -492,6 +523,21 @@ export function BookInterviewClient({
           ))}
         </div>
       )}
+
+      {needsR1Scores ? (
+        <div className="mt-6">
+          <StageScoreFields
+            profileScore={profileScore}
+            intentScore={intentScore}
+            notes={profileNotes}
+            onProfileChange={setProfileScore}
+            onIntentChange={setIntentScore}
+            onNotesChange={setProfileNotes}
+            notesLabel="Profile notes"
+            notesPlaceholder="Short note on profile fit"
+          />
+        </div>
+      ) : null}
 
       {/* Existing bookings — compact */}
       {existingBookings.length > 0 ? (

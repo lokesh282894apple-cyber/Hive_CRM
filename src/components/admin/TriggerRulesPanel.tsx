@@ -105,16 +105,27 @@ export function TriggerRulesPanel({ rules: initial }: { rules: StageTriggerRule[
               <tr className="border-b border-border last:border-0 bg-[#F7F8FC]/60">
                 <td colSpan={6} className="px-3 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
-                    Message preview
+                    Email preview
                   </p>
-                  <p className="mt-1 text-xs text-navy">
+                  <p className="mt-1 text-xs font-medium text-navy">
+                    Subject: {r.email_subject || "—"}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-muted">
                     WhatsApp template: <code>{r.wa_template_name || "—"}</code>
                   </p>
+                  <div
+                    className="prose prose-sm mt-2 max-w-none rounded-xl border border-border bg-white px-3 py-2 text-sm text-navy"
+                    dangerouslySetInnerHTML={{
+                      __html:
+                        r.email_body_html?.trim() ||
+                        "<p class='text-muted'>No email body yet.</p>",
+                    }}
+                  />
                   <textarea
-                    className="input-field mt-2 min-h-[80px] text-xs"
+                    className="input-field mt-2 min-h-[64px] text-xs"
                     defaultValue={r.email_body_html ?? ""}
                     disabled={pending}
-                    placeholder="Email body HTML"
+                    placeholder="Edit email body HTML"
                     onBlur={(e) => {
                       const v = e.target.value.trim() || null;
                       if (v !== r.email_body_html) {

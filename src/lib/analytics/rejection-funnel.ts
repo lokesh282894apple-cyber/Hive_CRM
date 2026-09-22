@@ -7,6 +7,7 @@ export type RejectionFunnel = {
   byStage: { stage: string; hive: number; student: number }[];
   hiveReasons: { reason: string; count: number }[];
   studentReasons: { reason: string; count: number }[];
+  noShowReasons: { reason: string; count: number }[];
   offeredAccepted: number;
   offeredStudentReject: number;
   offeredPending: number;
@@ -96,6 +97,22 @@ export async function fetchRejectionFunnel(
     .lt("created_at", opts.untilExclusiveIso)
     .limit(5000);
 
+  const { data: noShows } = await supabase
+    .from("interview_bookings")
+    .select("no_show_informed, no_show_reason")
+    .not("no_show_reason", "is", null)
+    .gte("submitted_at", opts.sinceIso)
+    .lt("submitted_at", opts.untilExclusiveIso)
+    .limit(2000);
+
+  const noShowReasons = new Map<string, number>();
+  for (const n of noShows ?? []) {
+    const label = n.no_show_informed
+      ? `Informed: ${(n.no_show_reason || "—").slice(0, 60)}`
+      : `Ghosted: ${(n.no_show_reason || "Ghosted completely").slice(0, 60)}`;
+    noShowReasons.set(label, (noShowReasons.get(label) ?? 0) + 1);
+  }
+
   let avgProfile: number | null = null;
   let avgIntent: number | null = null;
   if (scores?.length) {
@@ -120,6 +137,10 @@ export async function fetchRejectionFunnel(
       .sort((a, b) => b.count - a.count)
       .slice(0, 20),
     studentReasons: Array.from(studentReasons.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20),
+    noShowReasons: Array.from(noShowReasons.entries())
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 20),

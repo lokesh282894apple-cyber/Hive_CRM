@@ -1,6 +1,7 @@
 "use client";
 
 import { claimLead, reassignLead } from "@/app/actions/leads";
+import { bulkUpdateLeadStages } from "@/app/actions/bulk-stage";
 import { PipelineBoard, initials, isStale } from "@/components/leads/PipelineBoard";
 import { StageBadge } from "@/components/ui/Primitives";
 import {
@@ -8,7 +9,9 @@ import {
   LIST_PAGE_SIZE,
   OWNERSHIP_VIEWS,
   STAGE_GROUPS,
+  STAGE_LABELS,
   STALE_LEAD_DAYS,
+  STAGES,
   type OwnershipView,
   type Stage,
   type StageGroupId,
@@ -73,6 +76,10 @@ export function LeadsWorkspace({
   const [minStageCallsLocal, setMinStageCallsLocal] = useState(
     filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
   );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStage, setBulkStage] = useState<Stage | "">("");
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const prefsKey = isAdmin ? "hive-admin-leads-filters" : "hive-leads-filters";
 
   useEffect(() => {
@@ -706,11 +713,101 @@ export function LeadsWorkspace({
         />
       ) : (
         <>
+          {selectedIds.size > 0 ? (
+            <div className="mb-3 flex flex-wrap items-end gap-2 rounded-xl border border-border bg-white px-4 py-3">
+              <p className="w-full text-xs font-semibold text-navy">
+                {selectedIds.size} selected · bulk stage move
+              </p>
+              <label className="text-xs text-muted">
+                Stage
+                <select
+                  className="input-field mt-1 py-1.5 text-xs"
+                  value={bulkStage}
+                  onChange={(e) => setBulkStage((e.target.value as Stage) || "")}
+                >
+                  <option value="">Pick stage</option>
+                  {STAGES.filter(
+                    (s) =>
+                      !s.includes("booked") &&
+                      !s.includes("reschedule") &&
+                      s !== "r1_confirmed"
+                  ).map((s) => (
+                    <option key={s} value={s}>
+                      {STAGE_LABELS[s] ?? s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-muted">
+                Reason (if reject)
+                <input
+                  className="input-field mt-1 py-1.5 text-xs"
+                  value={bulkReason}
+                  onChange={(e) => setBulkReason(e.target.value)}
+                  placeholder="Optional / required for rejects"
+                />
+              </label>
+              <button
+                type="button"
+                className="btn-primary text-xs"
+                disabled={pending || !bulkStage}
+                onClick={() =>
+                  startTransition(async () => {
+                    if (!bulkStage) return;
+                    const res = await bulkUpdateLeadStages({
+                      leadIds: Array.from(selectedIds),
+                      stage: bulkStage,
+                      reason: bulkReason || undefined,
+                    });
+                    if (!res.ok) {
+                      setBulkMsg(res.error);
+                      return;
+                    }
+                    const failed = res.data?.failed?.length ?? 0;
+                    setBulkMsg(
+                      `Updated ${res.data?.updated ?? 0}${failed ? `, ${failed} failed` : ""}`
+                    );
+                    setSelectedIds(new Set());
+                    setBulkStage("");
+                    setBulkReason("");
+                    router.refresh();
+                  })
+                }
+              >
+                Move
+              </button>
+              <button
+                type="button"
+                className="btn-ghost border border-border text-xs"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear selection
+              </button>
+              {bulkMsg ? <p className="w-full text-xs text-muted">{bulkMsg}</p> : null}
+            </div>
+          ) : null}
           <div className="panel overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="sticky top-0 z-10 border-b border-border bg-[#F7F8FC]">
                   <tr>
+                    <th className="eyebrow px-3 py-3">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all on page"
+                        checked={
+                          displayList.length > 0 &&
+                          displayList.every((l) => selectedIds.has(l.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedIds(new Set(displayList.map((l) => l.id)));
+                          } else {
+                            setSelectedIds(new Set());
+                          }
+                        }}
+                      />
+                    </th>
                     <th className="eyebrow px-4 py-3">Lead</th>
                     <th className="eyebrow px-4 py-3">Source</th>
                     <th className="eyebrow px-4 py-3">Course</th>
@@ -753,6 +850,21 @@ export function LeadsWorkspace({
                             stale && "bg-yellow-50/30"
                           )}
                         >
+                          <td className="px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(l.id)}
+                              onChange={(e) => {
+                                setSelectedIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(l.id);
+                                  else next.delete(l.id);
+                                  return next;
+                                });
+                              }}
+                              aria-label={`Select ${l.name}`}
+                            />
+                          </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy/5 text-[11px] font-bold text-navy">
