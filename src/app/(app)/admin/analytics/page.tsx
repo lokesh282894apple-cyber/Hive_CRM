@@ -424,13 +424,13 @@ export default async function AdminAnalyticsPage({
           <div className="mt-6 border-t border-border pt-5">
             <p className="mb-1 text-sm font-semibold text-navy">
               {funnel.byWeek.length > 0
-                ? "R1 / R2 / R3 week chart"
-                : "R1 / R2 / R3 year chart"}
+                ? "R1 / R2 / R3 by week"
+                : "R1 / R2 / R3 by month"}
             </p>
             <p className="mb-4 text-xs text-muted">
               {funnel.byWeek.length > 0
-                ? "Weekly volumes and rates for the selected month · toggle series below"
-                : "Monthly volumes and rates for the selected year · toggle series below"}
+                ? "Weekly volumes and rates for the selected month · table or chart"
+                : "Monthly volumes and rates for the selected year · table or chart"}
             </p>
             <RoundYearCharts
               rows={
@@ -456,8 +456,8 @@ export default async function AdminAnalyticsPage({
             </p>
             <p className="mb-4 text-xs text-muted">
               {funnel.byWeek.length > 0
-                ? "Same ratios as the table, week by week in this month"
-                : "Same ratios as the table, month by month"}
+                ? "Same ratios week by week · table or chart"
+                : "Same ratios month by month · table or chart"}
             </p>
             <ConversionYearChart
               rows={
