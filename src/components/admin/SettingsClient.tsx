@@ -173,8 +173,8 @@ export function SettingsClient({
               {editingCohort ? "Edit cohort" : "Add cohort"}
             </p>
             <p className="text-xs text-muted">
-              Keep names as Cohort N – Year. Set intake dates so new leads for
-              this program land in the right cohort by signup date.
+              Name cohorts by number (Cohort 1, Cohort 2, …). Set intake dates so
+              new leads for this program land in the right cohort by signup date.
             </p>
             <select
               name="course_id"
@@ -196,15 +196,6 @@ export function SettingsClient({
               placeholder="Cohort number (e.g. 3)"
               required
               defaultValue={editingCohort?.cohort_number ?? undefined}
-            />
-            <input
-              name="year"
-              type="number"
-              min={2020}
-              className="input-field"
-              placeholder="Year (e.g. 2026)"
-              required
-              defaultValue={editingCohort?.year ?? undefined}
             />
             <label className="block text-xs text-muted">
               Class start (optional)
@@ -330,7 +321,6 @@ export function SettingsClient({
                             "cohort_number",
                             String(c.cohort_number ?? "")
                           );
-                          fd.set("year", String(c.year ?? ""));
                           fd.set("name", c.name);
                           fd.set("start_date", c.start_date ?? "");
                           fd.set("intake_start", c.intake_start ?? "");

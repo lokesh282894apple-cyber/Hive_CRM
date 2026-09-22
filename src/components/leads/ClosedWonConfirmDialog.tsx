@@ -102,7 +102,6 @@ export function ClosedWonConfirmDialog({
         {selectedCohort?.cohort_number != null ? (
           <p className="mt-1 text-[11px] text-muted">
             Cohort number {selectedCohort.cohort_number}
-            {selectedCohort.year ? ` · ${selectedCohort.year}` : ""}
           </p>
         ) : null}
 

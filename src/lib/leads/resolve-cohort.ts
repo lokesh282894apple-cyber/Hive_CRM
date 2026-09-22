@@ -28,7 +28,7 @@ function inIntakeWindow(
 /**
  * Pick cohort for a program by lead date:
  * 1) active cohort whose intake_start..intake_end covers asOf
- * 2) else active cohort with highest year, then cohort_number
+ * 2) else active cohort with highest cohort_number
  */
 export async function resolveCohortForCourse(
   admin: SupabaseClient,
@@ -47,20 +47,13 @@ export async function resolveCohortForCourse(
   const rows = (data ?? []) as CohortResolveRow[];
   if (!rows.length) return null;
 
-  const matched = rows
-    .filter((r) => inIntakeWindow(r, asOfKey))
-    .sort((a, b) => {
-      const yn = (b.year ?? 0) - (a.year ?? 0);
-      if (yn !== 0) return yn;
-      return (b.cohort_number ?? 0) - (a.cohort_number ?? 0);
-    });
+  const byNumberDesc = (a: CohortResolveRow, b: CohortResolveRow) =>
+    (b.cohort_number ?? 0) - (a.cohort_number ?? 0);
+
+  const matched = rows.filter((r) => inIntakeWindow(r, asOfKey)).sort(byNumberDesc);
   if (matched[0]) return matched[0].id;
 
-  const fallback = [...rows].sort((a, b) => {
-    const yn = (b.year ?? 0) - (a.year ?? 0);
-    if (yn !== 0) return yn;
-    return (b.cohort_number ?? 0) - (a.cohort_number ?? 0);
-  });
+  const fallback = [...rows].sort(byNumberDesc);
   return fallback[0]?.id ?? null;
 }
 

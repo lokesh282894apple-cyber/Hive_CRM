@@ -30,10 +30,9 @@ export async function upsertCohort(formData: FormData): Promise<ActionResult> {
   const id = String(formData.get("id") || "");
   const courseId = String(formData.get("course_id") || "");
   const cohortNumber = Number(formData.get("cohort_number") || 0);
-  const year = Number(formData.get("year") || 0);
   const nameFromParts =
-    cohortNumber > 0 && year > 0
-      ? `Cohort ${cohortNumber} – ${year}`
+    cohortNumber > 0
+      ? `Cohort ${cohortNumber}`
       : String(formData.get("name") || "").trim();
   const intakeStart = String(formData.get("intake_start") || "") || null;
   const intakeEnd = String(formData.get("intake_end") || "") || null;
@@ -51,15 +50,15 @@ export async function upsertCohort(formData: FormData): Promise<ActionResult> {
     course_id: courseId,
     name: nameFromParts,
     cohort_number: cohortNumber > 0 ? cohortNumber : null,
-    year: year > 0 ? year : null,
+    year: null as number | null,
     start_date: String(formData.get("start_date") || "") || null,
     intake_start: intakeStart,
     intake_end: intakeEnd,
     default_total_fee: Number(formData.get("default_total_fee") || 0),
     active: formData.get("active") === "true" || formData.get("active") === "on",
   };
-  if (!payload.course_id || !payload.name) {
-    return { ok: false, error: "Course and cohort number + year are required" };
+  if (!payload.course_id || !payload.name || !payload.cohort_number) {
+    return { ok: false, error: "Course and cohort number are required" };
   }
 
   if (intakeStart && intakeEnd) {

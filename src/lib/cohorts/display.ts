@@ -8,12 +8,9 @@ type CohortLike = Pick<
   year?: number | null;
 };
 
-/** Stable sort within a course: year, number, start_date, then name. */
+/** Stable sort within a course: number, start_date, then name. */
 export function sortCohortsForDisplay(cohorts: CohortLike[]) {
   return [...cohorts].sort((a, b) => {
-    const ay = a.year ?? 0;
-    const by = b.year ?? 0;
-    if (ay !== by) return ay - by;
     const an = a.cohort_number ?? 0;
     const bn = b.cohort_number ?? 0;
     if (an !== bn) return an - bn;
@@ -25,10 +22,12 @@ export function sortCohortsForDisplay(cohorts: CohortLike[]) {
 }
 
 export function cohortEntryLabel(cohort: CohortLike): string {
-  if (cohort.cohort_number && cohort.year) {
-    return `Cohort ${cohort.cohort_number} – ${cohort.year}`;
+  if (cohort.cohort_number) {
+    return `Cohort ${cohort.cohort_number}`;
   }
-  return cohort.name;
+  // Strip legacy " – YYYY" suffix from stored names when number is missing.
+  const stripped = cohort.name.replace(/\s*[–-]\s*\d{4}\s*$/, "").trim();
+  return stripped || cohort.name;
 }
 
 export function cohortIntakeHint(
@@ -39,7 +38,7 @@ export function cohortIntakeHint(
 }
 
 /**
- * Display cohort as "Cohort {n} – {year}" when those fields exist.
+ * Display cohort as "Cohort {n}" when number exists.
  * When `includeCourse` is true (e.g. mixed course lists), prefix with course name.
  */
 export function cohortDisplayLabel(
@@ -49,14 +48,14 @@ export function cohortDisplayLabel(
 ): string {
   const base = cohortEntryLabel(cohort);
   const fallback = (() => {
-    if (cohort.cohort_number && cohort.year) return base;
+    if (cohort.cohort_number) return base;
     const siblings = sortCohortsForDisplay(
       allCohorts.filter((c) => c.course_id === cohort.course_id)
     );
     const idx = siblings.findIndex((c) => c.id === cohort.id);
-    return idx >= 0 ? String(idx + 1) : cohort.name;
+    return idx >= 0 ? `Cohort ${idx + 1}` : cohortEntryLabel(cohort);
   })();
-  const label = cohort.cohort_number && cohort.year ? base : fallback;
+  const label = cohort.cohort_number ? base : fallback;
   if (opts?.includeCourse && opts.courseName) {
     return `${opts.courseName} · ${label}`;
   }
