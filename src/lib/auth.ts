@@ -2,6 +2,7 @@ import { homeForRole, type Role } from "@/lib/constants";
 import {
   IMPERSONATE_HEADER,
   VIEW_AS_ROLES,
+  viewAsHome,
 } from "@/lib/impersonation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -82,7 +83,7 @@ export async function requireAuth(allowed?: Role[]): Promise<AuthContext> {
   if (!ctx) redirect("/login");
   if (allowed && !allowed.includes(ctx.user.role)) {
     if (ctx.impersonating) {
-      redirect(`/view/${ctx.user.id}/dashboard`);
+      redirect(viewAsHome(ctx.user.id, ctx.user.role));
     }
     redirect(homeForRole(ctx.user.role));
   }

@@ -1,4 +1,4 @@
-import type { Role } from "@/lib/constants";
+import { homeForRole, type Role } from "@/lib/constants";
 
 /** Request header set by middleware when rewriting /view/[userId]/… */
 export const IMPERSONATE_HEADER = "x-hive-impersonate";
@@ -23,20 +23,38 @@ export function parseViewAsPath(pathname: string): {
   return { targetUserId: m[1], restPath: rest };
 }
 
-/** Counselor MVP surfaces allowed under View as. */
-export function isViewAsAllowedRestPath(restPath: string): boolean {
-  return (
-    restPath === "/dashboard" ||
-    restPath.startsWith("/dashboard/") ||
-    restPath === "/leads" ||
-    restPath.startsWith("/leads/") ||
-    restPath === "/attention" ||
-    restPath.startsWith("/attention/")
-  );
+/** Surfaces allowed under View as for the target role. */
+export function isViewAsAllowedRestPath(
+  restPath: string,
+  role: Role
+): boolean {
+  if (role === "counselor") {
+    return (
+      restPath === "/dashboard" ||
+      restPath.startsWith("/dashboard/") ||
+      restPath === "/leads" ||
+      restPath.startsWith("/leads/") ||
+      restPath === "/attention" ||
+      restPath.startsWith("/attention/") ||
+      restPath === "/messages" ||
+      restPath.startsWith("/messages/")
+    );
+  }
+  if (role === "interviewer") {
+    return restPath === "/interviewer" || restPath.startsWith("/interviewer/");
+  }
+  if (role === "marketing") {
+    return restPath === "/marketing" || restPath.startsWith("/marketing/");
+  }
+  if (role === "program") {
+    return restPath === "/program" || restPath.startsWith("/program/");
+  }
+  return false;
 }
 
-export function viewAsHome(userId: string) {
-  return `/view/${userId}/dashboard`;
+export function viewAsHome(userId: string, role?: Role) {
+  const home = role ? homeForRole(role) : "/dashboard";
+  return `/view/${userId}${home.startsWith("/") ? home : `/${home}`}`;
 }
 
 export function viewAsHref(userId: string | null | undefined, href: string) {

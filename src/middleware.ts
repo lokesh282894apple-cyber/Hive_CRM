@@ -182,9 +182,6 @@ export async function middleware(request: NextRequest) {
       if (viewAs.targetUserId === user.id) {
         return redirectTo(request, homeForRole(role));
       }
-      if (!isViewAsAllowedRestPath(viewAs.restPath)) {
-        return redirectTo(request, viewAsHome(viewAs.targetUserId));
-      }
 
       const { data: target } = await supabase
         .from("users")
@@ -199,9 +196,9 @@ export async function middleware(request: NextRequest) {
         return redirectTo(request, "/admin/users");
       }
 
-      // MVP: counselor surfaces only for counselor targets
-      if (target.role !== "counselor") {
-        return redirectTo(request, "/admin/users");
+      const targetRole = target.role as (typeof VIEW_AS_ROLES)[number];
+      if (!isViewAsAllowedRestPath(viewAs.restPath, targetRole)) {
+        return redirectTo(request, viewAsHome(viewAs.targetUserId, targetRole));
       }
 
       const requestHeaders = new Headers(request.headers);
