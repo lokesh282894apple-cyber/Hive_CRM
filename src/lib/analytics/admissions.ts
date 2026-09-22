@@ -146,13 +146,6 @@ export async function fetchAdmissionsAnalytics(
   const courses = base.courses;
   const counselors = base.counselors;
 
-  let callsQ = db
-    .from("call_logs")
-    .select("id, lead_id, logged_at, counselor_id")
-    .gte("logged_at", sinceIso)
-    .lt("logged_at", untilExclusiveIso);
-  if (counselorId) callsQ = callsQ.eq("counselor_id", counselorId);
-
   const [
     calls,
     { count: interviewsUpcoming },
