@@ -470,7 +470,7 @@ async function fetchCounselorDashboardUncached(
       profile_score: number;
       intent_score: number;
     }>((from, to) => {
-      let q = supabase
+      const q = supabase
         .from("lead_stage_scores")
         .select("scored_by, profile_score, intent_score")
         .in("scored_by", scorerIds)
