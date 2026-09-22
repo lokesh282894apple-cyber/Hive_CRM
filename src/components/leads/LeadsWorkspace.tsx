@@ -348,11 +348,6 @@ export function LeadsWorkspace({
       aria-busy={pending}
     >
       <div className="flex items-start gap-3">
-        <LeadInspectorPanel
-          lead={selectedLead}
-          basePath={basePath}
-          onClose={() => setSelectedLeadId(null)}
-        />
         <div className="min-w-0 flex-1">
       {/* Ownership + layout */}
       <div className="mb-3 flex flex-col gap-3 rounded-panel border border-border bg-white p-3">
@@ -1119,6 +1114,11 @@ export function LeadsWorkspace({
         </>
       )}
         </div>
+        <LeadInspectorPanel
+          lead={selectedLead}
+          basePath={basePath}
+          onClose={() => setSelectedLeadId(null)}
+        />
       </div>
     </div>
   );

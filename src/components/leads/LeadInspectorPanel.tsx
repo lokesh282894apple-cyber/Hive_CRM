@@ -8,9 +8,13 @@ import {
   type LeadTaskRow,
 } from "@/app/actions/lead-tasks";
 import { StageBadge } from "@/components/ui/Primitives";
+import {
+  CONVERT_PROBABILITY_LABELS,
+  type ConvertProbability,
+} from "@/lib/constants";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import { leadSourceClassLabel } from "@/lib/leads/source-class";
-import { cn, formatDateTime, formatRelativeAgo } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, formatRelativeAgo } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState, useTransition } from "react";
@@ -29,6 +33,22 @@ function dueInHours(hours: number): string {
   const d = new Date(Date.now() + hours * 3_600_000);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  if (children == null || children === "" || children === "—") return null;
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 break-words font-medium text-navy">{children}</dd>
+    </>
+  );
 }
 
 export function LeadInspectorPanel({
@@ -84,7 +104,6 @@ export function LeadInspectorPanel({
       return;
     }
     setError(null);
-    // Instant paint from card summary
     if (lead.nextOpenTask) {
       setTasks([
         {
@@ -107,20 +126,25 @@ export function LeadInspectorPanel({
 
   if (!lead) return null;
 
+  const m = lead.cardMetrics;
+  const detailHref = basePath.startsWith("/admin")
+    ? `/leads/${lead.id}`
+    : `${basePath}/${lead.id}`;
+
   if (collapsed) {
     return (
-      <aside className="sticky top-4 flex h-[calc(100vh-6rem)] w-10 shrink-0 flex-col items-center gap-2 rounded-xl border border-border bg-white py-3 shadow-sm">
+      <aside className="sticky top-4 flex h-[calc(100vh-6rem)] w-11 shrink-0 flex-col items-center gap-2 rounded-xl border border-border bg-white py-3 shadow-sm">
         <button
           type="button"
           className="btn-ghost p-1.5"
           aria-label="Expand inspector"
           onClick={() => setCollapsed(false)}
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" />
         </button>
         <span
-          className="mt-4 max-h-40 overflow-hidden text-[10px] font-semibold uppercase tracking-eyebrow text-muted"
-          style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+          className="mt-4 max-h-48 overflow-hidden text-[10px] font-semibold uppercase tracking-eyebrow text-muted"
+          style={{ writingMode: "vertical-rl" }}
         >
           {lead.name}
         </span>
@@ -157,11 +181,16 @@ export function LeadInspectorPanel({
   }
 
   return (
-    <aside className="sticky top-4 flex h-[calc(100vh-6rem)] w-[min(100%,320px)] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2.5">
+    <aside className="sticky top-4 flex h-[calc(100vh-6rem)] w-[min(100%,420px)] shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+      <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
-          <p className="eyebrow">Lead</p>
-          <h2 className="truncate text-sm font-semibold text-navy">{lead.name}</h2>
+          <p className="eyebrow">Lead preview</p>
+          <h2 className="truncate text-base font-semibold text-navy">
+            {lead.name}
+          </h2>
+          <div className="mt-1.5">
+            <StageBadge stage={lead.stage} />
+          </div>
         </div>
         <div className="flex shrink-0 gap-0.5">
           <button
@@ -170,7 +199,7 @@ export function LeadInspectorPanel({
             aria-label="Collapse"
             onClick={() => setCollapsed(true)}
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -183,68 +212,178 @@ export function LeadInspectorPanel({
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
-        <div className="space-y-2 text-xs">
-          <StageBadge stage={lead.stage} />
-          <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1.5 text-[11px]">
-            <dt className="text-muted">Phone</dt>
-            <dd className="font-medium text-navy">{lead.phone}</dd>
-            <dt className="text-muted">Created</dt>
-            <dd className="font-medium text-navy">
-              {formatDateTime(lead.created_at)}
-            </dd>
-            {lead.sourceClass ? (
-              <>
-                <dt className="text-muted">Source</dt>
-                <dd>
-                  <span
-                    className={cn(
-                      "rounded px-1 py-0.5 text-[10px] font-semibold uppercase",
-                      lead.sourceClass === "organic"
-                        ? "bg-emerald-50 text-emerald-800"
-                        : "bg-amber-50 text-amber-900"
-                    )}
-                  >
-                    {leadSourceClassLabel(lead.sourceClass)}
-                  </span>
-                </dd>
-              </>
-            ) : null}
-            <dt className="text-muted">Convert</dt>
-            <dd className="font-medium text-navy">
-              {lead.intent_score != null ? `${lead.intent_score}%` : "—"}
-            </dd>
-            <dt className="text-muted">Last call</dt>
-            <dd className="font-medium text-navy">
-              {lead.cardMetrics?.lastCallAt
-                ? formatRelativeAgo(lead.cardMetrics.lastCallAt)
-                : "—"}
-            </dd>
-            {lead.course?.name ? (
-              <>
-                <dt className="text-muted">Course</dt>
-                <dd className="font-medium text-navy">{lead.course.name}</dd>
-              </>
-            ) : null}
+      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+        <section>
+          <p className="eyebrow mb-2">Contact</p>
+          <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
+            <Row label="Phone">{lead.phone}</Row>
+            <Row label="Email">{lead.email || null}</Row>
+            <Row label="LinkedIn">
+              {lead.linkedin ? (
+                <a
+                  href={
+                    lead.linkedin.startsWith("http")
+                      ? lead.linkedin
+                      : `https://${lead.linkedin}`
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-periwinkle hover:underline"
+                >
+                  Profile
+                </a>
+              ) : null}
+            </Row>
+            <Row label="Owner">
+              {lead.allocated?.name ??
+                (lead.lead_allocated_to ? "Assigned" : "Unassigned")}
+            </Row>
+          </dl>
+        </section>
+
+        <section>
+          <p className="eyebrow mb-2">Pipeline</p>
+          <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
+            <Row label="Created">{formatDateTime(lead.created_at)}</Row>
+            <Row label="Source type">
+              {lead.sourceClass ? (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
+                    lead.sourceClass === "organic"
+                      ? "bg-emerald-50 text-emerald-800"
+                      : "bg-amber-50 text-amber-900"
+                  )}
+                >
+                  {leadSourceClassLabel(lead.sourceClass)}
+                </span>
+              ) : null}
+            </Row>
+            <Row label="Source">{lead.source}</Row>
+            <Row label="Course">{lead.course?.name}</Row>
+            <Row label="Cohort">{lead.cohort?.name}</Row>
+            <Row label="Convert %">
+              {lead.intent_score != null ? `${lead.intent_score}%` : null}
+            </Row>
+            <Row label="Intent">
+              {lead.counselor_intent_check}
+            </Row>
+            <Row label="Probability">
+              {lead.convert_probability
+                ? CONVERT_PROBABILITY_LABELS[
+                    lead.convert_probability as ConvertProbability
+                  ] ?? lead.convert_probability
+                : null}
+            </Row>
+            <Row label="Offer call">{lead.offer_call_status}</Row>
+            <Row label="Accept by">
+              {lead.offer_accept_deadline
+                ? formatDate(lead.offer_accept_deadline)
+                : null}
+            </Row>
+            <Row label="Experience">
+              {lead.years_experience != null
+                ? `${lead.years_experience} yrs`
+                : null}
+            </Row>
+            <Row label="Industry">{lead.preferred_industry}</Row>
           </dl>
           {showReject && rejectReason ? (
-            <p className="rounded-lg bg-rose-50 px-2 py-1.5 text-[11px] font-medium text-rose-800">
+            <p className="mt-2 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-medium text-rose-800">
               Reject · {rejectReason}
+              {lead.reject_kind ? ` (${lead.reject_kind})` : ""}
             </p>
           ) : null}
-          <Link
-            href={
-              basePath.startsWith("/admin")
-                ? `/leads/${lead.id}`
-                : `${basePath}/${lead.id}`
-            }
-            className="btn-secondary inline-flex text-xs"
-          >
+        </section>
+
+        <section>
+          <p className="eyebrow mb-2">Activity</p>
+          <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
+            <Row label="Last call">
+              {m?.lastCallAt ? formatRelativeAgo(m.lastCallAt) : null}
+            </Row>
+            <Row label="Calls">
+              {m
+                ? `${m.totalCalls} · ${m.uniqueDays} days · ${m.callsSinceStage} since stage`
+                : null}
+            </Row>
+            <Row label="Avg / day">
+              {m?.avgCallsPerDaySinceStage != null
+                ? String(m.avgCallsPerDaySinceStage)
+                : null}
+            </Row>
+            <Row label="Interview">
+              {m?.interviewAt ? formatDateTime(m.interviewAt) : null}
+            </Row>
+            <Row label="Stage since">
+              {m?.stageEnteredAt ? formatRelativeAgo(m.stageEnteredAt) : null}
+            </Row>
+            <Row label="Panel grade">
+              {m?.gradeAvg != null
+                ? `${m.gradeAvg}/5${m.gradeCount > 1 ? ` · ${m.gradeCount}` : ""}`
+                : null}
+            </Row>
+            <Row label="Recording">
+              {m?.recordingUrl ? (
+                <a
+                  href={m.recordingUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-periwinkle hover:underline"
+                >
+                  Open
+                </a>
+              ) : null}
+            </Row>
+          </dl>
+          {m?.approvals?.length ? (
+            <ul className="mt-2 space-y-1">
+              {m.approvals.map((a) => (
+                <li
+                  key={a.slot}
+                  className={cn(
+                    "rounded-lg px-2 py-1 text-[11px]",
+                    a.status
+                      ? "bg-emerald-50 text-emerald-900"
+                      : "bg-navy/5 text-muted"
+                  )}
+                >
+                  {a.label || a.slot}
+                  {a.status
+                    ? ` · approved${a.approvedByName ? ` by ${a.approvedByName}` : ""}`
+                    : " · pending"}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
+        {(lead.qualification_intent ||
+          lead.financial_check ||
+          lead.dq_reason) && (
+          <section>
+            <p className="eyebrow mb-2">Qualification</p>
+            <dl className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-2 text-xs">
+              <Row label="Intent">{lead.qualification_intent}</Row>
+              <Row label="Financial">{lead.financial_check}</Row>
+              <Row label="DQ">{lead.dq_reason}</Row>
+            </dl>
+          </section>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Link href={detailHref} className="btn-primary text-xs">
             Open full lead
+          </Link>
+          <Link
+            href={`${detailHref}?tab=calling`}
+            className="btn-secondary text-xs"
+          >
+            Calling
           </Link>
         </div>
 
-        <div className="border-t border-border pt-3">
+        <section className="border-t border-border pt-4">
           <p className="eyebrow">Tasks</p>
           <p className="mt-0.5 text-[11px] text-muted">
             Callbacks & reminders for this lead
@@ -302,7 +441,7 @@ export function LeadInspectorPanel({
               return (
                 <li
                   key={t.id}
-                  className="rounded-lg border border-border px-2 py-1.5"
+                  className="rounded-lg border border-border px-2.5 py-2"
                 >
                   <p className="text-xs font-medium text-navy">{t.title}</p>
                   <p
@@ -314,7 +453,7 @@ export function LeadInspectorPanel({
                     Due {formatDateTime(t.due_at)}
                     {overdue ? " · overdue" : ""}
                   </p>
-                  <div className="mt-1 flex gap-1">
+                  <div className="mt-1.5 flex gap-1">
                     <button
                       type="button"
                       className="btn-secondary text-[10px]"
@@ -357,7 +496,7 @@ export function LeadInspectorPanel({
               <li className="text-[11px] text-muted">No open tasks.</li>
             ) : null}
           </ul>
-        </div>
+        </section>
       </div>
     </aside>
   );
