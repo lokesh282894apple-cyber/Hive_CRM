@@ -14,7 +14,9 @@ function generateTempPassword(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
   const bytes = randomBytes(10);
   let out = "Hive-";
-  for (const b of bytes) out += alphabet[b % alphabet.length];
+  for (let i = 0; i < bytes.length; i++) {
+    out += alphabet[bytes[i]! % alphabet.length];
+  }
   return out;
 }
 
