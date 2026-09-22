@@ -26,6 +26,7 @@ import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/ut
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
 import { LeadCardApprovals } from "@/components/leads/LeadCardApprovals";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
+import { leadSourceClassLabel } from "@/lib/leads/source-class";
 import type { LeadWithRelations } from "@/types/database";
 import {
   DndContext,
@@ -82,8 +83,35 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
     isOffer ||
     isClosed;
   const noCall = !m?.lastCallAt && isNew;
+  const rejectReason =
+    lead.reject_reason_category || lead.stage_reason || null;
+  const showReject =
+    Boolean(rejectReason) &&
+    (lead.stage.includes("reject") ||
+      lead.stage === "admission_team_rejected" ||
+      lead.reject_kind != null);
   return (
     <div className="mt-2 space-y-0.5 text-[11px] text-muted">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <span>Created {formatDate(lead.created_at)}</span>
+        {lead.sourceClass ? (
+          <span
+            className={cn(
+              "rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              lead.sourceClass === "organic"
+                ? "bg-emerald-50 text-emerald-800"
+                : "bg-amber-50 text-amber-900"
+            )}
+          >
+            {leadSourceClassLabel(lead.sourceClass)}
+          </span>
+        ) : null}
+      </p>
+      {showReject && rejectReason ? (
+        <p className="line-clamp-2 font-medium text-rose-700" title={rejectReason}>
+          Reject · {rejectReason}
+        </p>
+      ) : null}
       {noCall ? (
         <p>Call not logged since {formatDurationSince(lead.created_at)}</p>
       ) : null}

@@ -71,6 +71,8 @@ export type AttributionSource = {
   lead_id: string;
   campaign_name: string | null;
   channel_name: string | null;
+  /** campaigns.source_type when attributed */
+  source_type: string | null;
 };
 
 /** Calendar day in India (CRM default) — avoids UTC shifting visits onto the wrong day. */
@@ -606,6 +608,7 @@ export async function fetchAttributionForLeads(
         lead_id: row.lead_id,
         campaign_name: null,
         channel_name: null,
+        source_type: null,
       });
     }
     return map;
@@ -614,14 +617,21 @@ export async function fetchAttributionForLeads(
   // One round-trip: campaigns + channel name
   const { data: camps } = await supabase
     .from("campaigns")
-    .select("id, name, channel_id, channels(name)")
+    .select("id, name, channel_id, source_type, channels(name)")
     .in("id", campaignIds);
 
   const campMap = new Map(
     (camps ?? []).map((c) => {
       const ch = c.channels as unknown as { name: string } | { name: string }[] | null;
       const channelName = Array.isArray(ch) ? ch[0]?.name ?? null : ch?.name ?? null;
-      return [c.id, { name: c.name as string, channelName }] as const;
+      return [
+        c.id,
+        {
+          name: c.name as string,
+          channelName,
+          sourceType: (c.source_type as string) ?? null,
+        },
+      ] as const;
     })
   );
 
@@ -633,6 +643,7 @@ export async function fetchAttributionForLeads(
       lead_id: row.lead_id,
       campaign_name: camp?.name ?? null,
       channel_name: camp?.channelName ?? null,
+      source_type: camp?.sourceType ?? null,
     });
   }
   return map;

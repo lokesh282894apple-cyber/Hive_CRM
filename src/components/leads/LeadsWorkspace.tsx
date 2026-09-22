@@ -24,6 +24,7 @@ import { cohortNumberMap } from "@/lib/cohorts/display";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
 import type { AppUser, Cohort, Course } from "@/types/database";
+import { leadSourceClassLabel } from "@/lib/leads/source-class";
 import { LayoutGrid, List, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -896,6 +897,34 @@ export function LeadsWorkspace({
                             >
                               {sourceLabel}
                             </Link>
+                            {l.sourceClass ? (
+                              <span
+                                className={cn(
+                                  "mt-0.5 inline-block rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                  l.sourceClass === "organic"
+                                    ? "bg-emerald-50 text-emerald-800"
+                                    : "bg-amber-50 text-amber-900"
+                                )}
+                              >
+                                {leadSourceClassLabel(l.sourceClass)}
+                              </span>
+                            ) : null}
+                            {(l.reject_reason_category || l.stage_reason) &&
+                            (l.stage.includes("reject") ||
+                              l.stage === "admission_team_rejected" ||
+                              l.reject_kind) ? (
+                              <span
+                                className="mt-0.5 block line-clamp-2 text-[10px] font-medium text-rose-700"
+                                title={
+                                  l.reject_reason_category ||
+                                  l.stage_reason ||
+                                  undefined
+                                }
+                              >
+                                Reject ·{" "}
+                                {l.reject_reason_category || l.stage_reason}
+                              </span>
+                            ) : null}
                           </td>
                           <td className="px-4 py-3 text-muted">
                             {l.course?.name ?? "—"}

@@ -41,6 +41,7 @@ type NavItem = {
 const counselorNav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leads", label: "My Leads", icon: ClipboardList },
+  { href: "/leads/tasks", label: "My Tasks", icon: Calendar },
   { href: "/leads/new", label: "Add Lead", icon: UserCircle2 },
   { href: "/attention", label: "Attention", icon: AlertTriangle },
   { href: "/messages", label: "WA Messaging", icon: MessageSquare },
@@ -50,6 +51,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
   { href: "/admin/monthly", label: "All months", icon: CalendarDays },
   { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
+  { href: "/leads/tasks", label: "Lead Tasks", icon: Calendar },
   { href: "/admin/assign", label: "Bulk Assign", icon: UserPlus },
   { href: "/admin/funnel", label: "Funnel Manager", icon: GitBranch },
   { href: "/admin/panel", label: "Panel", icon: GraduationCap },
@@ -128,6 +130,15 @@ const programNav: NavItem[] = [
 ];
 
 function navItemActive(pathname: string, item: NavItem): boolean {
+  if (item.href === "/leads") {
+    return (
+      pathname === "/leads" ||
+      /^\/leads\/[0-9a-f-]{36}/i.test(pathname)
+    );
+  }
+  if (item.href === "/leads/tasks") {
+    return pathname === "/leads/tasks" || pathname.startsWith("/leads/tasks/");
+  }
   if (item.matchPaths?.length) {
     return item.matchPaths.some(
       (p) => pathname === p || pathname.startsWith(`${p}/`)
@@ -235,7 +246,12 @@ export function Sidebar({
                 Counselor views
               </p>
               {counselorNav
-                .filter((i) => i.href === "/leads" || i.href === "/attention")
+                .filter(
+                  (i) =>
+                    i.href === "/leads" ||
+                    i.href === "/leads/tasks" ||
+                    i.href === "/attention"
+                )
                 .map((item) => {
                   const Icon = item.icon;
                   const active = pathname.startsWith(item.href);

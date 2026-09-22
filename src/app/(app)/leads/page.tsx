@@ -13,6 +13,7 @@ import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
+import { classifyLeadSource } from "@/lib/leads/source-class";
 import { viewAsHref } from "@/lib/impersonation";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
 
@@ -50,7 +51,6 @@ export default async function LeadsPage({
   let dataQuery = supabase.from("leads").select(LEAD_LIST_SELECT);
   dataQuery = applyLeadsFilters(dataQuery, filterOpts);
 
-  // Exact count is slow on large tables — skip on board (use estimate)
   const needExactCount = filters.mode === "list";
   const countPromise = needExactCount
     ? (() => {
@@ -68,16 +68,21 @@ export default async function LeadsPage({
   const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
 
   const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
-  const [leads, attrMap] = await Promise.all([
+  const [leadsWithMetrics, attrMap] = await Promise.all([
     loadLeadCardMetrics(supabase, leadsRaw),
-    // Attribution only powers the list Source column
-    filters.mode === "list"
-      ? fetchAttributionForLeads(
-          supabase,
-          leadsRaw.map((l) => l.id)
-        )
-      : Promise.resolve(new Map()),
+    fetchAttributionForLeads(
+      supabase,
+      leadsRaw.map((l) => l.id)
+    ),
   ]);
+
+  const leads = leadsWithMetrics.map((l) => ({
+    ...l,
+    sourceClass: classifyLeadSource(
+      l.source,
+      attrMap.get(l.id)?.source_type ?? null
+    ),
+  }));
 
   const attributionByLead: Record<
     string,

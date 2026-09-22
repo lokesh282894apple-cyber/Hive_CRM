@@ -79,6 +79,10 @@ export type Lead = {
   stage: Stage;
   /** Free-text reason for Custom (and optional notes on other stage moves) */
   stage_reason?: string | null;
+  /** hive = admission/panel reject; student = student drop-out */
+  reject_kind?: "hive" | "student" | null;
+  reject_at_stage?: string | null;
+  reject_reason_category?: string | null;
   created_at: string;
   updated_at: string;
   last_contacted_at: string | null;
@@ -124,6 +128,18 @@ export type CallLog = {
   call_source?: string | null;
   external_call_id?: string | null;
   unmatched?: boolean;
+};
+
+export type LeadTask = {
+  id: string;
+  lead_id: string;
+  title: string;
+  notes: string | null;
+  due_at: string;
+  status: "open" | "done";
+  created_by: string | null;
+  completed_at: string | null;
+  created_at: string;
 };
 
 export type StageHistory = {

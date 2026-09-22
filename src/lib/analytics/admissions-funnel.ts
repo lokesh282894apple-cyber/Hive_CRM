@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
+import { classifyLeadSource } from "@/lib/leads/source-class";
 
 export type FunnelAttribution = "all" | "organic" | "inorganic";
 export type FunnelMode = "period" | "snapshot";
@@ -216,14 +217,6 @@ const OFFER_PLUS = new Set([
 const WON = new Set(["closed_paid"]);
 const LOST = new Set(["closed_deferred", "closed_refund"]);
 
-const ORGANIC_SOURCES = new Set([
-  "website",
-  "referral",
-  "walk_in",
-  "partner",
-  "other",
-]);
-
 function rate(to: number, from: number): number | null {
   if (from <= 0) return null;
   return (to / from) * 100;
@@ -296,20 +289,6 @@ function daysInRange(start: string, end: string): string[] {
   return out;
 }
 
-function classifySource(
-  source: string | null,
-  campaignType: string | null | undefined
-): AttrClass {
-  if (campaignType === "paid_ad" || campaignType === "influencer") return "inorganic";
-  if (campaignType === "organic") return "organic";
-  if (source === "meta_ad") return "inorganic";
-  if (source && ORGANIC_SOURCES.has(source)) return "organic";
-  if (source?.includes("paid") || source?.includes("facebook") || source?.includes("meta")) {
-    return "inorganic";
-  }
-  return "organic";
-}
-
 type LeadFacts = {
   lead: LeadRow;
   attr: AttrClass;
@@ -331,7 +310,7 @@ function buildLeadFacts(
   for (const lead of leads) {
     map.set(lead.id, {
       lead,
-      attr: classifySource(lead.source, attrMap.get(lead.id)),
+      attr: classifyLeadSource(lead.source, attrMap.get(lead.id)),
       stagesEver: new Set([lead.stage]),
       stagesInPeriod: new Set(),
       stagesByDay: new Map(),

@@ -396,6 +396,20 @@ export async function deleteCallLog(id: string, leadId: string): Promise<ActionR
   const supabase = createClient();
   const { error } = await supabase.from("call_logs").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
+
+  // Keep last_contacted_at in sync after hard delete
+  const { data: remaining } = await supabase
+    .from("call_logs")
+    .select("logged_at")
+    .eq("lead_id", leadId)
+    .order("logged_at", { ascending: false })
+    .limit(1);
+  const lastAt = remaining?.[0]?.logged_at ?? null;
+  await supabase
+    .from("leads")
+    .update({ last_contacted_at: lastAt })
+    .eq("id", leadId);
+
   await recomputeLeadScore(supabase, leadId);
   revalidatePath(`/leads/${leadId}`);
   return { ok: true };

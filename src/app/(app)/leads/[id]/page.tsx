@@ -45,6 +45,7 @@ export default async function LeadDetailPage({
     { data: counselors },
     { data: messageLogs },
     { data: touchpoints },
+    tasksRes,
   ] = await Promise.all([
     getAllCourses(),
     getAllCohorts(),
@@ -100,8 +101,17 @@ export default async function LeadDetailPage({
       .eq("lead_id", params.id)
       .order("created_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("lead_tasks")
+      .select(
+        "id, lead_id, title, notes, due_at, status, created_by, completed_at, created_at"
+      )
+      .eq("lead_id", params.id)
+      .order("due_at", { ascending: true })
+      .limit(50),
   ]);
 
+  const leadTasks = (tasksRes.error ? [] : tasksRes.data) ?? [];
   const interviewBookings = (bookings ?? []).map((b) => {
     const interviewer = b.interviewer as unknown as { id: string; name: string } | null;
     return {
@@ -160,6 +170,7 @@ export default async function LeadDetailPage({
           : null
       }
       twilioConfigured={isTwilioConfigured()}
+      tasks={(leadTasks as never) ?? []}
       leadsBasePath={
         ctx.impersonating ? viewAsHref(user.id, "/leads") : "/leads"
       }

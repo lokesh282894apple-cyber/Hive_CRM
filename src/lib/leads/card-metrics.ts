@@ -1,4 +1,5 @@
 import type { createClient } from "@/lib/supabase/server";
+import type { LeadSourceClass } from "@/lib/leads/source-class";
 import type { LeadWithRelations } from "@/types/database";
 
 type Supabase = ReturnType<typeof createClient>;
@@ -29,6 +30,8 @@ export type LeadCardMetrics = {
 
 export type LeadWithCard = LeadWithRelations & {
   cardMetrics?: LeadCardMetrics;
+  /** Organic / inorganic from marketing attribution + source heuristics */
+  sourceClass?: LeadSourceClass;
 };
 
 const IN_CHUNK = 100;

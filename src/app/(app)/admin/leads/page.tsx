@@ -12,6 +12,7 @@ import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
 import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
+import { classifyLeadSource } from "@/lib/leads/source-class";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
 
 export default async function AdminLeadsPage({
@@ -71,15 +72,21 @@ export default async function AdminLeadsPage({
   ]);
 
   const raw = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
-  const [leads, attrMap] = await Promise.all([
+  const [leadsWithMetrics, attrMap] = await Promise.all([
     loadLeadCardMetrics(supabase, raw),
-    filters.mode === "list"
-      ? fetchAttributionForLeads(
-          supabase,
-          raw.map((l) => l.id)
-        )
-      : Promise.resolve(new Map()),
+    fetchAttributionForLeads(
+      supabase,
+      raw.map((l) => l.id)
+    ),
   ]);
+
+  const leads = leadsWithMetrics.map((l) => ({
+    ...l,
+    sourceClass: classifyLeadSource(
+      l.source,
+      attrMap.get(l.id)?.source_type ?? null
+    ),
+  }));
 
   const attributionByLead: Record<
     string,

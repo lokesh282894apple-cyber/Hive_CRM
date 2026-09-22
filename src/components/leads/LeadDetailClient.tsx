@@ -38,6 +38,8 @@ import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
 import { LeadScoreCard, LeadScoreSummary } from "@/components/leads/LeadScoreCard";
 import { LeadQualificationPanel } from "@/components/leads/LeadQualificationPanel";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
+import { LeadTasksPanel } from "@/components/leads/LeadTasksPanel";
+import type { LeadTaskRow } from "@/app/actions/lead-tasks";
 import { resendOfferLetter } from "@/app/actions/offer-letter";
 import type { ScoreBreakdown } from "@/lib/leads/score";
 import type {
@@ -95,6 +97,7 @@ export function LeadDetailClient({
   feeSummary = null,
   twilioConfigured = false,
   leadsBasePath = "/leads",
+  tasks = [],
 }: {
   lead: Lead;
   courses: Course[];
@@ -118,6 +121,7 @@ export function LeadDetailClient({
   twilioConfigured?: boolean;
   /** Prefix for in-app lead links (supports /view/[userId]/leads). */
   leadsBasePath?: string;
+  tasks?: LeadTaskRow[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -483,10 +487,10 @@ export function LeadDetailClient({
         </div>
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-            Lead creation date
+            Lead created
           </p>
           <p className="mt-1 text-sm font-medium text-navy">
-            {formatDate(lead.created_at)}
+            {formatDateTime(lead.created_at)}
           </p>
         </div>
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
@@ -650,6 +654,8 @@ export function LeadDetailClient({
             dqReason={lead.dq_reason ?? null}
             aqlAt={lead.aql_at ?? null}
           />
+
+          <LeadTasksPanel leadId={lead.id} tasks={tasks} />
 
           <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
@@ -1021,9 +1027,15 @@ export function LeadDetailClient({
                     <button
                       type="button"
                       className="btn-ghost text-xs text-danger"
+                      disabled={pending}
                       onClick={() =>
                         startTransition(async () => {
-                          await deleteCallLog(c.id, lead.id);
+                          const res = await deleteCallLog(c.id, lead.id);
+                          if (!res.ok) {
+                            setError(res.error || "Could not delete call");
+                            return;
+                          }
+                          setError(null);
                           router.refresh();
                         })
                       }
