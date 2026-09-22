@@ -12,6 +12,7 @@ import {
   eachDateKey,
   resolveAnalyticsRange,
 } from "@/lib/analytics/date-range";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 
 export type NamedCount = { name: string; count: number; id?: string };
 export type DailyCount = { date: string; leads: number; won: number; calls: number };
@@ -153,14 +154,27 @@ export async function fetchAdmissionsAnalytics(
   if (counselorId) callsQ = callsQ.eq("counselor_id", counselorId);
 
   const [
-    { data: calls },
+    calls,
     { count: interviewsUpcoming },
     { count: sessionsInRange },
     { count: formConversionsInRange },
     { count: attributedCount },
     feesBundle,
   ] = await Promise.all([
-    callsQ.limit(2500),
+    fetchAllPages<{
+      id: string;
+      lead_id: string;
+      logged_at: string;
+      counselor_id: string | null;
+    }>((from, to) => {
+      let q = db
+        .from("call_logs")
+        .select("id, lead_id, logged_at, counselor_id")
+        .gte("logged_at", sinceIso)
+        .lt("logged_at", untilExclusiveIso);
+      if (counselorId) q = q.eq("counselor_id", counselorId);
+      return q.order("logged_at", { ascending: false }).range(from, to);
+    }, "call_logs"),
     (async () => {
       const inWeek = base.bookings.filter((b) => {
         const at = b.scheduled_at;
@@ -220,15 +234,40 @@ export async function fetchAdmissionsAnalytics(
         const { data: vendorRows } = await db.from("loan_vendors").select("id, name");
         return { feeRecords, loans, vendors: vendorRows ?? [] };
       }
-      const [feesRes, loansRes, vendorsRes] = await Promise.all([
-        db.from("fee_records").select("total_fee, remaining_fee, payment_mode"),
-        db.from("loans").select("stage, loan_vendor_id, amount_realised, total_fee"),
+      const [feeRecords, loans, vendorRows] = await Promise.all([
+        fetchAllPages<{
+          total_fee: number;
+          remaining_fee: number;
+          payment_mode: string | null;
+        }>(
+          (from, to) =>
+            db
+              .from("fee_records")
+              .select("total_fee, remaining_fee, payment_mode")
+              .order("id", { ascending: true })
+              .range(from, to),
+          "fee_records"
+        ),
+        fetchAllPages<{
+          stage: string;
+          loan_vendor_id: string | null;
+          amount_realised?: number;
+          total_fee?: number;
+        }>(
+          (from, to) =>
+            db
+              .from("loans")
+              .select("stage, loan_vendor_id, amount_realised, total_fee")
+              .order("id", { ascending: true })
+              .range(from, to),
+          "loans"
+        ),
         db.from("loan_vendors").select("id, name"),
       ]);
       return {
-        feeRecords: feesRes.data ?? [],
-        loans: loansRes.data ?? [],
-        vendors: vendorsRes.data ?? [],
+        feeRecords,
+        loans,
+        vendors: vendorRows.data ?? [],
       };
     })(),
   ]);
@@ -489,10 +528,10 @@ export async function fetchAdmissionsAnalytics(
       updated_at: l.updated_at,
       last_contacted_at: (l as { last_contacted_at?: string | null }).last_contacted_at ?? null,
     })),
-    callRows: (calls ?? []).map((c) => ({
+    callRows: calls.map((c) => ({
       lead_id: c.lead_id,
       logged_at: c.logged_at,
-      counselor_id: c.counselor_id,
+      counselor_id: c.counselor_id ?? "",
     })),
   };
 }
@@ -541,27 +580,51 @@ export async function fetchAdmissionsMonthlyRollup(
   });
   const byMonth = new Map(monthKeys.map((k) => [k, empty()]));
 
-  const [{ data: leads }, { data: fees }, { data: history }] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("id, created_at, stage")
-      .gte("created_at", fromIso)
-      .lte("created_at", toIso),
-    supabase
-      .from("fee_records")
-      .select("total_fee, remaining_fee, revenue_amount, updated_at")
-      .gte("updated_at", fromIso)
-      .lte("updated_at", toIso),
-    supabase
-      .from("stage_history")
-      .select("lead_id, to_stage, changed_at")
-      .in("to_stage", ["r1_booked", "r1_confirmed", "closed_paid", "closed_deferred"])
-      .gte("changed_at", fromIso)
-      .lte("changed_at", toIso),
+  const [leads, fees, history] = await Promise.all([
+    fetchAllPages<{ id: string; created_at: string; stage: string }>(
+      (from, to) =>
+        supabase
+          .from("leads")
+          .select("id, created_at, stage")
+          .gte("created_at", fromIso)
+          .lte("created_at", toIso)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      "monthly_leads"
+    ),
+    fetchAllPages<{
+      total_fee: number;
+      remaining_fee: number;
+      revenue_amount: number | null;
+      updated_at: string;
+    }>(
+      (from, to) =>
+        supabase
+          .from("fee_records")
+          .select("total_fee, remaining_fee, revenue_amount, updated_at")
+          .gte("updated_at", fromIso)
+          .lte("updated_at", toIso)
+          .order("updated_at", { ascending: true })
+          .range(from, to),
+      "monthly_fees"
+    ),
+    fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
+      (from, to) =>
+        supabase
+          .from("stage_history")
+          .select("lead_id, to_stage, changed_at")
+          .in("to_stage", ["r1_booked", "r1_confirmed", "closed_paid", "closed_deferred"])
+          .gte("changed_at", fromIso)
+          .lte("changed_at", toIso)
+          .order("changed_at", { ascending: true })
+          .range(from, to),
+      "monthly_history"
+    ),
   ]);
 
   const openSet = new Set(OPEN_STAGES as readonly string[]);
-  for (const l of leads ?? []) {
+  for (const l of leads) {
     const mk = String(l.created_at).slice(0, 7);
     const t = byMonth.get(mk);
     if (!t) continue;
@@ -570,7 +633,7 @@ export async function fetchAdmissionsMonthlyRollup(
   }
 
   const r1Seen = new Set<string>();
-  for (const h of history ?? []) {
+  for (const h of history) {
     const mk = String(h.changed_at).slice(0, 7);
     const t = byMonth.get(mk);
     if (!t) continue;
@@ -591,7 +654,7 @@ export async function fetchAdmissionsMonthlyRollup(
     if (l.stage === "closed_deferred") t.lost += 1;
   }
 
-  for (const f of fees ?? []) {
+  for (const f of fees) {
     const mk = String(f.updated_at).slice(0, 7);
     const t = byMonth.get(mk);
     if (!t) continue;

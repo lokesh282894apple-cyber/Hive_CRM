@@ -1,5 +1,6 @@
 import type { createClient } from "@/lib/supabase/server";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 
 type Supabase = ReturnType<typeof createClient>;
 
@@ -13,13 +14,21 @@ export async function fetchAiChatKpiContext(supabase: Supabase): Promise<Record<
 
   const [
     { count: totalLeads },
-    { data: stageRows },
+    stageRows,
     { count: leadsThisMonth },
     { data: spendRows },
     { data: noteRows },
   ] = await Promise.all([
     supabase.from("leads").select("*", { count: "exact", head: true }),
-    supabase.from("leads").select("stage"),
+    fetchAllPages<{ stage: string }>(
+      (from, to) =>
+        supabase
+          .from("leads")
+          .select("stage")
+          .order("id", { ascending: true })
+          .range(from, to),
+      "ai_kpi_stages"
+    ),
     supabase
       .from("leads")
       .select("*", { count: "exact", head: true })
@@ -32,8 +41,8 @@ export async function fetchAiChatKpiContext(supabase: Supabase): Promise<Record<
   ]);
 
   const byStage: Record<string, number> = {};
-  for (const row of stageRows ?? []) {
-    const stage = String((row as { stage: string }).stage || "unknown");
+  for (const row of stageRows) {
+    const stage = String(row.stage || "unknown");
     byStage[stage] = (byStage[stage] ?? 0) + 1;
   }
 

@@ -65,18 +65,22 @@ export const getAdmissionsBase = cache(
     const db = admissionsAggClient();
     const filtered = Boolean(counselorId || courseId || cohortId);
 
-    let leadsQ = db
-      .from("leads")
-      .select(
-        "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at"
-      );
-    if (counselorId) leadsQ = leadsQ.eq("lead_allocated_to", counselorId);
-    if (courseId) leadsQ = leadsQ.eq("course_id", courseId);
-    if (cohortId) leadsQ = leadsQ.eq("cohort_id", cohortId);
-
-    const [leadsRes, history, bookings, attrs, coursesRes, counselorsRes, cohortsRes, scopeRes] =
+    const [leadsFetched, history, bookings, attrs, coursesRes, counselorsRes, cohortsRes, scopeRes] =
       await Promise.all([
-        leadsQ.order("created_at", { ascending: false }).limit(8000),
+        fetchAllPages<BaseLead>((from, to) => {
+          let q = db
+            .from("leads")
+            .select(
+              "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at"
+            );
+          if (counselorId) q = q.eq("lead_allocated_to", counselorId);
+          if (courseId) q = q.eq("course_id", courseId);
+          if (cohortId) q = q.eq("cohort_id", cohortId);
+          return q
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to);
+        }, "leads"),
         fetchAllPages<BaseHistory>(
           (from, to) =>
             db
@@ -119,7 +123,7 @@ export const getAdmissionsBase = cache(
           : Promise.resolve({ data: null as { cohort_id: string }[] | null }),
       ]);
 
-    let leads = (leadsRes.data ?? []) as BaseLead[];
+    let leads = leadsFetched;
     // Align counselor dashboard "Open leads" with /leads Kanban scope
     if (counselorId) {
       const cohortIds = new Set((scopeRes.data ?? []).map((s) => s.cohort_id));
