@@ -54,6 +54,15 @@ export async function updateFeeTrackerStudent(input: {
   }
   if (input.gross_fee_with_gst != null) patch.total_fee = input.gross_fee_with_gst;
   if (input.drop_email) patch.deal_stage = "drop_email";
+  if (input.payment_method_email_sent && !input.deal_stage) {
+    patch.deal_stage = "awaiting_method";
+  }
+  if (input.payment_mode && !input.deal_stage) {
+    patch.deal_stage = "method_chosen";
+  }
+  if (input.program_onboarding_call_done && !input.deal_stage) {
+    patch.deal_stage = "deadlines_pending";
+  }
 
   const { error } = await supabase.from("fee_records").update(patch).eq("id", input.feeId);
   if (error) return { ok: false, error: error.message };
@@ -80,6 +89,51 @@ export async function updateFeeTrackerStudent(input: {
           doc_submission_deadline: new Date(Date.now() + 72 * 3600_000).toISOString(),
         })
         .eq("id", loan.id);
+    }
+  }
+
+  if (input.payment_mode === "one_shot") {
+    const deadline =
+      input.active_deadline ||
+      new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
+    await supabase
+      .from("fee_records")
+      .update({
+        one_shot_deadline: deadline,
+        active_deadline: deadline,
+      })
+      .eq("id", input.feeId);
+
+    const { data: existingOneShot } = await supabase
+      .from("installments")
+      .select("id")
+      .eq("fee_record_id", input.feeId)
+      .eq("line_type", "one_shot")
+      .maybeSingle();
+    if (!existingOneShot) {
+      const { data: fee } = await supabase
+        .from("fee_records")
+        .select("total_fee, net_fee_without_gst, remaining_fee")
+        .eq("id", input.feeId)
+        .maybeSingle();
+      const amount =
+        Number(fee?.net_fee_without_gst) ||
+        Number(fee?.remaining_fee) ||
+        Number(fee?.total_fee) ||
+        0;
+      await supabase.from("installments").insert({
+        fee_record_id: input.feeId,
+        installment_number: 1,
+        deadline,
+        amount_to_realise: amount,
+        amount_realised: 0,
+        status: "pending",
+        line_type: "one_shot",
+        mode_of_payment: "OneShot",
+        payment_status: "Yet to Pay",
+        amount_hit_bank: 0,
+        deductions: 0,
+      });
     }
   }
 
@@ -145,20 +199,40 @@ export async function updateLoanStatus(input: {
   const supabase = createClient();
   const { data: existing } = await supabase
     .from("loans")
-    .select("id")
+    .select("id, doc_submission_deadline, stage")
     .eq("fee_record_id", input.feeRecordId)
     .maybeSingle();
 
-  const patch = {
+  let docDeadline = input.doc_submission_deadline;
+  // Auto +72h when entering loan process without a doc deadline
+  if (
+    (input.stage === "loan_in_process" || input.stage === "docs_to_share") &&
+    !docDeadline &&
+    !existing?.doc_submission_deadline
+  ) {
+    docDeadline = new Date(Date.now() + 72 * 3600_000).toISOString();
+  } else if (docDeadline === undefined && existing?.doc_submission_deadline) {
+    docDeadline = existing.doc_submission_deadline as string;
+  }
+
+  const patch: Record<string, unknown> = {
     stage: input.stage,
-    total_fee: input.loan_amount,
-    remaining_fee: input.loan_amount,
-    doc_submission_deadline: input.doc_submission_deadline,
-    remaining_fee_15d_deadline: input.remaining_fee_15d_deadline,
-    loan_completion_deadline: input.loan_completion_deadline,
-    disbursement_date: input.disbursement_date,
     updated_at: new Date().toISOString(),
   };
+  if (input.loan_amount != null) {
+    patch.total_fee = input.loan_amount;
+    patch.remaining_fee = input.loan_amount;
+  }
+  if (docDeadline !== undefined) patch.doc_submission_deadline = docDeadline;
+  if (input.remaining_fee_15d_deadline !== undefined) {
+    patch.remaining_fee_15d_deadline = input.remaining_fee_15d_deadline;
+  }
+  if (input.loan_completion_deadline !== undefined) {
+    patch.loan_completion_deadline = input.loan_completion_deadline;
+  }
+  if (input.disbursement_date !== undefined) {
+    patch.disbursement_date = input.disbursement_date;
+  }
 
   if (existing) {
     const { error } = await supabase.from("loans").update(patch).eq("id", existing.id);
@@ -166,10 +240,14 @@ export async function updateLoanStatus(input: {
   } else {
     const { error } = await supabase.from("loans").insert({
       fee_record_id: input.feeRecordId,
-      ...patch,
+      stage: input.stage,
       total_fee: input.loan_amount ?? 0,
       remaining_fee: input.loan_amount ?? 0,
       amount_realised: 0,
+      doc_submission_deadline: docDeadline ?? null,
+      remaining_fee_15d_deadline: input.remaining_fee_15d_deadline ?? null,
+      loan_completion_deadline: input.loan_completion_deadline ?? null,
+      disbursement_date: input.disbursement_date ?? null,
     });
     if (error) return { ok: false, error: error.message };
   }
@@ -178,6 +256,11 @@ export async function updateLoanStatus(input: {
     await supabase
       .from("fee_records")
       .update({ drop_email: true, deal_stage: "drop_email" })
+      .eq("id", input.feeRecordId);
+  } else if (input.stage === "loan_in_process") {
+    await supabase
+      .from("fee_records")
+      .update({ deal_stage: "deadlines_set", payment_mode: "loan" })
       .eq("id", input.feeRecordId);
   }
   touch();

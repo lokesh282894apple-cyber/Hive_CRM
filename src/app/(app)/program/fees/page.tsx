@@ -16,7 +16,12 @@ export default async function ProgramFeesPage({
   await requireUser(["admin", "program"]);
   const supabase = createClient();
 
-  const tab = searchParams.tab === "loans" || searchParams.tab === "revenue" ? searchParams.tab : "fees";
+  const tab =
+    searchParams.tab === "loans" ||
+    searchParams.tab === "revenue" ||
+    searchParams.tab === "deal"
+      ? searchParams.tab
+      : "fees";
   const courseId = searchParams.course || "";
   const cohortId = searchParams.cohort || "";
   const paymentMode = searchParams.mode || "";

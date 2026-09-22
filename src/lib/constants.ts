@@ -904,7 +904,7 @@ export const FEE_LINE_TYPES = [
 ] as const;
 export type FeeLineType = (typeof FEE_LINE_TYPES)[number];
 
-export const FEE_PAYMENT_STATUSES = ["Paid", "Yet to Pay"] as const;
+export const FEE_PAYMENT_STATUSES = ["Paid", "Yet to Pay", "Overdue"] as const;
 export type FeePaymentStatus = (typeof FEE_PAYMENT_STATUSES)[number];
 
 export const FEE_DEAL_STAGES = [
@@ -916,6 +916,15 @@ export const FEE_DEAL_STAGES = [
   "drop_email",
 ] as const;
 export type FeeDealStage = (typeof FEE_DEAL_STAGES)[number];
+
+export const FEE_DEAL_STAGE_LABELS: Record<FeeDealStage, string> = {
+  awaiting_method: "Payment Option Email Sent",
+  method_chosen: "Payment Option Chosen",
+  deadlines_pending: "Onboarding Call Booked",
+  deadlines_set: "Payment Deadline Set",
+  in_collection: "Payment Deadline Confirmed",
+  drop_email: "Drop Email",
+};
 
 /** Default admission fee line (INR) when a student converts. */
 export const DEFAULT_ADMISSION_FEE_INR = 50_000;

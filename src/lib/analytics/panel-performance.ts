@@ -20,6 +20,8 @@ export type PanelistRoundStats = {
   selected: number;
   reject: number;
   tbb: number;
+  noShow: number;
+  pending: number;
   offeredAfter: number;
   wonAfter: number;
 };
@@ -64,6 +66,8 @@ function emptyStats(): PanelistRoundStats {
     selected: 0,
     reject: 0,
     tbb: 0,
+    noShow: 0,
+    pending: 0,
     offeredAfter: 0,
     wonAfter: 0,
   };
@@ -196,13 +200,17 @@ export async function fetchPanelPerformance(
     const outcome = b.outcome;
     if (outcome) {
       for (const s of buckets) s.conducted += 1;
-      if (outcome === "confirmed") for (const s of buckets) s.selected += 1;
+      if (outcome === "confirmed" || outcome === "selected")
+        for (const s of buckets) s.selected += 1;
       else if (outcome === "reject") for (const s of buckets) s.reject += 1;
       else if (outcome === "tbb") for (const s of buckets) s.tbb += 1;
+      else if (outcome === "no_show") for (const s of buckets) s.noShow += 1;
+    } else {
+      for (const s of buckets) s.pending += 1;
     }
 
     // Downstream conversion attributed to selections (confirmed)
-    if (outcome === "confirmed") {
+    if (outcome === "confirmed" || outcome === "selected") {
       const bookingAt = b.scheduled_at || b.created_at;
       const off = offeredAt.get(b.lead_id);
       const won = wonAt.get(b.lead_id);

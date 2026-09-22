@@ -253,7 +253,11 @@ export default async function AdminPanelPage({
                   <th className="eyebrow px-3 py-2.5 text-right">Selected</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Sel %</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Reject</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">Rej %</th>
                   <th className="eyebrow px-3 py-2.5 text-right">TBB</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">TBB %</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">No show</th>
+                  <th className="eyebrow px-3 py-2.5 text-right">Pending</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Offered</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Cond → Off %</th>
                   <th className="eyebrow px-3 py-2.5 text-right">Won</th>
@@ -285,7 +289,19 @@ export default async function AdminPanelPage({
                       {r.totals.reject}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
+                      {r.rejectPct.toFixed(0)}%
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.tbb}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted">
+                      {r.tbbPct.toFixed(0)}%
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted">
+                      {r.totals.noShow}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-muted">
+                      {r.totals.pending}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-muted">
                       {r.totals.offeredAfter}

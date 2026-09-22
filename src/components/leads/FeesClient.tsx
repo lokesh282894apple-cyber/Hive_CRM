@@ -15,8 +15,17 @@ import {
   type PaymentMode,
   type Stage,
 } from "@/lib/constants";
+import {
+  addMonthsToDateKey,
+  computeFeeBalance,
+  deadlineTone,
+  deadlineToneClass,
+  feeLineStatusTone,
+  feeLineUiStatus,
+  todayKey,
+} from "@/lib/fees/status";
 import { StatusBadge } from "@/components/ui/Primitives";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import type { FeeRecord, Installment, Loan, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
@@ -61,11 +70,12 @@ export function FeesClient({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState(feeRecord?.notes ?? "");
-  const [count, setCount] = useState(installments.length || defaultCount);
+  const [count, setCount] = useState(installments.length || Math.max(defaultCount, 3));
   const [totalFee, setTotalFee] = useState(feeRecord?.total_fee ?? defaultTotalFee);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(
     feeRecord?.payment_mode ?? "direct_instalments"
   );
+  const [emiStart, setEmiStart] = useState(todayKey());
   const [scholarshipPct, setScholarshipPct] = useState(
     feeRecord?.scholarship_pct != null ? Number(feeRecord.scholarship_pct) : ""
   );
@@ -96,6 +106,13 @@ export function FeesClient({
 
   const stageOk = FEE_ELIGIBLE.includes(leadStage);
   const lockedTotal = feeRecord ? Number(feeRecord.total_fee) : null;
+  const balance = useMemo(
+    () =>
+      feeRecord
+        ? computeFeeBalance(feeRecord, installments)
+        : { owed: 0, paid: 0, remaining: 0 },
+    [feeRecord, installments]
+  );
 
   function setTab(next: FeeTab) {
     router.push(`/leads/${leadId}/fees?tab=${next}`);
@@ -320,12 +337,26 @@ export function FeesClient({
           <p className="mt-1 text-2xl font-semibold text-navy">
             {formatCurrency(lockedTotal ?? totalFee)}
           </p>
-          <p className="mt-1 text-sm text-muted">
-            Remaining:{" "}
-            <span className="font-semibold text-navy">
-              {formatCurrency(feeRecord?.remaining_fee ?? totalFee)}
+          <div className="mt-2 flex flex-wrap gap-3 text-sm">
+            <span className="text-muted">
+              Owed{" "}
+              <span className="font-semibold text-navy">
+                {formatCurrency(balance.owed)}
+              </span>
             </span>
-          </p>
+            <span className="text-muted">
+              Paid{" "}
+              <span className="font-semibold text-navy">
+                {formatCurrency(balance.paid)}
+              </span>
+            </span>
+            <span className="text-muted">
+              Remaining{" "}
+              <span className="font-semibold text-navy">
+                {formatCurrency(balance.remaining)}
+              </span>
+            </span>
+          </div>
           <p className="mt-1 text-xs text-muted">
             {PAYMENT_MODE_LABELS[feeRecord?.payment_mode ?? "direct_instalments"]}
             {feeRecord?.scholarship_pct != null
@@ -465,7 +496,7 @@ export function FeesClient({
                   <p className="eyebrow">Generate In-house EMI</p>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <div>
-                      <label className="label-field">Total installments (N)</label>
+                      <label className="label-field">Installments (default 3)</label>
                       <input
                         type="number"
                         min={1}
@@ -478,8 +509,17 @@ export function FeesClient({
                         }}
                       />
                     </div>
-                    <div className="sm:col-span-2">
-                      <label className="label-field">Amounts (editable per installment)</label>
+                    <div>
+                      <label className="label-field">First deadline</label>
+                      <input
+                        type="date"
+                        className="input-field"
+                        value={emiStart}
+                        onChange={(e) => setEmiStart(e.target.value)}
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <label className="label-field">Amounts</label>
                       <div className="flex flex-wrap gap-2">
                         {amounts.map((a, i) => (
                           <input
@@ -497,18 +537,25 @@ export function FeesClient({
                       </div>
                     </div>
                   </div>
+                  <p className="text-xs text-muted">
+                    Deadlines: installment n = first deadline + (n−1) months.
+                  </p>
                   <button
                     type="button"
                     className="btn-primary"
                     disabled={pending}
                     onClick={() =>
                       startTransition(async () => {
+                        const deadlines = Array.from({ length: count }, (_, i) =>
+                          addMonthsToDateKey(emiStart || todayKey(), i)
+                        );
                         const res = await generateInstallments({
                           leadId,
                           count,
                           amounts,
                           totalFee: Number(totalFee),
                           paymentMode: "direct_instalments",
+                          deadlines,
                         });
                         if (!res.ok) setError(res.error);
                         else {
@@ -538,24 +585,28 @@ export function FeesClient({
                 </tr>
               </thead>
               <tbody>
-                {installments.map((inst) => (
+                {installments.map((inst) => {
+                  const ui = feeLineUiStatus(inst);
+                  const dlTone = deadlineTone(inst.deadline, { terminal: ui === "Paid" });
+                  return (
                   <tr key={inst.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3">{inst.installment_number}</td>
-                    <td className="px-4 py-3">{formatDate(inst.deadline)}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          "rounded px-2 py-0.5 text-xs font-semibold",
+                          deadlineToneClass(dlTone)
+                        )}
+                      >
+                        {formatDate(inst.deadline)}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">{formatCurrency(inst.amount_to_realise)}</td>
                     <td className="px-4 py-3">{formatCurrency(inst.amount_realised)}</td>
                     <td className="px-4 py-3">
                       <StatusBadge
-                        label={inst.status}
-                        tone={
-                          inst.status === "paid"
-                            ? "green"
-                            : inst.status === "overdue"
-                              ? "red"
-                              : inst.status === "partial"
-                                ? "yellow"
-                                : "gray"
-                        }
+                        label={ui}
+                        tone={feeLineStatusTone(ui)}
                       />
                     </td>
                     <td className="px-4 py-3">
@@ -576,7 +627,8 @@ export function FeesClient({
                       />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {installments.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-muted">
