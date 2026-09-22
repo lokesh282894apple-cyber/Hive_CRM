@@ -24,6 +24,7 @@ export async function bulkUpdateLeadStages(input: {
   leadIds: string[];
   stage: string;
   reason?: string;
+  studentIntent?: number;
 }): Promise<ActionResult<{ updated: number; failed: { id: string; error: string }[] }>> {
   await requireUser(["admin", "counselor"]);
   const ids = Array.from(new Set(input.leadIds.filter(Boolean))).slice(0, 200);
@@ -53,10 +54,25 @@ export async function bulkUpdateLeadStages(input: {
     return { ok: false, error: "This stage needs a reason" };
   }
 
+  const intent = input.studentIntent;
+  if (
+    intent == null ||
+    !Number.isInteger(intent) ||
+    intent < 1 ||
+    intent > 5
+  ) {
+    return { ok: false, error: "Student intent (1–5) is required" };
+  }
+
   let updated = 0;
   const failed: { id: string; error: string }[] = [];
   for (const id of ids) {
-    const res = await updateLeadStage(id, stage, needsReason ? reason : undefined);
+    const res = await updateLeadStage(
+      id,
+      stage,
+      needsReason ? reason : undefined,
+      { studentIntent: intent }
+    );
     if (res.ok) updated += 1;
     else failed.push({ id, error: res.error });
   }

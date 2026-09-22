@@ -1,6 +1,7 @@
 "use client";
 
 import { updateLeadCardFields } from "@/app/actions/leads";
+import { recordStudentIntentScore } from "@/app/actions/scores";
 import {
   CONVERT_PROBABILITIES,
   CONVERT_PROBABILITY_LABELS,
@@ -10,12 +11,12 @@ import {
   type OfferCallStatus,
 } from "@/lib/constants";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 
 type OfferLead = {
   id: string;
   stage: string;
-  counselor_intent_check?: string | null;
+  avg_student_intent?: number | null;
   convert_probability?: ConvertProbability | null;
   offer_call_status?: OfferCallStatus | null;
   offer_accept_deadline?: string | null;
@@ -30,15 +31,11 @@ export function LeadOfferFields({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [intent, setIntent] = useState(lead.counselor_intent_check ?? "");
+  const [intentPick, setIntentPick] = useState<number | "">("");
   const isOffer =
     lead.stage === "offered" ||
     lead.stage === "yet_to_offer" ||
     lead.stage === "offered_accepted";
-
-  useEffect(() => {
-    setIntent(lead.counselor_intent_check ?? "");
-  }, [lead.id, lead.counselor_intent_check]);
 
   function save(patch: Parameters<typeof updateLeadCardFields>[1]) {
     startTransition(async () => {
@@ -47,31 +44,71 @@ export function LeadOfferFields({
     });
   }
 
+  const avg =
+    lead.avg_student_intent != null
+      ? Number(lead.avg_student_intent).toFixed(1)
+      : null;
+
   return (
     <div
-      className={compact ? "mt-2 space-y-1.5" : "mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"}
+      className={
+        compact
+          ? "mt-2 space-y-1.5"
+          : "mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      }
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <label className={compact ? "block text-[11px] text-muted" : "text-xs font-semibold text-muted"}>
-        Counselor intent
-        <input
-          className="input-field mt-1 py-1.5 text-xs"
-          value={intent}
-          disabled={pending}
-          placeholder="Tag or note"
-          onChange={(e) => setIntent(e.target.value)}
-          onBlur={() => {
-            const next = intent.trim() || null;
-            if (next !== (lead.counselor_intent_check ?? null)) {
-              save({ counselor_intent_check: next });
-            }
-          }}
-        />
-      </label>
+      <div
+        className={
+          compact ? "text-[11px] text-muted" : "text-xs font-semibold text-muted"
+        }
+      >
+        Avg student intent
+        <p className="mt-1 text-sm font-semibold text-navy">
+          {avg != null ? `${avg}/5` : "—"}
+        </p>
+        <label className="mt-1 block text-[10px] font-normal text-muted">
+          Add score
+          <select
+            className="input-field mt-0.5 py-1 text-xs"
+            value={intentPick === "" ? "" : String(intentPick)}
+            disabled={pending}
+            onChange={(e) => {
+              const v = e.target.value ? Number(e.target.value) : "";
+              setIntentPick(v);
+              if (v === "") return;
+              startTransition(async () => {
+                const res = await recordStudentIntentScore({
+                  leadId: lead.id,
+                  intentScore: v,
+                  context: "manual_intent",
+                });
+                if (res.ok) {
+                  setIntentPick("");
+                  router.refresh();
+                }
+              });
+            }}
+          >
+            <option value="">1–5</option>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {isOffer ? (
         <>
-          <label className={compact ? "block text-[11px] text-muted" : "text-xs font-semibold text-muted"}>
+          <label
+            className={
+              compact
+                ? "block text-[11px] text-muted"
+                : "text-xs font-semibold text-muted"
+            }
+          >
             Post-offer call
             <select
               className="input-field mt-1 py-1.5 text-xs"
@@ -88,7 +125,13 @@ export function LeadOfferFields({
               ))}
             </select>
           </label>
-          <label className={compact ? "block text-[11px] text-muted" : "text-xs font-semibold text-muted"}>
+          <label
+            className={
+              compact
+                ? "block text-[11px] text-muted"
+                : "text-xs font-semibold text-muted"
+            }
+          >
             Convert probability
             <select
               className="input-field mt-1 py-1.5 text-xs"
@@ -96,7 +139,8 @@ export function LeadOfferFields({
               disabled={pending}
               onChange={(e) =>
                 save({
-                  convert_probability: (e.target.value || null) as ConvertProbability | null,
+                  convert_probability: (e.target.value ||
+                    null) as ConvertProbability | null,
                 })
               }
             >
@@ -108,7 +152,13 @@ export function LeadOfferFields({
               ))}
             </select>
           </label>
-          <label className={compact ? "block text-[11px] text-muted" : "text-xs font-semibold text-muted"}>
+          <label
+            className={
+              compact
+                ? "block text-[11px] text-muted"
+                : "text-xs font-semibold text-muted"
+            }
+          >
             Accept deadline
             <input
               type="date"
@@ -117,7 +167,9 @@ export function LeadOfferFields({
               disabled={pending}
               onBlur={(e) => {
                 const next = e.target.value || null;
-                if (next !== (lead.offer_accept_deadline?.slice(0, 10) ?? null)) {
+                if (
+                  next !== (lead.offer_accept_deadline?.slice(0, 10) ?? null)
+                ) {
                   save({ offer_accept_deadline: next });
                 }
               }}

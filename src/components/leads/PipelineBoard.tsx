@@ -1,9 +1,10 @@
 "use client";
 
-import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
-import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
+import { updateLeadCardFields } from "@/app/actions/leads";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
 import { StageRejectDialog } from "@/components/leads/StageRejectDialog";
+import { StageAdvanceDialog } from "@/components/leads/StageAdvanceDialog";
+import { BookInterviewDialog } from "@/components/leads/BookInterviewDialog";
 import {
   BOARD_COLUMN_CAP,
   BOARD_WIP_WARN,
@@ -162,8 +163,10 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
           ) : null}
         </>
       ) : null}
-      {lead.counselor_intent_check ? (
-        <p>Intent · {lead.counselor_intent_check}</p>
+      {lead.avg_student_intent != null ? (
+        <p className="font-medium text-navy">
+          Intent {Number(lead.avg_student_intent).toFixed(1)}/5
+        </p>
       ) : null}
       {m?.gradeAvg != null ? (
         <p className="font-medium text-navy">
@@ -582,6 +585,13 @@ export function PipelineBoard({
     leadName: string;
     targetStage: Stage;
   } | null>(null);
+  const [stageAdvance, setStageAdvance] = useState<{
+    leadId: string;
+    leadName: string;
+    fromStage: string;
+    targetStage: Stage;
+    offerCallStatus?: string | null;
+  } | null>(null);
   const [dndReady, setDndReady] = useState(false);
   const lastOverId = useRef<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -779,37 +789,39 @@ export function PipelineBoard({
         return;
       }
 
-      const prev = items;
-      const next = items.map((l) =>
-        l.id === leadId
-          ? {
-              ...l,
-              stage: nextStage,
-              offer_call_status: targetCol.offerCallStatus ?? l.offer_call_status,
-            }
-          : l
-      );
-      setItems(next);
-
-      startTransition(async () => {
-        if (!sameStage) {
-          const res = await updateLeadStage(leadId, nextStage);
-          if (!res.ok) {
-            setItems(prev);
-            setError(res.error);
-            return;
-          }
-        }
-        if (targetCol.offerCallStatus) {
+      // Same-stage offer-call status only — no intent required
+      if (sameStage && targetCol.offerCallStatus) {
+        const prev = items;
+        const next = items.map((l) =>
+          l.id === leadId
+            ? {
+                ...l,
+                offer_call_status: targetCol.offerCallStatus ?? l.offer_call_status,
+              }
+            : l
+        );
+        setItems(next);
+        startTransition(async () => {
           const res = await updateLeadCardFields(leadId, {
-            offer_call_status: targetCol.offerCallStatus,
+            offer_call_status: targetCol.offerCallStatus!,
           });
           if (!res.ok) {
             setItems(prev);
             setError(res.error);
           }
-        }
-      });
+        });
+        return;
+      }
+
+      if (!sameStage) {
+        setStageAdvance({
+          leadId: lead.id,
+          leadName: lead.name,
+          fromStage: lead.stage,
+          targetStage: nextStage,
+          offerCallStatus: targetCol.offerCallStatus ?? null,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not move lead");
     }
@@ -1008,6 +1020,42 @@ export function PipelineBoard({
             );
             setStageReject(null);
             router.refresh();
+          }}
+        />
+      ) : null}
+
+      {stageAdvance ? (
+        <StageAdvanceDialog
+          open
+          leadId={stageAdvance.leadId}
+          leadName={stageAdvance.leadName}
+          fromStage={stageAdvance.fromStage}
+          targetStage={stageAdvance.targetStage}
+          onClose={() => setStageAdvance(null)}
+          onSuccess={() => {
+            const offer = stageAdvance.offerCallStatus;
+            setItems((prev) =>
+              prev.map((l) =>
+                l.id === stageAdvance.leadId
+                  ? {
+                      ...l,
+                      stage: stageAdvance.targetStage,
+                      offer_call_status:
+                        (offer as typeof l.offer_call_status) ??
+                        l.offer_call_status,
+                    }
+                  : l
+              )
+            );
+            if (offer) {
+              void updateLeadCardFields(stageAdvance.leadId, {
+                offer_call_status: offer as
+                  | "not_booked"
+                  | "booked"
+                  | "done",
+              });
+            }
+            setStageAdvance(null);
           }}
         />
       ) : null}

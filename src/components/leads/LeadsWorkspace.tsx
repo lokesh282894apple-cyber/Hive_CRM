@@ -78,10 +78,14 @@ export function LeadsWorkspace({
   const [minStageCallsLocal, setMinStageCallsLocal] = useState(
     filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
   );
+  const [maxAvgDayLocal, setMaxAvgDayLocal] = useState(
+    filters.maxAvgCallsPerDay != null ? String(filters.maxAvgCallsPerDay) : ""
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [bulkStage, setBulkStage] = useState<Stage | "">("");
   const [bulkReason, setBulkReason] = useState("");
+  const [bulkIntent, setBulkIntent] = useState<number | "">("");
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const prefsKey = isAdmin ? "hive-admin-leads-filters" : "hive-leads-filters";
 
@@ -108,6 +112,12 @@ export function LeadsWorkspace({
       filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
     );
   }, [filters.minCallsSinceStage]);
+
+  useEffect(() => {
+    setMaxAvgDayLocal(
+      filters.maxAvgCallsPerDay != null ? String(filters.maxAvgCallsPerDay) : ""
+    );
+  }, [filters.maxAvgCallsPerDay]);
 
   useEffect(() => {
     if (filters.callNotLoggedHours != null && filters.callNotLoggedHours < 24) {
@@ -178,6 +188,8 @@ export function LeadsWorkspace({
     const minC = minCallsLocal.trim() === "" ? null : Number(minCallsLocal);
     const minStage =
       minStageCallsLocal.trim() === "" ? null : Number(minStageCallsLocal);
+    const maxAvg =
+      maxAvgDayLocal.trim() === "" ? null : Number(maxAvgDayLocal);
     pushFilters({
       callNotLoggedHours:
         days != null && Number.isFinite(days) ? days * 24 : null,
@@ -187,6 +199,8 @@ export function LeadsWorkspace({
       minCalls: minC != null && Number.isFinite(minC) ? minC : null,
       minCallsSinceStage:
         minStage != null && Number.isFinite(minStage) ? minStage : null,
+      maxAvgCallsPerDay:
+        maxAvg != null && Number.isFinite(maxAvg) ? maxAvg : null,
       page: 1,
     });
   }
@@ -213,6 +227,20 @@ export function LeadsWorkspace({
   ];
 
   const NO_CALL_DAY_PRESETS = [3, 5, 7];
+
+  const g = filters.stageGroup;
+  const showAllMetricGroups = g === "open" || g === "all";
+  const showNewLeadFilters = showAllMetricGroups || g === "pre_r1";
+  const showNurtureDnpFilters = showAllMetricGroups || g === "pre_r1";
+  const showRoundOfferFilters =
+    showAllMetricGroups ||
+    g === "r1" ||
+    g === "r2" ||
+    g === "r3" ||
+    g === "offer" ||
+    g === "offer_call_not_booked" ||
+    g === "offer_call_booked" ||
+    g === "offer_call_done";
 
   const filteredCohorts = useMemo(
     () =>
@@ -261,6 +289,16 @@ export function LeadsWorkspace({
           (l.cardMetrics?.callsSinceStage ?? 0) >= filters.minCallsSinceStage!
       );
     }
+    if (
+      filters.maxAvgCallsPerDay != null &&
+      Number.isFinite(filters.maxAvgCallsPerDay)
+    ) {
+      rows = rows.filter(
+        (l) =>
+          (l.cardMetrics?.avgCallsPerDaySinceStage ?? 0) <=
+          filters.maxAvgCallsPerDay!
+      );
+    }
     return rows;
   }, [
     leads,
@@ -268,6 +306,7 @@ export function LeadsWorkspace({
     filters.uniqueCalls,
     filters.minCalls,
     filters.minCallsSinceStage,
+    filters.maxAvgCallsPerDay,
   ]);
 
   const [listTab, setListTab] = useState<(typeof LEAD_LIST_TABS)[number]["id"]>("all");
@@ -532,127 +571,172 @@ export function LeadsWorkspace({
             Stale {STALE_LEAD_DAYS}d+
           </label>
 
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-              No call
-            </span>
-            {NO_CALL_PRESETS.map((p) => {
-              const active = filters.callNotLoggedHours === p.hours;
-              return (
+          <div className="flex w-full flex-col gap-2">
+            {showNewLeadFilters ? (
+              <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border/80 bg-white/70 px-2.5 py-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+                  New lead · Call not logged
+                </span>
+                {NO_CALL_PRESETS.map((p) => {
+                  const active = filters.callNotLoggedHours === p.hours;
+                  return (
+                    <button
+                      key={p.hours}
+                      type="button"
+                      className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
+                        active
+                          ? "border-navy bg-navy text-white"
+                          : "border-border bg-white text-navy"
+                      }`}
+                      onClick={() =>
+                        pushFilters({
+                          callNotLoggedHours: active ? null : p.hours,
+                          callNotLoggedDays:
+                            active || p.hours < 24
+                              ? null
+                              : Math.ceil(p.hours / 24),
+                          page: 1,
+                        })
+                      }
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+                {NO_CALL_DAY_PRESETS.map((d) => {
+                  const hours = d * 24;
+                  const active = filters.callNotLoggedHours === hours;
+                  return (
+                    <button
+                      key={`d-${d}`}
+                      type="button"
+                      className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
+                        active
+                          ? "border-navy bg-navy text-white"
+                          : "border-border bg-white text-navy"
+                      }`}
+                      onClick={() => {
+                        setNoCallDaysLocal(active ? "" : String(d));
+                        pushFilters({
+                          callNotLoggedHours: active ? null : hours,
+                          callNotLoggedDays: active ? null : d,
+                          page: 1,
+                        });
+                      }}
+                    >
+                      {d}d
+                    </button>
+                  );
+                })}
+                <label className="inline-flex items-center gap-1 text-[11px] text-muted">
+                  Days
+                  <input
+                    className="input-field w-14 py-1 text-xs"
+                    type="number"
+                    min={0}
+                    step={1}
+                    placeholder="N"
+                    value={noCallDaysLocal}
+                    onChange={(e) => setNoCallDaysLocal(e.target.value)}
+                  />
+                </label>
                 <button
-                  key={p.hours}
                   type="button"
-                  className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
-                    active
-                      ? "border-navy bg-navy text-white"
-                      : "border-border bg-white text-navy"
-                  }`}
-                  onClick={() =>
-                    pushFilters({
-                      callNotLoggedHours: active ? null : p.hours,
-                      callNotLoggedDays:
-                        active || p.hours < 24 ? null : Math.ceil(p.hours / 24),
-                      page: 1,
-                    })
-                  }
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-            {NO_CALL_DAY_PRESETS.map((d) => {
-              const hours = d * 24;
-              const active = filters.callNotLoggedHours === hours;
-              return (
-                <button
-                  key={`d-${d}`}
-                  type="button"
-                  className={`rounded-pill border px-2 py-1 text-[11px] font-medium ${
-                    active
-                      ? "border-navy bg-navy text-white"
-                      : "border-border bg-white text-navy"
-                  }`}
+                  className="rounded-pill border border-border px-2 py-1 text-[11px] font-medium text-navy hover:bg-surface"
                   onClick={() => {
-                    setNoCallDaysLocal(active ? "" : String(d));
+                    const days =
+                      noCallDaysLocal.trim() === ""
+                        ? null
+                        : Number(noCallDaysLocal);
                     pushFilters({
-                      callNotLoggedHours: active ? null : hours,
-                      callNotLoggedDays: active ? null : d,
+                      callNotLoggedHours:
+                        days != null && Number.isFinite(days)
+                          ? days * 24
+                          : null,
+                      callNotLoggedDays:
+                        days != null && Number.isFinite(days) ? days : null,
                       page: 1,
                     });
                   }}
                 >
-                  {d}d
+                  Apply
                 </button>
-              );
-            })}
-          </div>
+              </div>
+            ) : null}
 
-          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-            No call (days)
-            <input
-              className="input-field w-20 py-1.5 text-xs"
-              type="number"
-              min={0}
-              step={1}
-              placeholder="N"
-              title="Leads with no call logged for at least N days — Apply Filter"
-              value={noCallDaysLocal}
-              onChange={(e) => setNoCallDaysLocal(e.target.value)}
-            />
-          </label>
-          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-            Unique days ≤
-            <input
-              className="input-field w-20 py-1.5 text-xs"
-              type="number"
-              min={0}
-              placeholder="N"
-              title="Apply Filter to run"
-              value={uniqueDaysLocal}
-              onChange={(e) => setUniqueDaysLocal(e.target.value)}
-            />
-          </label>
-          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-            Unique calls ≤
-            <input
-              className="input-field w-20 py-1.5 text-xs"
-              type="number"
-              min={0}
-              placeholder="N"
-              title="Apply Filter to run"
-              value={uniqueCallsLocal}
-              onChange={(e) => setUniqueCallsLocal(e.target.value)}
-            />
-          </label>
-          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-            Min calls
-            <input
-              className="input-field w-20 py-1.5 text-xs"
-              type="number"
-              min={0}
-              placeholder="N"
-              value={minCallsLocal}
-              onChange={(e) => setMinCallsLocal(e.target.value)}
-            />
-          </label>
-          <label className="inline-flex items-center gap-1.5 text-xs text-muted">
-            Min calls since stage
-            <input
-              className="input-field w-20 py-1.5 text-xs"
-              type="number"
-              min={0}
-              placeholder="N"
-              value={minStageCallsLocal}
-              onChange={(e) => setMinStageCallsLocal(e.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="btn-secondary text-xs"
-            onClick={applyMetricFilters}
-          >
-            Apply filters
-          </button>
+            {showNurtureDnpFilters ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-white/70 px-2.5 py-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+                  Nurturing / DNP
+                </span>
+                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+                  Unique days ≤
+                  <input
+                    className="input-field w-16 py-1 text-xs"
+                    type="number"
+                    min={0}
+                    placeholder="N"
+                    value={uniqueDaysLocal}
+                    onChange={(e) => setUniqueDaysLocal(e.target.value)}
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+                  Unique calls ≤
+                  <input
+                    className="input-field w-16 py-1 text-xs"
+                    type="number"
+                    min={0}
+                    placeholder="N"
+                    value={uniqueCallsLocal}
+                    onChange={(e) => setUniqueCallsLocal(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {showRoundOfferFilters ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/80 bg-white/70 px-2.5 py-1.5">
+                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+                  R1–R3 / Offer · Since stage
+                </span>
+                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+                  Total calls ≥
+                  <input
+                    className="input-field w-16 py-1 text-xs"
+                    type="number"
+                    min={0}
+                    placeholder="N"
+                    value={minStageCallsLocal}
+                    onChange={(e) => setMinStageCallsLocal(e.target.value)}
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1.5 text-xs text-muted">
+                  Avg calls/day ≤
+                  <input
+                    className="input-field w-16 py-1 text-xs"
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    placeholder="N"
+                    value={maxAvgDayLocal}
+                    onChange={(e) => setMaxAvgDayLocal(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            {(showNurtureDnpFilters || showRoundOfferFilters) && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={applyMetricFilters}
+                >
+                  Apply filters
+                </button>
+              </div>
+            )}
+          </div>
 
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -765,17 +849,35 @@ export function LeadsWorkspace({
                   placeholder="Optional / required for rejects"
                 />
               </label>
+              <label className="text-xs text-muted">
+                Student intent
+                <select
+                  className="input-field mt-1 py-1.5 text-xs"
+                  value={bulkIntent === "" ? "" : String(bulkIntent)}
+                  onChange={(e) =>
+                    setBulkIntent(e.target.value ? Number(e.target.value) : "")
+                  }
+                >
+                  <option value="">1–5 required</option>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className="btn-primary text-xs"
-                disabled={pending || !bulkStage}
+                disabled={pending || !bulkStage || bulkIntent === ""}
                 onClick={() =>
                   startTransition(async () => {
-                    if (!bulkStage) return;
+                    if (!bulkStage || bulkIntent === "") return;
                     const res = await bulkUpdateLeadStages({
                       leadIds: Array.from(selectedIds),
                       stage: bulkStage,
                       reason: bulkReason || undefined,
+                      studentIntent: bulkIntent,
                     });
                     if (!res.ok) {
                       setBulkMsg(res.error);
@@ -788,6 +890,7 @@ export function LeadsWorkspace({
                     setSelectedIds(new Set());
                     setBulkStage("");
                     setBulkReason("");
+                    setBulkIntent("");
                     router.refresh();
                   })
                 }
@@ -986,10 +1089,11 @@ export function LeadsWorkspace({
                             )}
                           </td>
                           <td className="px-4 py-3 text-muted">
-                            {l.intent_score != null ? `${l.intent_score}%` : "—"}
-                            {l.counselor_intent_check ? (
-                              <span className="block text-[11px]">{l.counselor_intent_check}</span>
-                            ) : null}
+                            {l.avg_student_intent != null
+                              ? `${Number(l.avg_student_intent).toFixed(1)}/5`
+                              : l.intent_score != null
+                                ? `${l.intent_score}%`
+                                : "—"}
                           </td>
                           <td className="px-4 py-3 text-[11px] text-muted">
                             {!l.cardMetrics?.lastCallAt &&

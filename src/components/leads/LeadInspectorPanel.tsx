@@ -262,11 +262,13 @@ export function LeadInspectorPanel({
             <Row label="Source">{lead.source}</Row>
             <Row label="Course">{lead.course?.name}</Row>
             <Row label="Cohort">{lead.cohort?.name}</Row>
-            <Row label="Convert %">
+            <Row label="Convert">
               {lead.intent_score != null ? `${lead.intent_score}%` : null}
             </Row>
-            <Row label="Intent">
-              {lead.counselor_intent_check}
+            <Row label="Student intent">
+              {lead.avg_student_intent != null
+                ? `${Number(lead.avg_student_intent).toFixed(1)}/5`
+                : null}
             </Row>
             <Row label="Probability">
               {lead.convert_probability

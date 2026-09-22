@@ -61,6 +61,8 @@ export type Lead = {
   source: string | null;
   /** Free-text programme from website (e.g. pgp) when course_id UUID unknown */
   programme?: string | null;
+  /** Mean of lead_stage_scores.intent_score (1–5) */
+  avg_student_intent?: number | null;
   /** Last website hs_session_id from form dual-write */
   website_session_id?: string | null;
   years_experience: number | null;

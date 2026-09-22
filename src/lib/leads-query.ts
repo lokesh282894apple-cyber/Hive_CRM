@@ -35,6 +35,8 @@ export type LeadsFilterParams = {
   minCalls: number | null;
   /** Min calls logged since entering current stage */
   minCallsSinceStage: number | null;
+  /** Max avg calls/day since stage (≤ N) */
+  maxAvgCallsPerDay: number | null;
   /** Inclusive created_at start (YYYY-MM-DD) */
   createdFrom: string | null;
   /** Inclusive created_at end (YYYY-MM-DD) */
@@ -46,7 +48,7 @@ export type ScopePair = { course_id: string; cohort_id: string };
 type Supabase = ReturnType<typeof createClient>;
 
 export const LEAD_LIST_SELECT =
-  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
 
 export function parseLeadsSearchParams(
   sp: Record<string, string | string[] | undefined>,
@@ -102,6 +104,7 @@ export function parseLeadsSearchParams(
     minCallsSinceStage: get("minStageCalls")
       ? Number(get("minStageCalls"))
       : null,
+    maxAvgCallsPerDay: get("avgDay") ? Number(get("avgDay")) : null,
     createdFrom: parseDay(get("from")),
     createdTo: parseDay(get("to")),
   };
@@ -277,6 +280,9 @@ export function filtersToSearchParams(
   if (filters.minCalls !== undefined) setOrDel("minCalls", filters.minCalls);
   if (filters.minCallsSinceStage !== undefined) {
     setOrDel("minStageCalls", filters.minCallsSinceStage);
+  }
+  if (filters.maxAvgCallsPerDay !== undefined) {
+    setOrDel("avgDay", filters.maxAvgCallsPerDay);
   }
   if (filters.createdFrom !== undefined) setOrDel("from", filters.createdFrom);
   if (filters.createdTo !== undefined) setOrDel("to", filters.createdTo);

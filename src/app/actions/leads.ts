@@ -78,7 +78,8 @@ export async function createLead(
 export async function updateLeadStage(
   leadId: string,
   stage: Stage | string,
-  notes?: string
+  notes?: string,
+  opts?: { studentIntent?: number; skipIntentRequirement?: boolean }
 ): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
@@ -105,6 +106,10 @@ export async function updateLeadStage(
 
   if (!lead) return { ok: false, error: "Lead not found" };
 
+  if (lead.stage === stage) {
+    return { ok: true };
+  }
+
   if (user.role !== "admin") {
     const allowedFromDb = funnel.transitions[lead.stage] ?? [];
     const allowedFromConst = STAGE_TRANSITIONS[lead.stage as Stage] ?? [];
@@ -127,6 +132,29 @@ export async function updateLeadStage(
   }
   if (stageRequiresPresetReason(stage) && !isValidRejectionReasonForStage(stage, reason)) {
     return { ok: false, error: "Invalid rejection reason" };
+  }
+
+  const intent = opts?.studentIntent;
+  if (!opts?.skipIntentRequirement) {
+    if (
+      intent == null ||
+      !Number.isInteger(intent) ||
+      intent < 1 ||
+      intent > 5
+    ) {
+      return {
+        ok: false,
+        error: "Student intent (1–5) is required when moving stages",
+      };
+    }
+    const { recordStudentIntentScore } = await import("@/app/actions/scores");
+    const scored = await recordStudentIntentScore({
+      leadId,
+      intentScore: intent,
+      context: `stage_advance:${lead.stage}->${stage}`,
+      notes: reason || null,
+    });
+    if (!scored.ok) return scored;
   }
 
   const rejectKind =

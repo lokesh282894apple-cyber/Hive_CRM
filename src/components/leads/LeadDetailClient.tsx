@@ -132,6 +132,7 @@ export function LeadDetailClient({
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>(lead.stage);
   const [stageReason, setStageReason] = useState(lead.stage_reason ?? "");
+  const [studentIntent, setStudentIntent] = useState<number | "">("");
   const [showAdmissionReject, setShowAdmissionReject] = useState(false);
   const [noShowRound, setNoShowRound] = useState<InterviewRound | null>(null);
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
@@ -282,6 +283,7 @@ export function LeadDetailClient({
   }
 
   function onStageChange() {
+    if (stage === lead.stage) return;
     if (stageRequiresPresetReason(stage) && stage !== lead.stage) {
       setShowAdmissionReject(true);
       return;
@@ -297,15 +299,21 @@ export function LeadDetailClient({
       );
       return;
     }
+    if (studentIntent === "") {
+      setError("Student intent (1–5) is required when moving stages");
+      return;
+    }
     startTransition(async () => {
       const res = await updateLeadStage(
         lead.id,
         stage,
-        stageReason.trim() || undefined
+        stageReason.trim() || undefined,
+        { studentIntent }
       );
       if (!res.ok) setError(res.error);
       else {
         setError(null);
+        setStudentIntent("");
         router.refresh();
       }
     });
@@ -561,7 +569,7 @@ export function LeadDetailClient({
 
       <div className="mb-6 rounded-xl border border-border bg-white px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-          Counselor intent & offer
+          Student intent & offer
         </p>
         <LeadOfferFields lead={lead} />
         {(() => {
@@ -779,6 +787,28 @@ export function LeadDetailClient({
                 <p className="mt-2 text-xs text-muted">
                   Reason: <span className="font-medium text-navy">{lead.stage_reason}</span>
                 </p>
+              ) : null}
+              {stage !== lead.stage &&
+              !stageRequiresPresetReason(stage) ? (
+                <label className="mt-3 block text-xs font-semibold text-muted">
+                  Student intent (1–5, required)
+                  <select
+                    className="input-field mt-1"
+                    value={studentIntent === "" ? "" : String(studentIntent)}
+                    onChange={(e) =>
+                      setStudentIntent(
+                        e.target.value ? Number(e.target.value) : ""
+                      )
+                    }
+                  >
+                    <option value="">—</option>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               ) : null}
               <button
                 type="button"

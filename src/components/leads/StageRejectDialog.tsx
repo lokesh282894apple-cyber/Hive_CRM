@@ -37,6 +37,7 @@ export function StageRejectDialog({
   const [mounted, setMounted] = useState(false);
   const [preset, setPreset] = useState("");
   const [detail, setDetail] = useState("");
+  const [studentIntent, setStudentIntent] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -66,6 +67,7 @@ export function StageRejectDialog({
     if (!open) return;
     setPreset("");
     setDetail("");
+    setStudentIntent("");
     setError(null);
   }, [open, leadId, targetStage]);
 
@@ -153,6 +155,24 @@ export function StageRejectDialog({
 
         {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
 
+        <label className="mt-3 block text-xs font-semibold text-muted">
+          Student intent (1–5, required)
+          <select
+            className="input-field mt-1"
+            value={studentIntent === "" ? "" : String(studentIntent)}
+            onChange={(e) =>
+              setStudentIntent(e.target.value ? Number(e.target.value) : "")
+            }
+          >
+            <option value="">—</option>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
             Cancel
@@ -160,10 +180,19 @@ export function StageRejectDialog({
           <button
             type="button"
             className="btn-primary"
-            disabled={pending || !resolvedReason || resolvedReason.length < 2}
+            disabled={
+              pending ||
+              !resolvedReason ||
+              resolvedReason.length < 2 ||
+              studentIntent === ""
+            }
             onClick={() => {
               if (!resolvedReason || resolvedReason.length < 2) {
                 setError("Pick a reason (and details if needed)");
+                return;
+              }
+              if (studentIntent === "") {
+                setError("Pick student intent 1–5");
                 return;
               }
               if (!isStudent && !isHive) {
@@ -174,7 +203,8 @@ export function StageRejectDialog({
                 const res = await updateLeadStage(
                   leadId,
                   targetStage as Stage,
-                  resolvedReason
+                  resolvedReason,
+                  { studentIntent }
                 );
                 if (!res.ok) {
                   setError(res.error);
