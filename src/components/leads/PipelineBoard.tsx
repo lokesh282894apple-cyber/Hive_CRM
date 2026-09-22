@@ -44,7 +44,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { differenceInDays } from "date-fns";
 import { Layers, LayoutGrid, Phone, Sparkles } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
@@ -227,6 +226,8 @@ function LeadCard({
   cohortLabel,
   disableDrag,
   canWriteApproval,
+  selected,
+  onSelect,
 }: {
   lead: LeadWithCard;
   dragging?: boolean;
@@ -236,6 +237,8 @@ function LeadCard({
   cohortLabel?: string | null;
   disableDrag?: boolean;
   canWriteApproval?: boolean;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
 }) {
   const stale = isStale(lead);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -252,11 +255,23 @@ function LeadCard({
     <article
       ref={setNodeRef}
       style={style}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={() => onSelect?.(lead.id)}
+      onKeyDown={(e) => {
+        if (!onSelect) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(lead.id);
+        }
+      }}
       className={cn(
         "group rounded-xl border bg-white transition",
         compact ? "p-2.5" : "p-3",
         stale ? "border-warning/50 bg-yellow-50/40" : "border-border hover:border-periwinkle/50",
-        (isDragging || dragging) && "opacity-40 ring-2 ring-gold/60"
+        selected && "border-periwinkle ring-2 ring-periwinkle/40",
+        (isDragging || dragging) && "opacity-40 ring-2 ring-gold/60",
+        onSelect && "cursor-pointer"
       )}
     >
       <div className="flex items-start gap-2">
@@ -265,6 +280,7 @@ function LeadCard({
           className="mt-0.5 cursor-grab touch-none text-muted opacity-50 hover:opacity-100 active:cursor-grabbing disabled:cursor-default disabled:opacity-30"
           aria-label="Drag lead"
           disabled={disableDrag}
+          onClick={(e) => e.stopPropagation()}
           {...(disableDrag ? {} : listeners)}
           {...(disableDrag ? {} : attributes)}
         >
@@ -279,12 +295,16 @@ function LeadCard({
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <Link
-              href={`/leads/${lead.id}`}
-              className="truncate text-sm font-semibold text-navy hover:text-periwinkle"
+            <button
+              type="button"
+              className="truncate text-left text-sm font-semibold text-navy hover:text-periwinkle"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect?.(lead.id);
+              }}
             >
               {lead.name}
-            </Link>
+            </button>
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-navy/5 text-[10px] font-bold text-navy">
               {initials(lead.name)}
             </span>
@@ -323,7 +343,10 @@ function LeadCard({
                 <button
                   type="button"
                   className="btn-primary mt-2 px-3 py-1 text-[11px]"
-                  onClick={() => onClaim(lead.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClaim(lead.id);
+                  }}
                 >
                   Claim
                 </button>
@@ -331,11 +354,16 @@ function LeadCard({
                 <p className="mt-2 text-[11px] text-warning">Unassigned</p>
               )}
               <LeadCardMetricsBlock lead={lead} />
-              <LeadCardApprovals
-                lead={lead}
-                canWriteApproval={Boolean(canWriteApproval)}
-              />
-              <LeadOfferFields lead={lead} compact />
+              <div
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <LeadCardApprovals
+                  lead={lead}
+                  canWriteApproval={Boolean(canWriteApproval)}
+                />
+                <LeadOfferFields lead={lead} compact />
+              </div>
             </>
           ) : (
             <p className="mt-1 truncate text-[11px] text-muted">
@@ -359,6 +387,8 @@ function BoardColumn({
   cohortNums,
   disableDrag,
   canWriteApproval,
+  selectedLeadId,
+  onSelectLead,
 }: {
   column: BoardColumnDef;
   leads: LeadWithCard[];
@@ -369,6 +399,8 @@ function BoardColumn({
   cohortNums?: Map<string, string>;
   disableDrag?: boolean;
   canWriteApproval?: boolean;
+  selectedLeadId?: string | null;
+  onSelectLead?: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -456,6 +488,8 @@ function BoardColumn({
             onClaim={onClaim}
             disableDrag={disableDrag}
             canWriteApproval={canWriteApproval}
+            selected={selectedLeadId === lead.id}
+            onSelect={onSelectLead}
             cohortLabel={
               lead.cohort
                 ? cohortNums?.get(lead.cohort.id) ?? lead.cohort.name
@@ -518,12 +552,16 @@ export function PipelineBoard({
   showClaim,
   onClaim,
   cohortNums,
+  selectedLeadId,
+  onSelectLead,
 }: {
   leads: LeadWithCard[];
   isAdmin?: boolean;
   showClaim?: boolean;
   onClaim?: (id: string) => void;
   cohortNums?: Map<string, string>;
+  selectedLeadId?: string | null;
+  onSelectLead?: (id: string) => void;
 }) {
   const [items, setItems] = useState(leads);
   const [density, setDensity] = useState<BoardDensity>("grouped");
@@ -875,6 +913,8 @@ export function PipelineBoard({
                   cohortNums={cohortNums}
                   disableDrag={!dndReady}
                   canWriteApproval={Boolean(isAdmin)}
+                  selectedLeadId={selectedLeadId}
+                  onSelectLead={onSelectLead}
                   onJumpStage={(stage) =>
                     setFocusStage((prev) => (prev === stage ? null : stage))
                   }

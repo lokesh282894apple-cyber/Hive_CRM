@@ -30,9 +30,6 @@ export default async function LeadsPage({
   const basePath = ctx.impersonating
     ? viewAsHref(user.id, "/leads")
     : "/leads";
-  const tasksPath = ctx.impersonating
-    ? viewAsHref(user.id, "/leads/tasks")
-    : "/leads/tasks";
 
   const filters = parseLeadsSearchParams(searchParams, {
     ownership: isAdmin ? "all" : "mine",
@@ -117,14 +114,9 @@ export default async function LeadsPage({
         accent="Leads"
         description="Mine · open pipeline by default. Claim unassigned leads separately — filters hit the server."
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href={tasksPath} className="btn-secondary">
-              My Tasks
-            </Link>
-            <Link href={`${basePath}/new`} className="btn-primary">
-              Add Lead
-            </Link>
-          </div>
+          <Link href={`${basePath}/new`} className="btn-primary">
+            Add Lead
+          </Link>
         }
       />
       <LeadsWorkspace

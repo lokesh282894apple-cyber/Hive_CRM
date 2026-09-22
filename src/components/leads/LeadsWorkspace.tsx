@@ -3,6 +3,7 @@
 import { claimLead, reassignLead } from "@/app/actions/leads";
 import { bulkUpdateLeadStages } from "@/app/actions/bulk-stage";
 import { PipelineBoard, initials, isStale } from "@/components/leads/PipelineBoard";
+import { LeadInspectorPanel } from "@/components/leads/LeadInspectorPanel";
 import { StageBadge } from "@/components/ui/Primitives";
 import {
   LEAD_LIST_TABS,
@@ -78,6 +79,7 @@ export function LeadsWorkspace({
     filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [bulkStage, setBulkStage] = useState<Stage | "">("");
   const [bulkReason, setBulkReason] = useState("");
   const [bulkMsg, setBulkMsg] = useState<string | null>(null);
@@ -329,6 +331,14 @@ export function LeadsWorkspace({
     URL.revokeObjectURL(url);
   }
 
+  const selectedLead = useMemo(
+    () =>
+      selectedLeadId
+        ? metricFilteredLeads.find((l) => l.id === selectedLeadId) ?? null
+        : null,
+    [metricFilteredLeads, selectedLeadId]
+  );
+
   return (
     <div
       className={cn(
@@ -337,6 +347,13 @@ export function LeadsWorkspace({
       )}
       aria-busy={pending}
     >
+      <div className="flex items-start gap-3">
+        <LeadInspectorPanel
+          lead={selectedLead}
+          basePath={basePath}
+          onClose={() => setSelectedLeadId(null)}
+        />
+        <div className="min-w-0 flex-1">
       {/* Ownership + layout */}
       <div className="mb-3 flex flex-col gap-3 rounded-panel border border-border bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -708,6 +725,8 @@ export function LeadsWorkspace({
           isAdmin={isAdmin}
           showClaim={showClaim}
           cohortNums={cohortNums}
+          selectedLeadId={selectedLeadId}
+          onSelectLead={setSelectedLeadId}
           onClaim={(id) =>
             startTransition(async () => {
               await claimLead(id);
@@ -850,12 +869,18 @@ export function LeadsWorkspace({
                       return (
                         <tr
                           key={l.id}
+                          onClick={() => setSelectedLeadId(l.id)}
                           className={cn(
-                            "border-b border-border last:border-0 hover:bg-navy/[0.02]",
-                            stale && "bg-yellow-50/30"
+                            "cursor-pointer border-b border-border last:border-0 hover:bg-navy/[0.02]",
+                            stale && "bg-yellow-50/30",
+                            selectedLeadId === l.id &&
+                              "bg-periwinkle/10 ring-1 ring-inset ring-periwinkle/30"
                           )}
                         >
-                          <td className="px-3 py-3">
+                          <td
+                            className="px-3 py-3"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <input
                               type="checkbox"
                               checked={selectedIds.has(l.id)}
@@ -876,12 +901,13 @@ export function LeadsWorkspace({
                                 {initials(l.name)}
                               </span>
                               <div>
-                                <Link
-                                  href={leadHref}
-                                  className="font-medium text-navy hover:text-periwinkle"
+                                <button
+                                  type="button"
+                                  className="text-left font-medium text-navy hover:text-periwinkle"
+                                  onClick={() => setSelectedLeadId(l.id)}
                                 >
                                   {l.name}
-                                </Link>
+                                </button>
                                 <p className="text-xs text-muted">{l.phone}</p>
                               </div>
                             </div>
@@ -1016,7 +1042,10 @@ export function LeadsWorkspace({
                             </span>
                           </td>
                           {isAdmin || showClaim ? (
-                            <td className="px-4 py-3">
+                            <td
+                              className="px-4 py-3"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               {showClaim ? (
                                 <button
                                   type="button"
@@ -1089,6 +1118,8 @@ export function LeadsWorkspace({
           </div>
         </>
       )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -20,9 +20,26 @@ export type LeadTaskRow = {
 
 function touchTaskPaths(leadId: string) {
   revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads/tasks");
   revalidatePath("/admin/leads");
   revalidatePath("/leads");
+}
+
+export async function listOpenLeadTasks(
+  leadId: string
+): Promise<{ ok: true; tasks: LeadTaskRow[] } | { ok: false; error: string }> {
+  await requireUser(["counselor", "admin"]);
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("lead_tasks")
+    .select(
+      "id, lead_id, title, notes, due_at, status, created_by, completed_at, created_at"
+    )
+    .eq("lead_id", leadId)
+    .eq("status", "open")
+    .order("due_at", { ascending: true })
+    .limit(50);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, tasks: (data as LeadTaskRow[]) ?? [] };
 }
 
 export async function createLeadTask(input: {

@@ -15,7 +15,6 @@ import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
 import { loadOpenTasksForLeads } from "@/lib/leads/open-tasks";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
-import Link from "next/link";
 
 export default async function AdminLeadsPage({
   searchParams,
@@ -116,11 +115,6 @@ export default async function AdminLeadsPage({
         title="All"
         accent="Leads"
         description="Import HubSpot CSV for cutover, then filter by counselor / course / cohort."
-        actions={
-          <Link href="/leads/tasks" className="btn-secondary">
-            Lead Tasks
-          </Link>
-        }
       />
       <HubspotImportClient />
       <LeadsWorkspace

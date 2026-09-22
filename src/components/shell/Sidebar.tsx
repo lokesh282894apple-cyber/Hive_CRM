@@ -41,7 +41,6 @@ type NavItem = {
 const counselorNav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leads", label: "My Leads", icon: ClipboardList },
-  { href: "/leads/tasks", label: "My Tasks", icon: Calendar },
   { href: "/leads/new", label: "Add Lead", icon: UserCircle2 },
   { href: "/attention", label: "Attention", icon: AlertTriangle },
   { href: "/messages", label: "WA Messaging", icon: MessageSquare },
@@ -51,7 +50,6 @@ const adminNav: NavItem[] = [
   { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
   { href: "/admin/monthly", label: "All months", icon: CalendarDays },
   { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
-  { href: "/leads/tasks", label: "Lead Tasks", icon: Calendar },
   { href: "/admin/assign", label: "Bulk Assign", icon: UserPlus },
   { href: "/admin/funnel", label: "Funnel Manager", icon: GitBranch },
   { href: "/admin/panel", label: "Panel", icon: GraduationCap },
@@ -135,9 +133,6 @@ function navItemActive(pathname: string, item: NavItem): boolean {
       pathname === "/leads" ||
       /^\/leads\/[0-9a-f-]{36}/i.test(pathname)
     );
-  }
-  if (item.href === "/leads/tasks") {
-    return pathname === "/leads/tasks" || pathname.startsWith("/leads/tasks/");
   }
   if (item.matchPaths?.length) {
     return item.matchPaths.some(
@@ -249,7 +244,6 @@ export function Sidebar({
                 .filter(
                   (i) =>
                     i.href === "/leads" ||
-                    i.href === "/leads/tasks" ||
                     i.href === "/attention"
                 )
                 .map((item) => {
