@@ -13,6 +13,8 @@ import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/Funne
 import { RejectionFunnelPanel } from "@/components/admin/funnel/RejectionFunnelPanel";
 import { emptyFunnel, fetchRejectionFunnel } from "@/lib/analytics/rejection-funnel";
 import { ConversionTable } from "@/components/admin/funnel/ConversionTable";
+import { ConversionYearChart } from "@/components/admin/funnel/ConversionYearChart";
+import { RoundYearCharts } from "@/components/admin/funnel/RoundYearCharts";
 import { AttributionSplit } from "@/components/admin/funnel/AttributionSplit";
 import { DayWiseGrid } from "@/components/admin/funnel/DayWiseGrid";
 import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
@@ -412,6 +414,18 @@ export default async function AdminAnalyticsPage({
         <div className="mt-4">
           <RejectionFunnelPanel data={rejection} />
         </div>
+        {funnel.byMonth.length > 0 ? (
+          <div className="mt-6 border-t border-border pt-5">
+            <p className="mb-1 text-sm font-semibold text-navy">
+              R1 / R2 / R3 year chart
+            </p>
+            <p className="mb-4 text-xs text-muted">
+              Monthly volumes and rates for the selected range · toggle series
+              below
+            </p>
+            <RoundYearCharts months={funnel.byMonth} />
+          </div>
+        ) : null}
       </Section>
 
       <Section
@@ -419,6 +433,17 @@ export default async function AdminAnalyticsPage({
         subtitle="Booked → offered / converts"
       >
         <ConversionTable data={funnel.conversionPercents} />
+        {funnel.byMonth.length > 0 ? (
+          <div className="mt-6 border-t border-border pt-5">
+            <p className="mb-1 text-sm font-semibold text-navy">
+              Full-year conversion rates
+            </p>
+            <p className="mb-4 text-xs text-muted">
+              Same ratios as the table, month by month
+            </p>
+            <ConversionYearChart months={funnel.byMonth} />
+          </div>
+        ) : null}
       </Section>
 
       <Section

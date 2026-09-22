@@ -100,6 +100,9 @@ export type MonthStripRow = {
   r1OnCalendar: number;
   offered: number;
   won: number;
+  roundFunnel: Record<RoundKey, RoundMetrics>;
+  offerFunnel: OfferMetrics;
+  conversionPercents: ConversionPercents;
 };
 
 export type AdmissionsFunnel = {
@@ -285,6 +288,24 @@ function daysInRange(start: string, end: string): string[] {
   while (cur <= last) {
     out.push(cur.toISOString().slice(0, 10));
     cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+}
+
+/** Inclusive calendar months from start date through end date (YYYY-MM-DD). */
+function monthsInRange(start: string, end: string): string[] {
+  const out: string[] = [];
+  let y = Number(start.slice(0, 4));
+  let m = Number(start.slice(5, 7));
+  const endY = Number(end.slice(0, 4));
+  const endM = Number(end.slice(5, 7));
+  while (y < endY || (y === endY && m <= endM)) {
+    out.push(`${y}-${String(m).padStart(2, "0")}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
   }
   return out;
 }
@@ -781,36 +802,39 @@ export async function fetchAdmissionsFunnel(
   }));
   const weekRollups = buildWeekRollups(dayWise);
 
-  // Month strip: leads *created* in each calendar month (not the year/all-time total).
+  // Month strip: activity per calendar month spanning the selected range.
   const byMonth: MonthStripRow[] = [];
-  {
-    const year = Number((fromOk ?? month).slice(0, 4));
-    for (let mm = 1; mm <= 12; mm++) {
-      const key = `${year}-${String(mm).padStart(2, "0")}`;
-      const b = monthBounds(key);
-      const monthFactsMap = buildLeadFacts(
-        leads,
-        history,
-        bookings,
-        attrMap,
-        b.start,
-        b.endExclusive
-      );
-      const monthAll = Array.from(monthFactsMap.values());
-      const created = createdBetween(monthAll, b.start, b.endExclusive);
-      const activity =
-        attribution === "all" ? monthAll : filterAttr(monthAll, attribution);
-      const rf = roundBundle(activity, "period");
-      const of = computeOffer(activity, "period");
-      byMonth.push({
-        month: key,
-        label: monthLabel(key),
-        leadTotals: leadTotalsOf(created),
-        r1OnCalendar: rf.R1.onCalendar,
-        offered: of.offered,
-        won: of.won,
-      });
-    }
+  for (const key of monthsInRange(periodStart, periodEnd)) {
+    const b = monthBounds(key);
+    const monthFactsMap = buildLeadFacts(
+      leads,
+      history,
+      bookings,
+      attrMap,
+      b.start,
+      b.endExclusive
+    );
+    const monthAll = Array.from(monthFactsMap.values());
+    const created = createdBetween(monthAll, b.start, b.endExclusive);
+    const activity =
+      attribution === "all" ? monthAll : filterAttr(monthAll, attribution);
+    const rf = roundBundle(activity, "period");
+    const of = computeOffer(activity, "period");
+    const createdForConv =
+      attribution === "all"
+        ? created
+        : createdBetween(activity, b.start, b.endExclusive);
+    byMonth.push({
+      month: key,
+      label: monthLabel(key),
+      leadTotals: leadTotalsOf(created),
+      r1OnCalendar: rf.R1.onCalendar,
+      offered: of.offered,
+      won: of.won,
+      roundFunnel: rf,
+      offerFunnel: of,
+      conversionPercents: computeConversions(createdForConv, of),
+    });
   }
 
   const cohorts = base.cohorts.map((c) => ({ id: c.id, name: c.name }));
