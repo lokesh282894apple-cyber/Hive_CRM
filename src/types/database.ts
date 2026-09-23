@@ -33,6 +33,8 @@ export type Course = {
   name: string;
   active: boolean;
   created_at: string;
+  funnel_profile_id?: string | null;
+  application_fee_inr?: number | null;
 };
 
 export type Cohort = {

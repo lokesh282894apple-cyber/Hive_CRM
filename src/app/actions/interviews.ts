@@ -124,11 +124,15 @@ export async function bookInterview(input: {
   }
 
   let previousEventId: string | null = null;
+  let previousPanelistEventId: string | null = null;
+  let previousPanelistEmail: string | null = null;
 
   if (input.rescheduleBookingId) {
     const { data: old } = await supabase
       .from("interview_bookings")
-      .select("availability_slot_id, calendar_event_id")
+      .select(
+        "availability_slot_id, calendar_event_id, panelist_calendar_event_id, interviewer_id"
+      )
       .eq("id", input.rescheduleBookingId)
       .single();
     if (old?.availability_slot_id) {
@@ -138,6 +142,15 @@ export async function bookInterview(input: {
         .eq("id", old.availability_slot_id);
     }
     previousEventId = old?.calendar_event_id ?? null;
+    previousPanelistEventId = old?.panelist_calendar_event_id ?? null;
+    if (old?.interviewer_id) {
+      const { data: prevIv } = await supabase
+        .from("users")
+        .select("email")
+        .eq("id", old.interviewer_id)
+        .maybeSingle();
+      previousPanelistEmail = prevIv?.email ?? null;
+    }
   }
 
   const { data: booking, error } = input.rescheduleBookingId
@@ -154,6 +167,7 @@ export async function bookInterview(input: {
           submitted_at: null,
           meet_link: null,
           calendar_event_id: null,
+          panelist_calendar_event_id: null,
         })
         .eq("id", input.rescheduleBookingId)
         .select("id")
@@ -211,7 +225,11 @@ export async function bookInterview(input: {
   }
 
   if (previousEventId) {
-    await deleteInterviewMeetEvent(previousEventId);
+    await deleteInterviewMeetEvent(
+      previousEventId,
+      previousPanelistEventId,
+      previousPanelistEmail
+    );
   }
 
   if (!isGoogleCalendarConfigured()) {
@@ -240,6 +258,7 @@ export async function bookInterview(input: {
         startDateTime,
         endDateTime,
         attendeeEmails: attendees,
+        panelistCalendarEmail: interviewer.email,
       });
 
       if (meet) {
@@ -249,6 +268,7 @@ export async function bookInterview(input: {
           .update({
             meet_link: meet.meetLink,
             calendar_event_id: meet.eventId,
+            panelist_calendar_event_id: meet.panelistEventId,
           })
           .eq("id", booking.id);
 
@@ -354,10 +374,14 @@ export async function bookInterviewManual(input: {
   ).padStart(2, "0")}`;
 
   let previousEventId: string | null = null;
+  let previousPanelistEventId: string | null = null;
+  let previousPanelistEmail: string | null = null;
   if (input.rescheduleBookingId) {
     const { data: old } = await supabase
       .from("interview_bookings")
-      .select("availability_slot_id, calendar_event_id")
+      .select(
+        "availability_slot_id, calendar_event_id, panelist_calendar_event_id, interviewer_id"
+      )
       .eq("id", input.rescheduleBookingId)
       .single();
     if (old?.availability_slot_id) {
@@ -367,6 +391,15 @@ export async function bookInterviewManual(input: {
         .eq("id", old.availability_slot_id);
     }
     previousEventId = old?.calendar_event_id ?? null;
+    previousPanelistEventId = old?.panelist_calendar_event_id ?? null;
+    if (old?.interviewer_id) {
+      const { data: prevIv } = await supabase
+        .from("users")
+        .select("email")
+        .eq("id", old.interviewer_id)
+        .maybeSingle();
+      previousPanelistEmail = prevIv?.email ?? null;
+    }
   }
 
   const { data: booking, error } = input.rescheduleBookingId
@@ -383,6 +416,7 @@ export async function bookInterviewManual(input: {
           submitted_at: null,
           meet_link: null,
           calendar_event_id: null,
+          panelist_calendar_event_id: null,
         })
         .eq("id", input.rescheduleBookingId)
         .select("id")
@@ -431,7 +465,11 @@ export async function bookInterviewManual(input: {
   }
 
   if (previousEventId) {
-    await deleteInterviewMeetEvent(previousEventId);
+    await deleteInterviewMeetEvent(
+      previousEventId,
+      previousPanelistEventId,
+      previousPanelistEmail
+    );
   }
 
   if (!isGoogleCalendarConfigured()) {
@@ -457,6 +495,7 @@ export async function bookInterviewManual(input: {
         startDateTime: slotDateTime(date, startTime),
         endDateTime: slotDateTime(date, endTime),
         attendeeEmails: attendees,
+        panelistCalendarEmail: interviewer.email,
       });
       if (meet) {
         meetLink = meet.meetLink;
@@ -465,6 +504,7 @@ export async function bookInterviewManual(input: {
           .update({
             meet_link: meet.meetLink,
             calendar_event_id: meet.eventId,
+            panelist_calendar_event_id: meet.panelistEventId,
           })
           .eq("id", booking.id);
       }

@@ -1,4 +1,14 @@
 export type FunnelTone = "green" | "yellow" | "red" | "gray" | "blue";
+export type FunnelEntryMode = "none" | "booking" | "phone_screen";
+export type FunnelPaymentGate = "application_fee" | null;
+
+export type FunnelProfileRow = {
+  id: string;
+  slug: string;
+  name: string;
+  is_default: boolean;
+  active: boolean;
+};
 
 export type FunnelGroupRow = {
   id: string;
@@ -6,6 +16,7 @@ export type FunnelGroupRow = {
   label: string;
   sort_order: number;
   active: boolean;
+  profile_id?: string | null;
 };
 
 export type FunnelStageRow = {
@@ -21,15 +32,21 @@ export type FunnelStageRow = {
   booking_required: boolean;
   show_on_board: boolean;
   active: boolean;
+  profile_id?: string | null;
+  entry_mode?: FunnelEntryMode;
+  payment_gate?: FunnelPaymentGate;
 };
 
 export type FunnelTransitionRow = {
   id: string;
   from_slug: string;
   to_slug: string;
+  profile_id?: string | null;
 };
 
 export type FunnelConfig = {
+  profile: FunnelProfileRow | null;
+  profiles: FunnelProfileRow[];
   groups: FunnelGroupRow[];
   stages: FunnelStageRow[];
   /** slug → label for active stages */
@@ -40,5 +57,8 @@ export type FunnelConfig = {
   closedSlugs: string[];
   preInterviewSlugs: string[];
   bookingRequiredSlugs: string[];
+  phoneScreenSlugs: string[];
   reasonRequiredSlugs: string[];
+  /** stages that require application fee paid before entering (e.g. r2_booked for UG) */
+  applicationFeeGateSlugs: string[];
 };

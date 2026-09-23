@@ -9,12 +9,15 @@ export type InterviewMeetInput = {
   startDateTime: string; // ISO local or offset
   endDateTime: string;
   attendeeEmails: string[];
+  /** Also write a copy onto this panelist's Google calendar when permitted */
+  panelistCalendarEmail?: string | null;
   timeZone?: string;
 };
 
 export type InterviewMeetResult = {
   meetLink: string | null;
   eventId: string;
+  panelistEventId: string | null;
 };
 
 let warnedMissingConfig = false;
@@ -111,27 +114,77 @@ export async function createInterviewMeetEvent(
     throw new Error("Google Calendar did not return an event id");
   }
 
+  const meetLink = extractMeetLink(data);
+  let panelistEventId: string | null = null;
+  const panelistEmail = input.panelistCalendarEmail?.trim().toLowerCase();
+  if (panelistEmail && panelistEmail.includes("@")) {
+    try {
+      const copy = await calendar.events.insert({
+        calendarId: panelistEmail,
+        sendUpdates: "none",
+        requestBody: {
+          summary: input.summary,
+          description: [
+            input.description,
+            meetLink ? `Meet: ${meetLink}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          start: { dateTime: input.startDateTime, timeZone: tz },
+          end: { dateTime: input.endDateTime, timeZone: tz },
+          attendees,
+        },
+      });
+      panelistEventId = copy.data.id ?? null;
+    } catch (err) {
+      // Workspace may not allow writing other users' calendars — shared calendar + invite still works
+      console.warn(
+        "[google-calendar] panelist calendar write skipped:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
   return {
     eventId: data.id,
-    meetLink: extractMeetLink(data),
+    meetLink,
+    panelistEventId,
   };
 }
 
 export async function deleteInterviewMeetEvent(
-  eventId: string | null | undefined
+  eventId: string | null | undefined,
+  panelistEventId?: string | null,
+  panelistCalendarEmail?: string | null
 ): Promise<void> {
-  if (!eventId || eventId.startsWith("stub-")) return;
-  const calendar = getCalendarClient();
-  if (!calendar) return;
+  if (!eventId || eventId.startsWith("stub-")) {
+    // still try panelist cleanup below
+  } else {
+    const calendar = getCalendarClient();
+    if (calendar) {
+      try {
+        await calendar.events.delete({
+          calendarId: calendarId(),
+          eventId,
+          sendUpdates: "all",
+        });
+      } catch (err) {
+        console.warn("[google-calendar] delete failed:", err);
+      }
+    }
+  }
 
-  try {
-    await calendar.events.delete({
-      calendarId: calendarId(),
-      eventId,
-      sendUpdates: "all",
-    });
-  } catch (err) {
-    // Event may already be gone — don't fail the booking flow
-    console.warn("[google-calendar] delete failed:", err);
+  if (panelistEventId && panelistCalendarEmail) {
+    const calendar = getCalendarClient();
+    if (!calendar) return;
+    try {
+      await calendar.events.delete({
+        calendarId: panelistCalendarEmail.trim().toLowerCase(),
+        eventId: panelistEventId,
+        sendUpdates: "none",
+      });
+    } catch (err) {
+      console.warn("[google-calendar] panelist delete failed:", err);
+    }
   }
 }

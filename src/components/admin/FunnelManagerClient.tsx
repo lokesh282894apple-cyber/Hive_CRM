@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  assignCourseFunnelProfile,
   deleteFunnelStage,
   insertFunnelStageBetween,
   reorderFunnelStages,
@@ -58,6 +59,8 @@ type Props = {
     allStages: FunnelStageRow[];
     allGroups: FunnelGroupRow[];
   };
+  profileId?: string | null;
+  courses?: { id: string; name: string; funnel_profile_id: string | null }[];
 };
 
 function StageCardFace({
@@ -176,7 +179,11 @@ function InsertGap({
   );
 }
 
-export function FunnelManagerClient({ initial }: Props) {
+export function FunnelManagerClient({
+  initial,
+  profileId = null,
+  courses = [],
+}: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
@@ -300,6 +307,7 @@ export function FunnelManagerClient({ initial }: Props) {
       const res = await insertFunnelStageBetween({
         label: newLabel.trim(),
         group_key: addingAt.group_key,
+        profile_id: profileId,
         afterId: addingAt.afterId,
         beforeId: addingAt.beforeId,
       });
@@ -310,6 +318,38 @@ export function FunnelManagerClient({ initial }: Props) {
 
   return (
     <div className="space-y-4">
+      {courses.length && profileId ? (
+        <div className="rounded-2xl border border-border bg-white px-4 py-3">
+          <p className="text-xs font-semibold text-navy">Courses on this preset</p>
+          <p className="mt-1 text-[11px] text-muted">
+            Analytics and boards for these courses use this funnel. Assign below.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {courses.map((c) => (
+              <label
+                key={c.id}
+                className="inline-flex items-center gap-1.5 rounded-pill border border-border px-2.5 py-1 text-[11px]"
+              >
+                <input
+                  type="checkbox"
+                  checked={c.funnel_profile_id === profileId}
+                  disabled={pending}
+                  onChange={(e) => {
+                    start(async () => {
+                      const res = await assignCourseFunnelProfile(
+                        c.id,
+                        e.target.checked ? profileId : null
+                      );
+                      flash(res.ok, res.ok ? undefined : res.error);
+                    });
+                  }}
+                />
+                {c.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-sm text-muted">
           Drag stages to reorder. Click a stage to edit. Hover between stages for{" "}
@@ -546,12 +586,17 @@ export function FunnelManagerClient({ initial }: Props) {
                     id: editing.id,
                     label: patch.label,
                     group_key: patch.group_key,
+                    profile_id: profileId,
                     sort_order: editing.sort_order,
                     tone: patch.tone,
                     is_closed: patch.is_closed,
                     is_pre_interview: patch.is_pre_interview,
                     requires_reason: patch.requires_reason,
                     booking_required: patch.booking_required,
+                    entry_mode: patch.booking_required
+                      ? "booking"
+                      : editing.entry_mode ?? "none",
+                    payment_gate: editing.payment_gate ?? null,
                     show_on_board: patch.show_on_board,
                     active: patch.active,
                   });
@@ -559,7 +604,11 @@ export function FunnelManagerClient({ initial }: Props) {
                     flash(false, res.error);
                     return;
                   }
-                  const tRes = await setFunnelTransitions(editing.slug, tos);
+                  const tRes = await setFunnelTransitions(
+                    editing.slug,
+                    tos,
+                    profileId
+                  );
                   setEditingId(null);
                   flash(tRes.ok, tRes.ok ? undefined : tRes.error);
                 });

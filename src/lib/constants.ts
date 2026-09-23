@@ -924,6 +924,7 @@ export const LOAN_STAGE_LABELS: Record<LoanStage, string> = {
 
 export const FEE_LINE_TYPES = [
   "admission_fee",
+  "application_fee",
   "loan",
   "one_shot",
   "installment",

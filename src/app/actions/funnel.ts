@@ -30,12 +30,15 @@ export async function upsertFunnelStage(input: {
   slug?: string;
   label: string;
   group_key: string;
+  profile_id?: string | null;
   sort_order?: number;
   tone?: FunnelTone;
   is_closed?: boolean;
   is_pre_interview?: boolean;
   requires_reason?: boolean;
   booking_required?: boolean;
+  entry_mode?: "none" | "booking" | "phone_screen";
+  payment_gate?: "application_fee" | null;
   show_on_board?: boolean;
   active?: boolean;
 }): Promise<FunnelActionResult> {
@@ -49,6 +52,10 @@ export async function upsertFunnelStage(input: {
     : slugify(input.slug?.trim() || label);
   if (!input.id && !slug) return { ok: false, error: "Slug is required" };
 
+  const entry_mode =
+    input.entry_mode ??
+    (input.booking_required ? "booking" : "none");
+
   if (input.id) {
     const { error } = await supabase
       .from("funnel_stages")
@@ -60,7 +67,9 @@ export async function upsertFunnelStage(input: {
         is_closed: !!input.is_closed,
         is_pre_interview: !!input.is_pre_interview,
         requires_reason: !!input.requires_reason,
-        booking_required: !!input.booking_required,
+        booking_required: !!input.booking_required || entry_mode === "booking",
+        entry_mode,
+        payment_gate: input.payment_gate ?? null,
         show_on_board: input.show_on_board !== false,
         active: input.active !== false,
         updated_at: new Date().toISOString(),
@@ -72,12 +81,15 @@ export async function upsertFunnelStage(input: {
       slug,
       label,
       group_key: input.group_key,
+      profile_id: input.profile_id ?? null,
       sort_order: input.sort_order ?? 0,
       tone: input.tone ?? "gray",
       is_closed: !!input.is_closed,
       is_pre_interview: !!input.is_pre_interview,
       requires_reason: !!input.requires_reason,
-      booking_required: !!input.booking_required,
+      booking_required: !!input.booking_required || entry_mode === "booking",
+      entry_mode,
+      payment_gate: input.payment_gate ?? null,
       show_on_board: input.show_on_board !== false,
       active: input.active !== false,
     });
@@ -154,6 +166,7 @@ export async function deleteFunnelStage(
 export async function insertFunnelStageBetween(input: {
   label: string;
   group_key: string;
+  profile_id?: string | null;
   /** Insert after this stage id; if omitted, append at end of group */
   afterId?: string | null;
   beforeId?: string | null;
@@ -164,11 +177,14 @@ export async function insertFunnelStageBetween(input: {
   if (!label) return { ok: false, error: "Label is required" };
   if (!input.group_key) return { ok: false, error: "Group is required" };
 
-  const { data: siblings } = await supabase
+  let q = supabase
     .from("funnel_stages")
     .select("id, sort_order")
     .eq("group_key", input.group_key)
     .order("sort_order");
+  if (input.profile_id) q = q.eq("profile_id", input.profile_id);
+
+  const { data: siblings } = await q;
 
   const list = siblings ?? [];
   let sort_order = 10;
@@ -179,7 +195,6 @@ export async function insertFunnelStageBetween(input: {
     sort_order =
       next != null ? Math.floor((prev + next) / 2) || prev + 1 : prev + 10;
     if (next != null && sort_order === prev) {
-      // Collision — shift following rows
       for (let i = idx + 1; i < list.length; i++) {
         await supabase
           .from("funnel_stages")
@@ -204,6 +219,7 @@ export async function insertFunnelStageBetween(input: {
   return upsertFunnelStage({
     label,
     group_key: input.group_key,
+    profile_id: input.profile_id,
     sort_order,
     tone: "blue",
     show_on_board: true,
@@ -251,25 +267,44 @@ export async function upsertFunnelGroup(input: {
 
 export async function setFunnelTransitions(
   fromSlug: string,
-  toSlugs: string[]
+  toSlugs: string[],
+  profileId?: string | null
 ): Promise<FunnelActionResult> {
   await requireUser(["admin"]);
   const supabase = createClient();
   const unique = Array.from(new Set(toSlugs.filter(Boolean)));
 
-  const { error: delErr } = await supabase
-    .from("funnel_transitions")
-    .delete()
-    .eq("from_slug", fromSlug);
+  let del = supabase.from("funnel_transitions").delete().eq("from_slug", fromSlug);
+  if (profileId) del = del.eq("profile_id", profileId);
+  const { error: delErr } = await del;
   if (delErr) return { ok: false, error: delErr.message };
 
   if (unique.length) {
     const { error } = await supabase.from("funnel_transitions").insert(
-      unique.map((to_slug) => ({ from_slug: fromSlug, to_slug }))
+      unique.map((to_slug) => ({
+        from_slug: fromSlug,
+        to_slug,
+        profile_id: profileId ?? null,
+      }))
     );
     if (error) return { ok: false, error: error.message };
   }
-
   touch();
+  return { ok: true };
+}
+
+export async function assignCourseFunnelProfile(
+  courseId: string,
+  profileId: string | null
+): Promise<FunnelActionResult> {
+  await requireUser(["admin"]);
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("courses")
+    .update({ funnel_profile_id: profileId })
+    .eq("id", courseId);
+  if (error) return { ok: false, error: error.message };
+  touch();
+  revalidatePath("/admin/settings");
   return { ok: true };
 }

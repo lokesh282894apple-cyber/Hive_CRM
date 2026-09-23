@@ -16,8 +16,114 @@ import { getFunnelConfig } from "@/lib/funnel/config";
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+async function hasApplicationFeePaid(
+  supabase: SupabaseClient,
+  leadId: string
+): Promise<boolean> {
+  const { data: fee } = await supabase
+    .from("fee_records")
+    .select("id")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (!fee) return false;
+  const { data: line } = await supabase
+    .from("installments")
+    .select("id, payment_status, status")
+    .eq("fee_record_id", fee.id)
+    .eq("line_type", "application_fee")
+    .maybeSingle();
+  if (!line) return false;
+  return line.payment_status === "Paid" || line.status === "paid";
+}
+
+async function ensureApplicationFeeLine(
+  supabase: SupabaseClient,
+  leadId: string,
+  markPaid: boolean
+): Promise<void> {
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("course_id")
+    .eq("id", leadId)
+    .maybeSingle();
+  let amount = 5000;
+  if (lead?.course_id) {
+    const { data: course } = await supabase
+      .from("courses")
+      .select("application_fee_inr")
+      .eq("id", lead.course_id)
+      .maybeSingle();
+    if (course?.application_fee_inr != null) {
+      amount = Number(course.application_fee_inr) || amount;
+    }
+  }
+
+  let { data: fee } = await supabase
+    .from("fee_records")
+    .select("id")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (!fee) {
+    const { data: created } = await supabase
+      .from("fee_records")
+      .insert({
+        lead_id: leadId,
+        payment_mode: "one_shot",
+        total_fee: amount,
+        remaining_fee: markPaid ? 0 : amount,
+        deal_stage: "awaiting_method",
+      })
+      .select("id")
+      .single();
+    fee = created;
+  }
+  if (!fee) return;
+
+  const { data: existing } = await supabase
+    .from("installments")
+    .select("id")
+    .eq("fee_record_id", fee.id)
+    .eq("line_type", "application_fee")
+    .maybeSingle();
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (existing) {
+    if (markPaid) {
+      await supabase
+        .from("installments")
+        .update({
+          payment_status: "Paid",
+          status: "paid",
+          amount_realised: amount,
+          amount_hit_bank: amount,
+          paid_at: new Date().toISOString(),
+          date_hit_bank: today,
+        })
+        .eq("id", existing.id);
+    }
+    return;
+  }
+
+  await supabase.from("installments").insert({
+    fee_record_id: fee.id,
+    installment_number: 0,
+    deadline: today,
+    amount_to_realise: amount,
+    amount_realised: markPaid ? amount : 0,
+    status: markPaid ? "paid" : "pending",
+    line_type: "application_fee",
+    mode_of_payment: "ApplicationFee",
+    payment_status: markPaid ? "Paid" : "Yet to Pay",
+    amount_hit_bank: markPaid ? amount : 0,
+    deductions: 0,
+    date_hit_bank: markPaid ? today : null,
+    paid_at: markPaid ? new Date().toISOString() : null,
+  });
+}
 
 function touchLeadPaths(leadId?: string) {
   if (leadId) revalidatePath(`/leads/${leadId}`);
@@ -96,21 +202,6 @@ export async function updateLeadStage(
 ): Promise<ActionResult> {
   const user = await requireUser(["counselor", "admin"]);
   const supabase = createClient();
-  const funnel = await getFunnelConfig();
-  const known = new Set([...STAGES, ...funnel.activeSlugs]);
-  if (!known.has(stage)) return { ok: false, error: "Invalid stage" };
-
-  if (
-    isBookingRequiredStage(stage as Stage) ||
-    funnel.bookingRequiredSlugs.includes(stage)
-  ) {
-    return {
-      ok: false,
-      error:
-        "Date, time, and panelist are required. Book the interview from the board dialog or Book interview page.",
-    };
-  }
-
   const { data: lead } = await supabase
     .from("leads")
     .select("stage, course_id, cohort_id")
@@ -119,8 +210,44 @@ export async function updateLeadStage(
 
   if (!lead) return { ok: false, error: "Lead not found" };
 
+  const funnel = await getFunnelConfig({ courseId: lead.course_id });
+  const known = new Set([...STAGES, ...funnel.activeSlugs]);
+  if (!known.has(stage)) return { ok: false, error: "Invalid stage" };
+
+  const stageRow = funnel.stages.find((s) => s.slug === stage);
+  const isPhoneScreen =
+    stageRow?.entry_mode === "phone_screen" ||
+    funnel.phoneScreenSlugs.includes(stage);
+  const needsBooking =
+    !isPhoneScreen &&
+    (isBookingRequiredStage(stage as Stage) ||
+      funnel.bookingRequiredSlugs.includes(stage) ||
+      stageRow?.entry_mode === "booking");
+
+  if (needsBooking) {
+    return {
+      ok: false,
+      error:
+        "Date, time, and panelist are required. Book the interview from the board dialog or Book interview page.",
+    };
+  }
+
   if (lead.stage === stage) {
     return { ok: true };
+  }
+
+  // UG: cannot enter R2+ until application fee is paid
+  if (funnel.applicationFeeGateSlugs.includes(stage)) {
+    const paid =
+      lead.stage === "application_fee_paid" ||
+      (await hasApplicationFeePaid(supabase, leadId));
+    if (!paid) {
+      return {
+        ok: false,
+        error:
+          "Application fee must be marked paid before moving to R2. Move to Application Fee Paid first (Payments).",
+      };
+    }
   }
 
   if (stage === "closed_paid") {
@@ -248,6 +375,21 @@ export async function updateLeadStage(
       await ensureConvertedFeeScaffold(leadId);
     } catch (err) {
       console.error("[ensureConvertedFeeScaffold]", err);
+    }
+  }
+
+  if (stage === "application_fee_due") {
+    try {
+      await ensureApplicationFeeLine(supabase, leadId, false);
+    } catch (err) {
+      console.error("[ensureApplicationFeeLine]", err);
+    }
+  }
+  if (stage === "application_fee_paid") {
+    try {
+      await ensureApplicationFeeLine(supabase, leadId, true);
+    } catch (err) {
+      console.error("[ensureApplicationFeeLine paid]", err);
     }
   }
 

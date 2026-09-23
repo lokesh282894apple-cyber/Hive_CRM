@@ -24,7 +24,7 @@ export function MarketingSubNav({ section }: { section: MarketingSection }) {
           <Link
             key={tab.href}
             href={tab.href}
-            prefetch={false}
+            prefetch
             className={cn(
               "rounded-lg px-3 py-1.5 text-sm font-medium",
               active

@@ -168,6 +168,7 @@ export function FeeLoanTrackerClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [quickSheetId, setQuickSheetId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [loanView, setLoanView] = useState<LoanView>("board");
   const [lineStatus, setLineStatus] = useState<"" | FeePaymentStatus>("");
@@ -440,7 +441,13 @@ export function FeeLoanTrackerClient({
                     <Fragment key={s.fee.id}>
                       <tr className="border-b border-border">
                         <td className="px-3 py-2 font-medium text-navy">
-                          {s.lead.name}
+                          <button
+                            type="button"
+                            className="text-left font-medium text-navy hover:text-periwinkle hover:underline"
+                            onClick={() => setQuickSheetId(s.fee.id)}
+                          >
+                            {s.lead.name}
+                          </button>
                           <p className="text-[11px] text-muted">
                             {s.lead.course_name ?? "—"} · {s.lead.cohort_name ?? "—"}
                           </p>
@@ -570,6 +577,26 @@ export function FeeLoanTrackerClient({
           }}
         />
       ) : null}
+
+      {quickSheetId ? (
+        <FeeQuickSheet
+          student={students.find((s) => s.fee.id === quickSheetId) ?? null}
+          pending={pending}
+          onClose={() => setQuickSheetId(null)}
+          onSave={(fn) => {
+            setMsg(null);
+            if (demo) {
+              setMsg("Demo data is read-only — edits are not saved.");
+              return;
+            }
+            startTransition(async () => {
+              const res = await fn();
+              if (!res.ok) setMsg(res.error);
+              else router.refresh();
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -594,6 +621,207 @@ function Stat({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function FeeQuickSheet({
+  student,
+  pending,
+  onClose,
+  onSave,
+}: {
+  student: FeeTrackerStudent | null;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => void;
+}) {
+  if (!student) return null;
+  const s = student;
+  const bal = computeFeeBalance(s.fee, s.lines);
+  const booked =
+    Number(s.fee.gross_fee_with_gst) ||
+    Number(s.fee.total_fee) ||
+    bal.owed;
+  const received = bal.paid;
+  const left = bal.remaining;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-navy/30" onClick={onClose}>
+      <aside
+        className="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-border bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-border px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-navy">{s.lead.name}</p>
+            <p className="text-[11px] text-muted">
+              {s.lead.course_name ?? "—"} · {s.lead.cohort_name ?? "—"}
+            </p>
+          </div>
+          <button type="button" className="text-sm text-muted hover:text-navy" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="space-y-4 px-4 py-4">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-navy/5 px-2 py-2">
+              <p className="text-[10px] uppercase text-muted">Booked</p>
+              <p className="text-sm font-semibold tabular-nums text-navy">
+                {formatCurrency(booked)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-navy/5 px-2 py-2">
+              <p className="text-[10px] uppercase text-muted">Received</p>
+              <p className="text-sm font-semibold tabular-nums text-navy">
+                {formatCurrency(received)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-navy/5 px-2 py-2">
+              <p className="text-[10px] uppercase text-muted">Left</p>
+              <p className="text-sm font-semibold tabular-nums text-navy">
+                {formatCurrency(left)}
+              </p>
+            </div>
+          </div>
+
+          <label className="block text-xs">
+            Program comments
+            <textarea
+              className="input-field mt-1 w-full text-sm"
+              rows={3}
+              defaultValue={s.fee.nikhil_remark ?? ""}
+              id={`qs-remark-${s.fee.id}`}
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-xs">
+              Payment mode
+              <select
+                className="input-field mt-1 w-full py-1.5 text-sm"
+                defaultValue={s.fee.payment_mode}
+                id={`qs-mode-${s.fee.id}`}
+              >
+                {(Object.keys(PAYMENT_MODE_LABELS) as PaymentMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_MODE_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs">
+              Payment deadline
+              <input
+                type="date"
+                className="input-field mt-1 w-full py-1.5 text-sm"
+                defaultValue={
+                  (s.fee.active_deadline || s.fee.response_deadline || "").slice(0, 10)
+                }
+                id={`qs-deadline-${s.fee.id}`}
+              />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className="btn-primary w-full text-sm"
+            disabled={pending}
+            onClick={() => {
+              const remark = (
+                document.getElementById(`qs-remark-${s.fee.id}`) as HTMLTextAreaElement
+              )?.value;
+              const mode = (
+                document.getElementById(`qs-mode-${s.fee.id}`) as HTMLSelectElement
+              )?.value as PaymentMode;
+              const deadline = (
+                document.getElementById(`qs-deadline-${s.fee.id}`) as HTMLInputElement
+              )?.value;
+              onSave(() =>
+                updateFeeTrackerStudent({
+                  feeId: s.fee.id,
+                  nikhil_remark: remark || null,
+                  payment_mode: mode,
+                  active_deadline: deadline || null,
+                })
+              );
+            }}
+          >
+            Save
+          </button>
+
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+              Installment / fee lines
+            </p>
+            <ul className="mt-2 space-y-2">
+              {s.lines.map((line) => {
+                const st = feeLineUiStatus(line);
+                return (
+                  <li
+                    key={line.id}
+                    className="rounded-xl border border-border px-3 py-2 text-xs"
+                  >
+                    <div className="flex justify-between gap-2">
+                      <span className="font-medium text-navy">
+                        {line.line_type ?? "line"} #{line.installment_number}
+                      </span>
+                      <StatusBadge tone={feeLineStatusTone(st)} label={st} />
+                    </div>
+                    <p className="mt-1 text-muted">
+                      {formatCurrency(line.amount_to_realise)} · due{" "}
+                      {formatDate(line.deadline)}
+                    </p>
+                  </li>
+                );
+              })}
+              {!s.lines.length ? (
+                <p className="text-xs text-muted">No payment lines yet.</p>
+              ) : null}
+            </ul>
+          </div>
+
+          {s.loan ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-muted">
+                Loan deadlines
+              </p>
+              <dl className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted">Stage</dt>
+                  <dd className="font-medium text-navy">
+                    {LOAN_STAGE_LABELS[normalizeLoanStage(s.loan.stage)]}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted">Doc submission</dt>
+                  <dd>{formatDate(s.loan.doc_submission_deadline) || "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted">Loan complete</dt>
+                  <dd>{formatDate(s.loan.loan_completion_deadline) || "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted">15d fee</dt>
+                  <dd>{formatDate(s.loan.remaining_fee_15d_deadline) || "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted">Disbursement</dt>
+                  <dd>{formatDate(s.loan.disbursement_date) || "—"}</dd>
+                </div>
+              </dl>
+            </div>
+          ) : null}
+
+          <a
+            href={`/leads/${s.lead.id}/fees`}
+            className="block text-center text-sm font-semibold text-periwinkle hover:underline"
+          >
+            Open full fees page →
+          </a>
+        </div>
+      </aside>
     </div>
   );
 }

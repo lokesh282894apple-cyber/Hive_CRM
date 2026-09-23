@@ -65,6 +65,11 @@ export const getAdmissionsBase = cache(
     const db = admissionsAggClient();
     const filtered = Boolean(counselorId || courseId || cohortId);
 
+    // Bound history/booking scans to 18 months — full counts within window via pagination (no silent 1000 cap)
+    const historySince = new Date();
+    historySince.setUTCMonth(historySince.getUTCMonth() - 18);
+    const historySinceIso = historySince.toISOString();
+
     const [leadsFetched, history, bookings, attrs, coursesRes, counselorsRes, cohortsRes, scopeRes] =
       await Promise.all([
         fetchAllPages<BaseLead>((from, to) => {
@@ -86,6 +91,7 @@ export const getAdmissionsBase = cache(
             db
               .from("stage_history")
               .select("lead_id, to_stage, changed_at")
+              .gte("changed_at", historySinceIso)
               .order("changed_at", { ascending: false })
               .range(from, to),
           "stage_history"
@@ -97,16 +103,20 @@ export const getAdmissionsBase = cache(
               .select(
                 "id, lead_id, round, scheduled_at, outcome, interviewer_id, submitted_at, created_at, meet_link"
               )
+              .gte("scheduled_at", historySinceIso)
               .order("scheduled_at", { ascending: false })
               .range(from, to),
           "interview_bookings"
         ),
         fetchAllPages<BaseAttr>(
-          (from, to) =>
-            db
+          (from, to) => {
+            let q = db
               .from("lead_attribution")
               .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
-              .range(from, to),
+              .order("lead_id", { ascending: true })
+              .range(from, to);
+            return q;
+          },
           "lead_attribution"
         ),
         db.from("courses").select("id, name").eq("active", true),
