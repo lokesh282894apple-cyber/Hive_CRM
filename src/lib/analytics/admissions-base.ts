@@ -110,7 +110,7 @@ export const getAdmissionsBase = cache(
         ),
         fetchAllPages<BaseAttr>(
           (from, to) => {
-            let q = db
+            const q = db
               .from("lead_attribution")
               .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
               .order("lead_id", { ascending: true })
