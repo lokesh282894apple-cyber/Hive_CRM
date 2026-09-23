@@ -160,26 +160,27 @@ export default async function AdminAnalyticsPage({
   // (from/to = one month) still shows Jan–Dec lines.
   const chartYear = yearBounds(dateRange.year);
 
-  const funnel = await fetchAdmissionsFunnel(supabase, {
-    month: funnelMonth,
-    fromDate,
-    toDate,
-    chartFromDate: chartYear.from,
-    chartToDate: chartYear.to,
-    mode,
-    attribution,
-    courseId,
-    cohortId,
-    counselorId,
-  });
-
-  const rejection = await fetchRejectionFunnel(supabase, {
-    sinceIso: `${fromDate}T00:00:00.000Z`,
-    untilExclusiveIso: `${toDate}T23:59:59.999Z`,
-  }).catch((err) => {
-    console.error("[fetchRejectionFunnel]", err);
-    return emptyFunnel(true);
-  });
+  const [funnel, rejection] = await Promise.all([
+    fetchAdmissionsFunnel(supabase, {
+      month: funnelMonth,
+      fromDate,
+      toDate,
+      chartFromDate: chartYear.from,
+      chartToDate: chartYear.to,
+      mode,
+      attribution,
+      courseId,
+      cohortId,
+      counselorId,
+    }),
+    fetchRejectionFunnel(supabase, {
+      sinceIso: `${fromDate}T00:00:00.000Z`,
+      untilExclusiveIso: `${toDate}T23:59:59.999Z`,
+    }).catch((err) => {
+      console.error("[fetchRejectionFunnel]", err);
+      return emptyFunnel(true);
+    }),
+  ]);
 
   const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
   const cohorts = allCohorts.filter((c) =>

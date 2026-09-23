@@ -139,7 +139,15 @@ export async function fetchAdmissionsAnalytics(
   weekAhead.setDate(weekAhead.getDate() + 7);
 
   const db = admissionsAggClient();
-  const base = await getAdmissionsBase(counselorId, courseId, cohortId);
+  // Align book scan with analytics range (extra 30d buffer for stage context)
+  const baseSince = new Date(sinceIso);
+  baseSince.setUTCDate(baseSince.getUTCDate() - 30);
+  const base = await getAdmissionsBase(
+    counselorId,
+    courseId,
+    cohortId,
+    baseSince.toISOString()
+  );
   const all = base.leads;
   const leadIds = all.map((l) => l.id);
   const filtered = base.filtered;

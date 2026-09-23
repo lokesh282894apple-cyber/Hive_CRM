@@ -47,30 +47,68 @@ export type AdmissionsBase = {
   campaignTypeById: Map<string, string>;
   courses: { id: string; name: string }[];
   counselors: { id: string; name: string }[];
-  cohorts: { id: string; name: string; course_id: string; start_date: string | null; active: boolean }[];
+  cohorts: {
+    id: string;
+    name: string;
+    course_id: string;
+    start_date: string | null;
+    active: boolean;
+  }[];
   leadIdSet: Set<string>;
   filtered: boolean;
 };
 
+const LEAD_ID_CHUNK = 200;
+const ID_FETCH_CONCURRENCY = 4;
+
+function defaultSinceIso(): string {
+  const d = new Date();
+  d.setUTCMonth(d.getUTCMonth() - 14);
+  return d.toISOString();
+}
+
+/** Run async work over id chunks with bounded concurrency. */
+async function mapIdChunks<T>(
+  ids: string[],
+  fn: (chunk: string[]) => Promise<T[]>,
+  chunkSize = LEAD_ID_CHUNK,
+  concurrency = ID_FETCH_CONCURRENCY
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    chunks.push(ids.slice(i, i + chunkSize));
+  }
+  const out: T[] = [];
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const batch = chunks.slice(i, i + concurrency);
+    const parts = await Promise.all(batch.map(fn));
+    for (const p of parts) out.push(...p);
+  }
+  return out;
+}
+
 /**
  * One shared snapshot per request (React cache) for founder + funnel
  * so /admin/analytics and /admin/dashboard don't double-scan the book.
+ *
+ * `sinceIso` bounds history/bookings and prefers leads touched/created in-window
+ * (full counts via pagination — never silently capped at 1000).
  */
 export const getAdmissionsBase = cache(
   async (
     counselorId: string | null,
     courseId: string | null,
-    cohortId: string | null
+    cohortId: string | null,
+    sinceIso?: string | null
   ): Promise<AdmissionsBase> => {
     const db = admissionsAggClient();
     const filtered = Boolean(counselorId || courseId || cohortId);
+    const since = sinceIso && !Number.isNaN(Date.parse(sinceIso))
+      ? sinceIso
+      : defaultSinceIso();
 
-    // Bound history/booking scans to 18 months — full counts within window via pagination (no silent 1000 cap)
-    const historySince = new Date();
-    historySince.setUTCMonth(historySince.getUTCMonth() - 18);
-    const historySinceIso = historySince.toISOString();
-
-    const [leadsFetched, history, bookings, attrs, coursesRes, counselorsRes, cohortsRes, scopeRes] =
+    const [leadsFetched, coursesRes, counselorsRes, cohortsRes, scopeRes] =
       await Promise.all([
         fetchAllPages<BaseLead>((from, to) => {
           let q = db
@@ -81,46 +119,20 @@ export const getAdmissionsBase = cache(
           if (counselorId) q = q.eq("lead_allocated_to", counselorId);
           if (courseId) q = q.eq("course_id", courseId);
           if (cohortId) q = q.eq("cohort_id", cohortId);
+          // Prefer in-window leads (created or stage-touched). Open pipeline
+          // untouched for years is rare; period funnel uses created_at / history.
+          q = q.or(`created_at.gte."${since}",updated_at.gte."${since}"`);
           return q
             .order("created_at", { ascending: false })
             .order("id", { ascending: true })
             .range(from, to);
         }, "leads"),
-        fetchAllPages<BaseHistory>(
-          (from, to) =>
-            db
-              .from("stage_history")
-              .select("lead_id, to_stage, changed_at")
-              .gte("changed_at", historySinceIso)
-              .order("changed_at", { ascending: false })
-              .range(from, to),
-          "stage_history"
-        ),
-        fetchAllPages<BaseBooking>(
-          (from, to) =>
-            db
-              .from("interview_bookings")
-              .select(
-                "id, lead_id, round, scheduled_at, outcome, interviewer_id, submitted_at, created_at, meet_link"
-              )
-              .gte("scheduled_at", historySinceIso)
-              .order("scheduled_at", { ascending: false })
-              .range(from, to),
-          "interview_bookings"
-        ),
-        fetchAllPages<BaseAttr>(
-          (from, to) => {
-            const q = db
-              .from("lead_attribution")
-              .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
-              .order("lead_id", { ascending: true })
-              .range(from, to);
-            return q;
-          },
-          "lead_attribution"
-        ),
         db.from("courses").select("id, name").eq("active", true),
-        db.from("users").select("id, name").eq("role", "counselor").eq("active", true),
+        db
+          .from("users")
+          .select("id, name")
+          .eq("role", "counselor")
+          .eq("active", true),
         db
           .from("cohorts")
           .select("id, name, course_id, start_date, active")
@@ -134,7 +146,6 @@ export const getAdmissionsBase = cache(
       ]);
 
     let leads = leadsFetched;
-    // Align counselor dashboard "Open leads" with /leads Kanban scope
     if (counselorId) {
       const cohortIds = new Set((scopeRes.data ?? []).map((s) => s.cohort_id));
       if (cohortIds.size === 0) {
@@ -143,21 +154,95 @@ export const getAdmissionsBase = cache(
         leads = leads.filter((l) => !l.cohort_id || cohortIds.has(l.cohort_id));
       }
     }
-    const leadIdSet = new Set(leads.map((l) => l.id));
+    const leadIds = leads.map((l) => l.id);
+    const leadIdSet = new Set(leadIds);
 
-    const historyF = filtered
-      ? history.filter((h) => leadIdSet.has(h.lead_id))
-      : history;
-    const bookingsF = filtered
-      ? bookings.filter((b) => leadIdSet.has(b.lead_id))
-      : bookings;
-    const attrsF = filtered
-      ? attrs.filter((a) => leadIdSet.has(a.lead_id))
-      : attrs;
+    // Prefer lead-id chunks when the set is small (course/cohort filters).
+    // For large unfiltered sets, one date-scoped paginated scan is fewer round-trips.
+    const useIdChunks = filtered || leadIds.length <= 2500;
+
+    const [historyRaw, bookingsRaw, attrs] = await Promise.all([
+      leadIds.length === 0
+        ? Promise.resolve([] as BaseHistory[])
+        : useIdChunks
+          ? mapIdChunks<BaseHistory>(leadIds, async (chunk) =>
+              fetchAllPages<BaseHistory>(
+                (from, to) =>
+                  db
+                    .from("stage_history")
+                    .select("lead_id, to_stage, changed_at")
+                    .in("lead_id", chunk)
+                    .gte("changed_at", since)
+                    .order("changed_at", { ascending: false })
+                    .range(from, to),
+                "stage_history"
+              )
+            )
+          : fetchAllPages<BaseHistory>(
+              (from, to) =>
+                db
+                  .from("stage_history")
+                  .select("lead_id, to_stage, changed_at")
+                  .gte("changed_at", since)
+                  .order("changed_at", { ascending: false })
+                  .range(from, to),
+              "stage_history"
+            ),
+      leadIds.length === 0
+        ? Promise.resolve([] as BaseBooking[])
+        : useIdChunks
+          ? mapIdChunks<BaseBooking>(leadIds, async (chunk) =>
+              fetchAllPages<BaseBooking>(
+                (from, to) =>
+                  db
+                    .from("interview_bookings")
+                    .select(
+                      "id, lead_id, round, scheduled_at, outcome, interviewer_id, submitted_at, created_at, meet_link"
+                    )
+                    .in("lead_id", chunk)
+                    .gte("scheduled_at", since)
+                    .order("scheduled_at", { ascending: false })
+                    .range(from, to),
+                "interview_bookings"
+              )
+            )
+          : fetchAllPages<BaseBooking>(
+              (from, to) =>
+                db
+                  .from("interview_bookings")
+                  .select(
+                    "id, lead_id, round, scheduled_at, outcome, interviewer_id, submitted_at, created_at, meet_link"
+                  )
+                  .gte("scheduled_at", since)
+                  .order("scheduled_at", { ascending: false })
+                  .range(from, to),
+              "interview_bookings"
+            ),
+      // Never pull full attribution table — only rows for leads we kept
+      mapIdChunks<BaseAttr>(leadIds, async (chunk) =>
+        fetchAllPages<BaseAttr>(
+          (from, to) =>
+            db
+              .from("lead_attribution")
+              .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
+              .in("lead_id", chunk)
+              .order("lead_id", { ascending: true })
+              .range(from, to),
+          "lead_attribution"
+        )
+      ),
+    ]);
+
+    const history = useIdChunks
+      ? historyRaw
+      : historyRaw.filter((h) => leadIdSet.has(h.lead_id));
+    const bookings = useIdChunks
+      ? bookingsRaw
+      : bookingsRaw.filter((b) => leadIdSet.has(b.lead_id));
 
     const campaignIds = Array.from(
       new Set(
-        attrsF
+        attrs
           .flatMap((a) => [a.first_touch_campaign_id, a.last_touch_campaign_id])
           .filter((id): id is string => Boolean(id))
       )
@@ -165,20 +250,27 @@ export const getAdmissionsBase = cache(
 
     let campaignTypeById = new Map<string, string>();
     if (campaignIds.length) {
-      const { data: camps } = await db
-        .from("campaigns")
-        .select("id, source_type")
-        .in("id", campaignIds);
+      const campRows = await mapIdChunks<{ id: string; source_type: string }>(
+        campaignIds,
+        async (chunk) => {
+          const { data } = await db
+            .from("campaigns")
+            .select("id, source_type")
+            .in("id", chunk);
+          return (data ?? []) as { id: string; source_type: string }[];
+        },
+        100
+      );
       campaignTypeById = new Map(
-        (camps ?? []).map((c) => [c.id as string, c.source_type as string])
+        campRows.map((c) => [c.id, c.source_type])
       );
     }
 
     return {
       leads,
-      history: historyF,
-      bookings: bookingsF,
-      attrs: attrsF,
+      history,
+      bookings,
+      attrs,
       campaignTypeById,
       courses: (coursesRes.data ?? []) as { id: string; name: string }[],
       counselors: (counselorsRes.data ?? []) as { id: string; name: string }[],

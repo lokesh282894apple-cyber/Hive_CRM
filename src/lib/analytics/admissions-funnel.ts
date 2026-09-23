@@ -808,7 +808,19 @@ export async function fetchAdmissionsFunnel(
     endExclusive = b.endExclusive;
   }
 
-  const base = await getAdmissionsBase(counselorId, courseId, cohortId);
+  // Bound the shared scan to the chart window (year) — not a fixed 18-month full book.
+  const chartFromForBound =
+    opts?.chartFromDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.chartFromDate)
+      ? opts.chartFromDate
+      : periodStart;
+  const sinceIso = `${chartFromForBound}T00:00:00.000Z`;
+
+  const base = await getAdmissionsBase(
+    counselorId,
+    courseId,
+    cohortId,
+    sinceIso
+  );
   // supabase retained for API compat — aggregates use service-role base
   void supabase;
 

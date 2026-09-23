@@ -181,6 +181,13 @@ export async function fetchMarketingOverview(
       db.from("channels").select("id, name"),
     ]);
 
+  if (rpcError) {
+    console.error(
+      "[marketing_overview] RPC failed — falling back to row scan:",
+      rpcError.message
+    );
+  }
+
   if (!rpcError && rpcData && typeof rpcData === "object") {
     const payload = rpcData as {
       kpis: {
@@ -454,6 +461,13 @@ export async function fetchTopPages(
     p_since: since,
     p_limit: limit,
   });
+
+  if (rpcError) {
+    console.error(
+      "[marketing_top_pages] RPC failed — falling back to event scan:",
+      rpcError.message
+    );
+  }
 
   if (!rpcError && Array.isArray(rpcRows)) {
     return (rpcRows as PageRow[]).map((r) => ({

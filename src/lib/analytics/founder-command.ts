@@ -227,7 +227,14 @@ export async function fetchFounderCommand(
       courseId,
       cohortId,
     }),
-    getAdmissionsBase(counselorId, courseId, cohortId),
+    getAdmissionsBase(
+      counselorId,
+      courseId,
+      cohortId,
+      opts?.fromDate
+        ? `${opts.fromDate}T00:00:00.000Z`
+        : undefined
+    ),
     Promise.all([
       db.from("app_settings").select("key, value").in("key", [
         "enrollment_targets",
