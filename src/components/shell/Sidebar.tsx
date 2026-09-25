@@ -41,6 +41,7 @@ type NavItem = {
 const counselorNav: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/leads", label: "My Leads", icon: ClipboardList },
+  { href: "/leads/tasks", label: "My Tasks", icon: CalendarDays },
   { href: "/leads/new", label: "Add Lead", icon: UserCircle2 },
   { href: "/attention", label: "Attention", icon: AlertTriangle },
   { href: "/messages", label: "WA Messaging", icon: MessageSquare },

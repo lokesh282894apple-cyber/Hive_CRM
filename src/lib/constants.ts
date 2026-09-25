@@ -22,16 +22,19 @@ export const STAGES = [
   "r1_reject",
   "r1_no_show",
   "r1_reschedule",
+  "r1_student_reject",
   "r2_booked",
   "r2_tbb",
   "r2_reject",
   "r2_no_show",
   "r2_reschedule",
+  "r2_student_reject",
   "r3_booked",
   "r3_tbb",
   "r3_reject",
   "r3_no_show",
   "r3_reschedule",
+  "r3_student_reject",
   "yet_to_offer",
   "offered",
   "offered_accepted",
@@ -152,6 +155,9 @@ export function stageRequiresReason(stage: string): boolean {
     (STAGES_REQUIRING_REASON as readonly string[]).includes(stage) ||
     stage === "admission_team_rejected" ||
     stage === "student_reject" ||
+    stage === "r1_student_reject" ||
+    stage === "r2_student_reject" ||
+    stage === "r3_student_reject" ||
     stage === "r1_reject" ||
     stage === "r2_reject" ||
     stage === "r3_reject"
@@ -167,6 +173,9 @@ export function stageRequiresPresetReason(stage: string): boolean {
   return (
     stage === "admission_team_rejected" ||
     stage === "student_reject" ||
+    stage === "r1_student_reject" ||
+    stage === "r2_student_reject" ||
+    stage === "r3_student_reject" ||
     stage === "r1_reject" ||
     stage === "r2_reject" ||
     stage === "r3_reject"
@@ -190,7 +199,14 @@ export function isValidRejectionReasonForStage(
   stage: string,
   reason: string
 ): boolean {
-  if (stage === "student_reject") return isValidStudentRejectionReason(reason);
+  if (
+    stage === "student_reject" ||
+    stage === "r1_student_reject" ||
+    stage === "r2_student_reject" ||
+    stage === "r3_student_reject"
+  ) {
+    return isValidStudentRejectionReason(reason);
+  }
   if (
     stage === "admission_team_rejected" ||
     stage === "r1_reject" ||
@@ -217,20 +233,23 @@ export const STAGE_LABELS: Record<Stage, string> = {
   r1_reject: "R1 Reject",
   r1_no_show: "R1 No Show",
   r1_reschedule: "R1 Reschedule",
+  r1_student_reject: "R1 Student Reject",
   r2_booked: "R2 Booked",
   r2_tbb: "R2 TBB",
   r2_reject: "R2 Reject",
   r2_no_show: "R2 No Show",
   r2_reschedule: "R2 Reschedule",
+  r2_student_reject: "R2 Student Reject",
   r3_booked: "R3 Booked",
   r3_tbb: "R3 TBB",
   r3_reject: "R3 Reject",
   r3_no_show: "R3 No Show",
   r3_reschedule: "R3 Reschedule",
+  r3_student_reject: "R3 Student Reject",
   yet_to_offer: "Yet to Offer",
   offered: "Offered",
   offered_accepted: "Offered – Accepted",
-  student_reject: "Student Reject",
+  student_reject: "Offer Student Reject",
   closed_paid: "Closed – Paid",
   closed_deferred: "Closed – Deferred",
   closed_refund: "Closed – Refund",
@@ -320,44 +339,51 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "r1_reject",
     "r1_no_show",
     "r1_reschedule",
+    "r1_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
-  r1_confirmed: ["r2_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r1_confirmed: ["r2_booked", "r1_student_reject", "student_reject", "closed_deferred", "closed_lost"],
   r1_reject: ["student_reject", "closed_deferred", "closed_lost"],
   r1_no_show: [
     "r1_booked",
     "r1_reschedule",
+    "r1_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
-  r1_reschedule: ["r1_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r1_reschedule: ["r1_booked", "r1_student_reject", "student_reject", "closed_deferred", "closed_lost"],
+  r1_student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   r2_booked: [
     "r2_tbb",
     "r2_reject",
     "r2_no_show",
     "r2_reschedule",
+    "r2_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
-  r2_tbb: ["r3_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r2_tbb: ["r3_booked", "r2_student_reject", "student_reject", "closed_deferred", "closed_lost"],
   r2_reject: ["student_reject", "closed_deferred", "closed_lost"],
   r2_no_show: [
     "r2_booked",
     "r2_reschedule",
+    "r2_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
-  r2_reschedule: ["r2_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r2_reschedule: ["r2_booked", "r2_student_reject", "student_reject", "closed_deferred", "closed_lost"],
+  r2_student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   r3_booked: [
     "r3_tbb",
     "r3_reject",
     "r3_no_show",
     "r3_reschedule",
+    "r3_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
@@ -365,6 +391,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   r3_tbb: [
     "yet_to_offer",
     "r3_reject",
+    "r3_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
@@ -373,11 +400,13 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   r3_no_show: [
     "r3_booked",
     "r3_reschedule",
+    "r3_student_reject",
     "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
-  r3_reschedule: ["r3_booked", "student_reject", "closed_deferred", "closed_lost"],
+  r3_reschedule: ["r3_booked", "r3_student_reject", "student_reject", "closed_deferred", "closed_lost"],
+  r3_student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   yet_to_offer: [
     "offered",
     "offered_accepted",
@@ -481,17 +510,17 @@ export const STAGE_GROUPS = [
   {
     id: "r1",
     label: "R1",
-    stages: ["r1_booked", "r1_confirmed", "r1_reject", "r1_no_show", "r1_reschedule"] as Stage[],
+    stages: ["r1_booked", "r1_confirmed", "r1_reject", "r1_no_show", "r1_reschedule", "r1_student_reject"] as Stage[],
   },
   {
     id: "r2",
     label: "R2",
-    stages: ["r2_booked", "r2_tbb", "r2_reject", "r2_no_show", "r2_reschedule"] as Stage[],
+    stages: ["r2_booked", "r2_tbb", "r2_reject", "r2_no_show", "r2_reschedule", "r2_student_reject"] as Stage[],
   },
   {
     id: "r3",
     label: "R3",
-    stages: ["r3_booked", "r3_tbb", "r3_reject", "r3_no_show", "r3_reschedule"] as Stage[],
+    stages: ["r3_booked", "r3_tbb", "r3_reject", "r3_no_show", "r3_reschedule", "r3_student_reject"] as Stage[],
   },
   {
     id: "offer",
@@ -609,7 +638,7 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     id: "r1",
     label: "Round 1",
     hint: "Booked → Confirmed → …",
-    stages: ["r1_booked", "r1_confirmed", "r1_reject", "r1_no_show", "r1_reschedule"],
+    stages: ["r1_booked", "r1_confirmed", "r1_reject", "r1_no_show", "r1_reschedule", "r1_student_reject"],
     dropStage: "r1_booked",
     accent: "blue",
     section: "Interviews",
@@ -618,7 +647,7 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     id: "r2",
     label: "Round 2",
     hint: "Booked → TBB → …",
-    stages: ["r2_booked", "r2_tbb", "r2_reject", "r2_no_show", "r2_reschedule"],
+    stages: ["r2_booked", "r2_tbb", "r2_reject", "r2_no_show", "r2_reschedule", "r2_student_reject"],
     dropStage: "r2_booked",
     accent: "blue",
     section: "Interviews",
@@ -627,7 +656,7 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     id: "r3",
     label: "Round 3",
     hint: "Booked → TBB → Reject → …",
-    stages: ["r3_booked", "r3_tbb", "r3_reject", "r3_no_show", "r3_reschedule"],
+    stages: ["r3_booked", "r3_tbb", "r3_reject", "r3_no_show", "r3_reschedule", "r3_student_reject"],
     dropStage: "r3_booked",
     accent: "blue",
     section: "Interviews",
@@ -732,7 +761,7 @@ function accentForStage(stage: Stage): BoardColumnDef["accent"] {
   if (
     stage === "closed_refund" ||
     stage === "closed_lost" ||
-    stage === "student_reject" ||
+    stage.includes("student_reject") ||
     stage === "admission_team_rejected" ||
     stage.includes("reject")
   ) {

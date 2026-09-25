@@ -677,6 +677,44 @@ export function LeadDetailClient({
 
           <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
+          <form onSubmit={onCallLog} className="panel space-y-3 p-5">
+            <div className="flex items-center justify-between">
+              <p className="eyebrow">Log a call</p>
+              <ClickToCallButton
+                leadId={lead.id}
+                leadPhone={lead.phone}
+                twilioConfigured={twilioConfigured}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div>
+                <label className="label-field">Outcome</label>
+                <select name="outcome" className="input-field" defaultValue="connected">
+                  {CALL_OUTCOMES.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label-field">Duration (sec)</label>
+                <input name="duration" type="number" className="input-field" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label-field">Recording URL</label>
+                <input name="recording_url" className="input-field" />
+              </div>
+            </div>
+            <div>
+              <label className="label-field">Notes</label>
+              <textarea name="notes" className="input-field min-h-[60px]" />
+            </div>
+            <button type="submit" className="btn-primary" disabled={pending}>
+              Save call log
+            </button>
+          </form>
+
           <form onSubmit={onSaveInfo} className="panel space-y-3 p-5">
             <p className="eyebrow">Profile</p>
             <div className="grid gap-3 sm:grid-cols-2">

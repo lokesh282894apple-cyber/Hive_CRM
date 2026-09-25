@@ -180,7 +180,8 @@ async function fetchCounselorDashboardUncached(
       let q = supabase
         .from("leads")
         .select("id, lead_allocated_to, stage, created_at, cohort_id, course_id")
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true });
       if (filters.courseId) q = q.eq("course_id", filters.courseId);
       if (filters.cohortId) q = q.eq("cohort_id", filters.cohortId);
       if (filters.counselorId) q = q.eq("lead_allocated_to", filters.counselorId);
@@ -199,7 +200,8 @@ async function fetchCounselorDashboardUncached(
         .select("lead_id, counselor_id, logged_at, duration, outcome, direction")
         .gte("logged_at", since)
         .lt("logged_at", until)
-        .order("logged_at", { ascending: true });
+        .order("logged_at", { ascending: true })
+        .order("lead_id", { ascending: true });
       if (filters.counselorId) q = q.eq("counselor_id", filters.counselorId);
       const res = await q.range(from, to);
       if (
@@ -211,7 +213,8 @@ async function fetchCounselorDashboardUncached(
           .select("lead_id, counselor_id, logged_at, duration, outcome")
           .gte("logged_at", since)
           .lt("logged_at", until)
-          .order("logged_at", { ascending: true });
+          .order("logged_at", { ascending: true })
+          .order("lead_id", { ascending: true });
         if (filters.counselorId) q2 = q2.eq("counselor_id", filters.counselorId);
         const res2 = await q2.range(from, to);
         return {
@@ -232,6 +235,7 @@ async function fetchCounselorDashboardUncached(
         .gte("changed_at", since)
         .lt("changed_at", until)
         .order("changed_at", { ascending: true })
+        .order("lead_id", { ascending: true })
         .range(from, to),
       "counselor-history"
     ),

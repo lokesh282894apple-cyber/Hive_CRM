@@ -138,7 +138,7 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
       ) : null}
       {isNurture ? (
         <p>
-          Calls {m?.totalCalls ?? 0} · Unique days {m?.uniqueDays ?? 0}
+          Calls {m?.totalCalls ?? 0} · Last call {m?.lastCallAt ? formatRelativeAgo(m.lastCallAt) : "—"}
         </p>
       ) : null}
       {isInterview ? (
