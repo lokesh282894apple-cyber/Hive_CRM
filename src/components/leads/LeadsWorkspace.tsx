@@ -526,7 +526,7 @@ export function LeadsWorkspace({
     <div
       className={cn(
         "transition-opacity duration-150",
-        pending && "pointer-events-none opacity-60"
+        pending && "opacity-80"
       )}
       aria-busy={pending}
     >

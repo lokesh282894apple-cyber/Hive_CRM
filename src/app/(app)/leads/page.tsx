@@ -53,7 +53,7 @@ export default async function LeadsPage({
   const countPromise = (() => {
         let countQuery = supabase
           .from("leads")
-          .select("id", { count: "exact", head: true });
+          .select("id", { count: "estimated", head: true });
         countQuery = applyLeadsFilters(countQuery, {
           ...filterOpts,
           paginate: false,
