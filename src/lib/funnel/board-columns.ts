@@ -122,24 +122,42 @@ export function columnsFromFunnel(
     const section = group.label;
 
     if (INTERVIEW_GROUP_KEYS.has(group.key)) {
+      const isFee = (s: FunnelStageRow) =>
+        s.slug.startsWith("application_fee") || s.payment_gate === "application_fee";
+      const feeStages = stages.filter(isFee);
+      const interviewStages = stages.filter((s) => !isFee(s));
       const drop =
-        stages.find((s) => s.booking_required)?.slug ??
-        stages.find((s) => s.show_on_board)?.slug ??
-        stages[0]?.slug;
-      if (!drop) continue;
-      cols.push({
-        id: group.key,
-        label: group.label,
-        hint: stages
-          .filter((s) => s.show_on_board)
-          .map((s) => s.label)
-          .join(" → "),
-        stages: stages.map((s) => s.slug as Stage),
-        dropStage: drop as Stage,
-        accent: "blue",
-        section:
-          group.key.startsWith("r") ? "Interviews" : section,
-      });
+        interviewStages.find((s) => s.entry_mode === "phone_screen")?.slug ??
+        interviewStages.find((s) => s.booking_required || s.entry_mode === "booking")
+          ?.slug ??
+        interviewStages.find((s) => s.show_on_board)?.slug ??
+        interviewStages[0]?.slug;
+      if (drop) {
+        cols.push({
+          id: group.key,
+          label: group.label,
+          hint: interviewStages
+            .filter((s) => s.show_on_board)
+            .map((s) => s.label)
+            .join(" → "),
+          stages: interviewStages.map((s) => s.slug as Stage),
+          dropStage: drop as Stage,
+          accent: "blue",
+          section: group.key.startsWith("r") ? "Interviews" : section,
+        });
+      }
+      for (const stage of feeStages) {
+        if (!stage.show_on_board) continue;
+        cols.push({
+          id: stage.slug,
+          label: stage.label,
+          hint: section,
+          stages: [stage.slug as Stage],
+          dropStage: stage.slug as Stage,
+          accent: accentFor(stage),
+          section: "Interviews",
+        });
+      }
       continue;
     }
 

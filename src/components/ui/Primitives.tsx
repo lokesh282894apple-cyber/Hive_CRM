@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { stageTone, type Stage, STAGE_LABELS } from "@/lib/constants";
-import { useFunnel } from "@/components/funnel/FunnelProvider";
+import { useFunnelCatalog, useStageLabel } from "@/components/funnel/FunnelProvider";
 import type { ReactNode } from "react";
 
 export function PageHeader({
@@ -39,18 +39,17 @@ export function PageHeader({
 }
 
 export function StageBadge({ stage }: { stage: Stage | string }) {
-  const funnel = useFunnel();
+  const catalog = useFunnelCatalog();
+  const configs = catalog
+    ? [catalog.current, ...Object.values(catalog.byCourseId)]
+    : [];
+  const stageRow = configs
+    .flatMap((c) => c.stages)
+    .find((s) => s.slug === stage);
   const tone =
-    (funnel?.stages.find((s) => s.slug === stage)?.tone as
-      | "green"
-      | "yellow"
-      | "red"
-      | "gray"
-      | "blue"
-      | undefined) ??
+    stageRow?.tone ??
     (STAGE_LABELS[stage as Stage] ? stageTone(stage as Stage) : "gray");
-  const label =
-    funnel?.labels[stage] ?? STAGE_LABELS[stage as Stage] ?? stage;
+  const label = useStageLabel(stage);
   const tones = {
     green: "bg-green-50 text-green-700 border-green-200",
     yellow: "bg-yellow-50 text-yellow-800 border-yellow-200",

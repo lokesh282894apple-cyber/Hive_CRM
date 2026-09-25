@@ -62,3 +62,8 @@ export type FunnelConfig = {
   /** stages that require application fee paid before entering (e.g. r2_booked for UG) */
   applicationFeeGateSlugs: string[];
 };
+
+export type FunnelCatalog = {
+  current: FunnelConfig;
+  byCourseId: Record<string, FunnelConfig>;
+};

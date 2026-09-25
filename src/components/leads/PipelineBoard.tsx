@@ -22,7 +22,7 @@ import {
   CONVERT_PROBABILITY_LABELS,
   type ConvertProbability,
 } from "@/lib/constants";
-import { useFunnel } from "@/components/funnel/FunnelProvider";
+import { useFunnel, useFunnelCatalog } from "@/components/funnel/FunnelProvider";
 import {
   columnsFromFunnel,
   sectionJumpOrderFromFunnel,
@@ -410,9 +410,15 @@ function BoardColumn({
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
 }) {
-  const funnel = useFunnel();
-  const labelFor = (s: string) =>
-    funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
+  const catalog = useFunnelCatalog();
+  const labelFor = (s: string) => {
+    const fromCurrent = catalog?.current.labels[s];
+    if (fromCurrent) return fromCurrent;
+    for (const cfg of Object.values(catalog?.byCourseId ?? {})) {
+      if (cfg.labels[s]) return cfg.labels[s];
+    }
+    return STAGE_LABELS[s as Stage] ?? s;
+  };
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     disabled: Boolean(disableDrag),
@@ -568,6 +574,7 @@ export function PipelineBoard({
   cohorts = [],
   selectedLeadId,
   onSelectLead,
+  courseId,
 }: {
   leads: LeadWithCard[];
   isAdmin?: boolean;
@@ -578,8 +585,17 @@ export function PipelineBoard({
   cohorts?: Cohort[];
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
+  /** Course filter — columns follow that course's funnel preset */
+  courseId?: string | null;
 }) {
-  const funnel = useFunnel();
+  const catalog = useFunnelCatalog();
+  const funnel = useFunnel(courseId);
+  const funnelForLead = (leadCourseId: string | null | undefined) => {
+    if (leadCourseId && catalog?.byCourseId[leadCourseId]) {
+      return catalog.byCourseId[leadCourseId];
+    }
+    return funnel;
+  };
   const stageLabel = (s: string) =>
     funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
   const bookingRequired = useMemo(
@@ -797,9 +813,14 @@ export function PipelineBoard({
 
       const nextStage = targetCol.dropStage;
 
+      const leadFunnel = funnelForLead(lead.course_id);
+      const leadNeedsBooking =
+        leadFunnel?.bookingRequiredSlugs?.includes(nextStage) &&
+        !leadFunnel.phoneScreenSlugs.includes(nextStage);
+
       if (!sameStage && !isAdmin) {
         const allowed =
-          funnel?.transitions[lead.stage] ??
+          leadFunnel?.transitions[lead.stage] ??
           STAGE_TRANSITIONS[lead.stage] ??
           [];
         if (!allowed.includes(nextStage)) {
@@ -810,7 +831,7 @@ export function PipelineBoard({
         }
       }
 
-      if (!sameStage && bookingRequired.has(nextStage)) {
+      if (!sameStage && (leadNeedsBooking || (!leadFunnel && bookingRequired.has(nextStage)))) {
         openBookingDialog(lead, nextStage);
         return;
       }
@@ -917,6 +938,12 @@ export function PipelineBoard({
     <div>
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2">
+          {funnel?.profile?.name ? (
+            <span className="rounded-pill border border-border bg-white px-3 py-1.5 text-xs font-semibold text-navy">
+              Funnel · {funnel.profile.name}
+              {!courseId ? " (select a course to switch preset)" : ""}
+            </span>
+          ) : null}
           <div className="flex rounded-pill border border-border bg-white p-1">
             <button
               type="button"

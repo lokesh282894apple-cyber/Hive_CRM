@@ -8,7 +8,7 @@ import { ImpersonationProvider } from "@/components/shell/ImpersonationProvider"
 import { ImpersonationBanner } from "@/components/shell/ImpersonationBanner";
 import { SessionGuard } from "@/components/shell/SessionGuard";
 import { ForcePasswordChange } from "@/components/shell/ForcePasswordChange";
-import { getFunnelConfig } from "@/lib/funnel/config";
+import { getFunnelCatalog } from "@/lib/funnel/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -37,7 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     !impersonating && (user.role === "admin" || user.role === "marketing");
   const funnel =
     user.role === "admin" || user.role === "counselor"
-      ? await getFunnelConfig()
+      ? await getFunnelCatalog()
       : null;
 
   const body = (

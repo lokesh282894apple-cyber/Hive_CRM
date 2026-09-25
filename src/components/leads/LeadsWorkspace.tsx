@@ -66,7 +66,7 @@ export function LeadsWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const funnel = useFunnel();
+  const funnel = useFunnel(filters.courseId);
   const bulkStageOptions = useMemo(() => {
     const slugs = funnel?.activeSlugs?.length
       ? funnel.activeSlugs
@@ -991,6 +991,7 @@ export function LeadsWorkspace({
           cohorts={cohorts}
           selectedLeadId={selectedLeadId}
           onSelectLead={setSelectedLeadId}
+          courseId={filters.courseId}
           onClaim={(id) =>
             startTransition(async () => {
               await claimLead(id);

@@ -11,6 +11,7 @@ import {
 } from "@/lib/constants";
 import { unstable_cache } from "next/cache";
 import type {
+  FunnelCatalog,
   FunnelConfig,
   FunnelGroupRow,
   FunnelProfileRow,
@@ -228,6 +229,47 @@ export async function getFunnelConfig(opts?: {
     revalidate: 30,
     tags: ["funnel-config"],
   })();
+}
+
+/** All active course → funnel mappings for the CRM shell (board follows course filter). */
+export async function getFunnelCatalog(): Promise<FunnelCatalog> {
+  return unstable_cache(
+    async () => {
+      const current = await fetchFunnelConfigUncached();
+      const byCourseId: Record<string, FunnelConfig> = {};
+      try {
+        const admin = createAdminClient();
+        const { data: courses } = await admin
+          .from("courses")
+          .select("id, funnel_profile_id")
+          .eq("active", true);
+        const profileIds = Array.from(
+          new Set(
+            (courses ?? [])
+              .map((c) => c.funnel_profile_id as string | null)
+              .filter((id): id is string => Boolean(id))
+          )
+        );
+        const byProfile = new Map<string, FunnelConfig>();
+        await Promise.all(
+          profileIds.map(async (id) => {
+            byProfile.set(id, await fetchFunnelConfigUncached({ profileId: id }));
+          })
+        );
+        for (const c of courses ?? []) {
+          const pid = c.funnel_profile_id as string | null;
+          if (pid && byProfile.has(pid)) {
+            byCourseId[c.id as string] = byProfile.get(pid)!;
+          }
+        }
+      } catch {
+        /* courses.funnel_profile_id missing before migration */
+      }
+      return { current, byCourseId };
+    },
+    ["funnel-catalog"],
+    { revalidate: 30, tags: ["funnel-config"] }
+  )();
 }
 
 export async function getFunnelConfigFresh(opts?: {

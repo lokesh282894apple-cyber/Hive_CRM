@@ -221,7 +221,7 @@ export function LeadDetailClient({
     [counselors]
   );
 
-  const funnel = useFunnel();
+  const funnel = useFunnel(lead.course_id);
   const stageLabel = (s: string) =>
     funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
   const allStageSlugs = funnel?.activeSlugs?.length
