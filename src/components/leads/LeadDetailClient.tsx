@@ -139,6 +139,8 @@ export function LeadDetailClient({
   const [showAdmissionReject, setShowAdmissionReject] = useState(false);
   const [showClosedWon, setShowClosedWon] = useState(false);
   const [noShowRound, setNoShowRound] = useState<InterviewRound | null>(null);
+  const [localLead, setLocalLead] = useState<Lead>(lead);
+  
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
   const [liveScore, setLiveScore] = useState<ScoreBreakdown | null>(scoreBreakdown);
@@ -157,6 +159,11 @@ export function LeadDetailClient({
   useEffect(() => {
     if (scoreBreakdown) setLiveScore(scoreBreakdown);
   }, [scoreBreakdown]);
+
+  useEffect(() => {
+    setLocalLead(lead);
+    setStage(lead.stage);
+  }, [lead]);
 
   useEffect(() => {
     if (marketing && (marketing.events?.length || marketing.session || marketing.attribution)) {
@@ -237,15 +244,15 @@ export function LeadDetailClient({
       ? allStageSlugs
       : Array.from(
           new Set([
-            lead.stage,
-            ...((funnel?.transitions[lead.stage] ??
-              STAGE_TRANSITIONS[lead.stage]) ??
+            localLead.stage,
+            ...((funnel?.transitions[localLead.stage] ??
+              STAGE_TRANSITIONS[localLead.stage]) ??
               []),
             "closed_deferred",
             "closed_lost",
           ])
         )
-  ).filter((s) => !bookingRequired.has(s) || s === lead.stage);
+  ).filter((s) => !bookingRequired.has(s) || s === localLead.stage);
 
   const upcomingInterview = useMemo(() => {
     const ts = Date.now();
@@ -277,9 +284,19 @@ export function LeadDetailClient({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
-      const res = await updateLeadInfo(lead.id, fd);
-      if (!res.ok) setError(res.error);
-      else {
+      const prev = localLead;
+      setLocalLead({
+        ...prev,
+        name: fd.get("name") as string,
+        phone: fd.get("phone") as string,
+        email: (fd.get("email") as string) || null,
+        linkedin: (fd.get("linkedin") as string) || null,
+      });
+      const res = await updateLeadInfo(localLead.id, fd);
+      if (!res.ok) {
+        setError(res.error);
+        setLocalLead(prev);
+      } else {
         setError(null);
         router.refresh();
       }
@@ -287,8 +304,8 @@ export function LeadDetailClient({
   }
 
   function onStageChange() {
-    if (stage === lead.stage) return;
-    if (stageRequiresPresetReason(stage) && stage !== lead.stage) {
+    if (stage === localLead.stage) return;
+    if (stageRequiresPresetReason(stage) && stage !== localLead.stage) {
       setShowAdmissionReject(true);
       return;
     }
@@ -312,16 +329,21 @@ export function LeadDetailClient({
       return;
     }
     startTransition(async () => {
+      const prev = localLead;
+      setLocalLead({ ...prev, stage: stage, stage_reason: stageReason.trim() || null });
+      
       const res = await updateLeadStage(
-        lead.id,
+        localLead.id,
         stage,
         stageReason.trim() || undefined,
         stageRequiresStudentIntent(stage)
           ? { studentIntent: studentIntent as number }
           : { skipIntentRequirement: true }
       );
-      if (!res.ok) setError(res.error);
-      else {
+      if (!res.ok) {
+        setError(res.error);
+        setLocalLead(prev);
+      } else {
         setError(null);
         setStudentIntent("");
         router.refresh();
@@ -363,10 +385,10 @@ export function LeadDetailClient({
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="eyebrow">Lead record</p>
-          <h1 className="mt-1 text-3xl font-semibold text-navy">{lead.name}</h1>
+          <h1 className="mt-1 text-3xl font-semibold text-navy">{localLead.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <StageBadge stage={lead.stage} />
-            {(lead.score_override ?? lead.score_auto ?? lead.intent_score) != null ? (
+            <StageBadge stage={localLead.stage} />
+            {(localLead.score_override ?? localLead.score_auto ?? localLead.intent_score) != null ? (
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-navy"
                 title={
@@ -379,9 +401,9 @@ export function LeadDetailClient({
                   Convert
                 </span>
                 <span className="tabular-nums text-sm">
-                  {lead.score_override ?? lead.score_auto ?? lead.intent_score}%
+                  {localLead.score_override ?? localLead.score_auto ?? localLead.intent_score}%
                 </span>
-                {lead.score_override != null ? (
+                {localLead.score_override != null ? (
                   <span className="rounded bg-gold/20 px-1 text-[10px] font-semibold text-navy">
                     adj
                   </span>
@@ -581,12 +603,12 @@ export function LeadDetailClient({
         <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
           Student intent & offer
         </p>
-        <LeadOfferFields lead={lead} />
+        <LeadOfferFields lead={localLead} />
         {(() => {
           const offerMsg = messageLogs.find(
             (m) => m.trigger_key === "offered" || m.trigger_key === "yet_to_offer"
           );
-          if (!offerMsg && lead.stage !== "offered" && lead.stage !== "yet_to_offer") {
+          if (!offerMsg && localLead.stage !== "offered" && localLead.stage !== "yet_to_offer") {
             return null;
           }
           return (
@@ -608,14 +630,14 @@ export function LeadDetailClient({
                   WA + Email triggers (if enabled).
                 </p>
               )}
-              {(lead.stage === "offered" || lead.stage === "yet_to_offer") && (
+              {(localLead.stage === "offered" || localLead.stage === "yet_to_offer") && (
                 <button
                   type="button"
                   className="btn-secondary mt-2 text-xs"
                   disabled={pending}
                   onClick={() =>
                     startTransition(async () => {
-                      const res = await resendOfferLetter(lead.id);
+                      const res = await resendOfferLetter(localLead.id);
                       if (!res.ok) setError(res.error);
                       else {
                         setError(null);
@@ -659,21 +681,21 @@ export function LeadDetailClient({
       {tab === "info" ? (
         <div className="space-y-6">
           <LeadScoreSummary
-            intentScore={lead.intent_score}
-            scoreAuto={lead.score_auto ?? liveScore?.score ?? null}
-            scoreOverride={lead.score_override ?? null}
+            intentScore={localLead.intent_score}
+            scoreAuto={localLead.score_auto ?? liveScore?.score ?? null}
+            scoreOverride={localLead.score_override ?? null}
             breakdown={liveScore}
           />
 
           <LeadQualificationPanel
-            leadId={lead.id}
-            intent={lead.qualification_intent ?? null}
-            financialCheck={lead.financial_check ?? null}
-            dqReason={lead.dq_reason ?? null}
-            aqlAt={lead.aql_at ?? null}
+            leadId={localLead.id}
+            intent={localLead.qualification_intent ?? null}
+            financialCheck={localLead.financial_check ?? null}
+            dqReason={localLead.dq_reason ?? null}
+            aqlAt={localLead.aql_at ?? null}
           />
 
-          <LeadTasksPanel leadId={lead.id} tasks={tasks} />
+          <LeadTasksPanel leadId={localLead.id} tasks={tasks} />
 
           <div className="grid gap-6 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
@@ -681,8 +703,8 @@ export function LeadDetailClient({
             <div className="flex items-center justify-between">
               <p className="eyebrow">Log a call</p>
               <ClickToCallButton
-                leadId={lead.id}
-                leadPhone={lead.phone}
+                leadId={localLead.id}
+                leadPhone={localLead.phone}
                 twilioConfigured={twilioConfigured}
               />
             </div>
@@ -720,31 +742,31 @@ export function LeadDetailClient({
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="label-field">Name</label>
-                <input name="name" className="input-field" defaultValue={lead.name} required />
+                <input name="name" className="input-field" defaultValue={localLead.name} required />
               </div>
               <div>
                 <label className="label-field">Phone</label>
-                <input name="phone" className="input-field" defaultValue={lead.phone} required />
+                <input name="phone" className="input-field" defaultValue={localLead.phone} required />
               </div>
               <div>
                 <label className="label-field">Email</label>
-                <input name="email" className="input-field" defaultValue={lead.email ?? ""} />
+                <input name="email" className="input-field" defaultValue={localLead.email ?? ""} />
               </div>
               <div>
                 <label className="label-field">LinkedIn</label>
-                <input name="linkedin" className="input-field" defaultValue={lead.linkedin ?? ""} />
+                <input name="linkedin" className="input-field" defaultValue={localLead.linkedin ?? ""} />
               </div>
               <div>
                 <label className="label-field">Source</label>
-                {lead.source && !LEAD_SOURCES.includes(lead.source as (typeof LEAD_SOURCES)[number]) ? (
+                {localLead.source && !LEAD_SOURCES.includes(localLead.source as (typeof LEAD_SOURCES)[number]) ? (
                   <div className="space-y-2">
                     <input
                       className="input-field bg-slate-50"
-                      value={lead.source}
+                      value={localLead.source}
                       readOnly
                       title="Website form source (read-only)"
                     />
-                    <input type="hidden" name="source" value={lead.source} />
+                    <input type="hidden" name="source" value={localLead.source} />
                     <p className="text-xs text-muted">
                       From website form dual-write — keep this tag for marketing attribution.
                     </p>
@@ -820,7 +842,7 @@ export function LeadDetailClient({
                 onChange={(e) => {
                   const next = e.target.value as Stage;
                   setStage(next);
-                  if (stageRequiresPresetReason(next) && next !== lead.stage) {
+                  if (stageRequiresPresetReason(next) && next !== localLead.stage) {
                     setShowAdmissionReject(true);
                   }
                 }}
@@ -831,12 +853,12 @@ export function LeadDetailClient({
                   </option>
                 ))}
               </select>
-              {lead.stage === "admission_team_rejected" && lead.stage_reason ? (
+              {localLead.stage === "admission_team_rejected" && localLead.stage_reason ? (
                 <p className="mt-2 text-xs text-muted">
-                  Reason: <span className="font-medium text-navy">{lead.stage_reason}</span>
+                  Reason: <span className="font-medium text-navy">{localLead.stage_reason}</span>
                 </p>
               ) : null}
-              {stage !== lead.stage &&
+              {stage !== localLead.stage &&
               !stageRequiresPresetReason(stage) &&
               stageRequiresStudentIntent(stage) ? (
                 <label className="mt-3 block text-xs font-semibold text-muted">
@@ -864,12 +886,12 @@ export function LeadDetailClient({
                 className="btn-primary mt-3 w-full"
                 disabled={
                   pending ||
-                  stage === lead.stage ||
-                  (stageRequiresPresetReason(stage) && stage !== lead.stage)
+                  stage === localLead.stage ||
+                  (stageRequiresPresetReason(stage) && stage !== localLead.stage)
                 }
                 onClick={onStageChange}
               >
-                {stageRequiresPresetReason(stage) && stage !== lead.stage
+                {stageRequiresPresetReason(stage) && stage !== localLead.stage
                   ? "Pick reason in popup…"
                   : "Update stage"}
               </button>
@@ -889,7 +911,7 @@ export function LeadDetailClient({
                       onClick={() =>
                         startTransition(async () => {
                           await markNoShowOrReschedule({
-                            leadId: lead.id,
+                            leadId: localLead.id,
                             round,
                             kind: "reschedule",
                           });
@@ -905,9 +927,9 @@ export function LeadDetailClient({
             </div>
 
             <InterviewRoundBlocks
-              leadStage={lead.stage}
+              leadStage={localLead.stage}
               bookings={interviewBookings}
-              bookHref={`${leadsBasePath}/${lead.id}/book-interview`}
+              bookHref={`${leadsBasePath}/${localLead.id}/book-interview`}
             />
 
             <div className="panel p-5">
