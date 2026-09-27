@@ -55,8 +55,22 @@ export async function loadLeadCardMetrics(
     return leads;
   }
 
+  type RpcMetricRow = {
+    lead_id: string;
+    totalCalls: number | null;
+    uniqueDays: number | null;
+    lastCallAt: string | null;
+    lastCallSinceStageAt: string | null;
+    interviewAt: string | null;
+    stageEnteredAt: string | null;
+    callsSinceStage: number;
+    gradeAvg: number | string | null;
+    gradeCount: number | null;
+    recordingUrl: string | null;
+    approvals: LeadApprovalSummary[] | null;
+  };
   const metricsMap = new Map<string, LeadCardMetrics>();
-  for (const m of (metricsData ?? []) as any[]) {
+  for (const m of (metricsData ?? []) as RpcMetricRow[]) {
     metricsMap.set(m.lead_id, {
       totalCalls: m.totalCalls ?? 0,
       uniqueDays: m.uniqueDays ?? 0,

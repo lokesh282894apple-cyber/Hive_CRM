@@ -55,7 +55,7 @@ export function MessageSequencesPanel({
         email_body_html: s.email_body_html ?? "",
       }))
     );
-  }, [matching?.id]);
+  }, [matching?.id, matching?.steps]);
 
   function move(i: number, dir: -1 | 1) {
     setSteps((prev) => {

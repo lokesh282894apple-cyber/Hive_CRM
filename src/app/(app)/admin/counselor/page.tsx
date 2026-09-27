@@ -8,6 +8,7 @@ import { DateRangeBar } from "@/components/admin/DateRangeBar";
 import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
+import { formatRelativeAgo } from "@/lib/utils";
 
 function formatSecs(sec: number | null) {
   if (sec == null) return "—";
@@ -147,7 +148,7 @@ export default async function AdminCounselorPage({
           hint="Current open allocated leads (all ages). Can be higher than Analytics Total if older leads are still open"
         />
         <StatCard label="Total calls" value={t.calling.totalCalls} />
-        <StatCard label="Unique leads called" value={t.calling.uniqueCalls} />
+        <StatCard label="Last call" value={t.calling.lastCallAt ? formatRelativeAgo(t.calling.lastCallAt) : "—"} />
         <StatCard label="Avg calls / lead" value={t.calling.avgCallsPerLead} />
         <StatCard label="Avg calls / day" value={t.calling.avgCallsPerDay} />
         <StatCard
@@ -258,7 +259,7 @@ export default async function AdminCounselorPage({
                 <th className="eyebrow px-4 py-3">Calls/mo</th>
                 <th className="eyebrow px-4 py-3">Avg connect</th>
                 <th className="eyebrow px-4 py-3">DNP calls/day</th>
-                <th className="eyebrow px-4 py-3">Unique leads</th>
+                <th className="eyebrow px-4 py-3">Last call</th>
                 <th className="eyebrow px-4 py-3">Pickup %</th>
                 <th className="eyebrow px-4 py-3">Talk/day</th>
                 <th className="eyebrow px-4 py-3">In / Out</th>
@@ -295,7 +296,9 @@ export default async function AdminCounselorPage({
                   <td className="px-4 py-3">
                     {r.calling.avgCallsPerDayOnDnp ?? "—"}
                   </td>
-                  <td className="px-4 py-3">{r.calling.uniqueCalls}</td>
+                  <td className="px-4 py-3">
+                    {r.calling.lastCallAt ? formatRelativeAgo(r.calling.lastCallAt) : "—"}
+                  </td>
                   <td className="px-4 py-3">
                     {r.calling.pickupRatePct != null
                       ? `${r.calling.pickupRatePct}%`

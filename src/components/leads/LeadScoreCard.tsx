@@ -133,7 +133,6 @@ export function LeadScoreCard({
     scoreOverride ?? scoreAuto ?? intentScore ?? breakdown?.score ?? null;
   const modelScore = scoreAuto ?? breakdown?.score ?? null;
   const isOverridden = scoreOverride != null;
-  const reasons = breakdown?.reasons ?? [];
   const pillars = breakdown?.pillars;
   const confidence = breakdown?.confidence ?? null;
 
@@ -151,9 +150,10 @@ export function LeadScoreCard({
     : [];
 
   const drivers = useMemo(() => {
-    const rest = reasons.filter((r) => r.pillar !== "overall");
-    return rest.length ? rest : reasons.slice(1);
-  }, [reasons]);
+    const rs = breakdown?.reasons ?? [];
+    const rest = rs.filter((r) => r.pillar !== "overall");
+    return rest.length ? rest : rs.slice(1);
+  }, [breakdown?.reasons]);
 
   const visible = showAll ? drivers : drivers.slice(0, 6);
   const more = drivers.length - visible.length;

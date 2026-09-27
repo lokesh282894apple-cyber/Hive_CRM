@@ -1,4 +1,5 @@
 "use client";
+import { createCallLog } from "@/app/actions/leads";
 
 import {
   completeLeadTask,
@@ -10,6 +11,7 @@ import {
 import { StageBadge } from "@/components/ui/Primitives";
 import {
   CONVERT_PROBABILITY_LABELS,
+  CALL_OUTCOMES,
   type ConvertProbability,
 } from "@/lib/constants";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
@@ -17,6 +19,7 @@ import { leadSourceClassLabel } from "@/lib/leads/source-class";
 import { cn, formatDate, formatDateTime, formatRelativeAgo } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState, useTransition } from "react";
 
 const PREFS_KEY = "hive-leads-inspector";
@@ -67,6 +70,7 @@ export function LeadInspectorPanel({
   const [title, setTitle] = useState("");
   const [dueAt, setDueAt] = useState(defaultDueLocal);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     try {
@@ -177,6 +181,22 @@ export function LeadInspectorPanel({
       setTitle("");
       setDueAt(defaultDueLocal());
       reloadTasks(lead.id);
+    });
+  }
+
+  function onCallLog(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!lead) return;
+    const fd = new FormData(e.currentTarget);
+    fd.set("lead_id", lead.id);
+    startTransition(async () => {
+      const res = await createCallLog(fd);
+      if (!res.ok) setError(res.error);
+      else {
+        setError(null);
+        (e.target as HTMLFormElement).reset();
+        router.refresh();
+      }
     });
   }
 
@@ -384,6 +404,33 @@ export function LeadInspectorPanel({
             Calling
           </Link>
         </div>
+
+        <section className="border-t border-border pt-4">
+          <p className="eyebrow">Log a call</p>
+          <form onSubmit={onCallLog} className="mt-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-muted">Outcome</label>
+                <select name="outcome" className="input-field mt-1 text-xs" defaultValue="connected">
+                  {CALL_OUTCOMES.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-muted">Duration (s)</label>
+                <input name="duration" type="number" className="input-field mt-1 text-xs" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold uppercase text-muted">Notes</label>
+              <textarea name="notes" className="input-field mt-1 min-h-[50px] text-xs" />
+            </div>
+            <button type="submit" className="btn-primary w-full text-xs" disabled={pending}>
+              Save call log
+            </button>
+          </form>
+        </section>
 
         <section className="border-t border-border pt-4">
           <p className="eyebrow">Tasks</p>

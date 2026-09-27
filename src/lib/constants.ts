@@ -265,6 +265,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -275,6 +276,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -284,6 +286,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -293,6 +296,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -302,6 +306,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -312,6 +317,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -322,6 +328,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -330,6 +337,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "call_logged_nurturing",
     "dnp",
     "r1_booked",
+    "student_reject",
     "closed_deferred",
     "closed_lost",
   ],
@@ -341,20 +349,22 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "r1_reschedule",
     "r1_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
-  r1_confirmed: ["r2_booked", "r1_student_reject", "student_reject", "closed_deferred", "closed_lost"],
-  r1_reject: ["student_reject", "closed_deferred", "closed_lost"],
+  r1_confirmed: ["r2_booked", "r1_student_reject", "student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
+  r1_reject: ["student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
   r1_no_show: [
     "r1_booked",
     "r1_reschedule",
     "r1_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
-  r1_reschedule: ["r1_booked", "r1_student_reject", "student_reject", "closed_deferred", "closed_lost"],
+  r1_reschedule: ["r1_booked", "r1_student_reject", "student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
   r1_student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   r2_booked: [
     "r2_tbb",
@@ -363,20 +373,22 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "r2_reschedule",
     "r2_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
-  r2_tbb: ["r3_booked", "r2_student_reject", "student_reject", "closed_deferred", "closed_lost"],
-  r2_reject: ["student_reject", "closed_deferred", "closed_lost"],
+  r2_tbb: ["r3_booked", "r2_student_reject", "student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
+  r2_reject: ["student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
   r2_no_show: [
     "r2_booked",
     "r2_reschedule",
     "r2_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
-  r2_reschedule: ["r2_booked", "r2_student_reject", "student_reject", "closed_deferred", "closed_lost"],
+  r2_reschedule: ["r2_booked", "r2_student_reject", "student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
   r2_student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   r3_booked: [
     "r3_tbb",
@@ -385,6 +397,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "r3_reschedule",
     "r3_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
@@ -393,19 +406,21 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "r3_reject",
     "r3_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
-  r3_reject: ["student_reject", "closed_deferred", "closed_lost"],
+  r3_reject: ["student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
   r3_no_show: [
     "r3_booked",
     "r3_reschedule",
     "r3_student_reject",
     "student_reject",
+    "retarget_next_batch",
     "closed_deferred",
     "closed_lost",
   ],
-  r3_reschedule: ["r3_booked", "r3_student_reject", "student_reject", "closed_deferred", "closed_lost"],
+  r3_reschedule: ["r3_booked", "r3_student_reject", "student_reject", "retarget_next_batch", "closed_deferred", "closed_lost"],
   r3_student_reject: ["new_lead", "call_logged_nurturing", "closed_lost"],
   yet_to_offer: [
     "offered",
@@ -543,6 +558,11 @@ export const STAGE_GROUPS = [
     stages: ["offered"] as Stage[],
   },
   {
+    id: "closed",
+    label: "Closed",
+    stages: ["offered_accepted", "closed_paid", "closed_deferred", "closed_refund", "closed_lost"] as Stage[],
+  },
+  {
     id: "all",
     label: "All stages",
     stages: [...STAGES] as Stage[],
@@ -561,9 +581,9 @@ export type OwnershipView = (typeof OWNERSHIP_VIEWS)[number]["id"];
 
 export const BOARD_COLUMN_CAP = 30;
 export const BOARD_WIP_WARN = 50;
-export const LIST_PAGE_SIZE = 30;
+export const LIST_PAGE_SIZE = 50;
 /** Board fetch cap — keep modest so card metrics stay fast */
-export const BOARD_FETCH_MAX = 100;
+export const BOARD_FETCH_MAX = 250;
 export const BOOKING_DEFAULT_DAYS = 7;
 export const BOOKING_SLOT_CAP = 80;
 
@@ -624,7 +644,15 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     accent: "warning",
     section: "Pre-interview",
   },
-  // Retarget kept as a stage in DB for old rows — not a board column (FN-1)
+  {
+    id: "retarget_next_batch",
+    label: "Retarget Next Batch",
+    hint: "Moved to next batch",
+    stages: ["retarget_next_batch"],
+    dropStage: "retarget_next_batch",
+    accent: "gray",
+    section: "Pre-interview",
+  },
   {
     id: "admission_team_rejected",
     label: "Admission Team Rejected",

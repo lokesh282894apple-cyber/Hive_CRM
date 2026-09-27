@@ -26,6 +26,7 @@ export type CounselorCallingStats = {
   uniqueCallDays: number;
   /** Distinct leads called in range (CE-1) */
   uniqueCalls: number;
+  lastCallAt: string | null;
   connectedCalls: number;
   notConnectedCalls: number;
   pickupRatePct: number | null;
@@ -98,6 +99,7 @@ function emptyCalling(): CounselorCallingStats {
     avgCallsPerDayOnDnp: null,
     uniqueCallDays: 0,
     uniqueCalls: 0,
+    lastCallAt: null,
     connectedCalls: 0,
     notConnectedCalls: 0,
     pickupRatePct: null,
@@ -184,7 +186,6 @@ async function fetchCounselorDashboardUncached(
         .order("id", { ascending: true });
       if (filters.courseId) q = q.eq("course_id", filters.courseId);
       if (filters.cohortId) q = q.eq("cohort_id", filters.cohortId);
-      if (filters.counselorId) q = q.eq("lead_allocated_to", filters.counselorId);
       return q.range(from, to);
     }, "counselor-leads"),
     fetchAllPages<{
@@ -498,6 +499,7 @@ async function fetchCounselorDashboardUncached(
 
     row.calling.totalCalls = mine.length;
     row.calling.uniqueCalls = uniqueLeads.size;
+    row.calling.lastCallAt = mine.length > 0 ? mine[mine.length - 1].logged_at : null;
     row.calling.uniqueCallDays = uniqueDays.size;
     row.calling.connectedCalls = connected.length;
     row.calling.notConnectedCalls = Math.max(0, mine.length - connected.length);
