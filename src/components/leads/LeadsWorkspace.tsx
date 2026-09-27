@@ -32,7 +32,7 @@ import { leadSourceClassLabel } from "@/lib/leads/source-class";
 import { LayoutGrid, List, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, useOptimistic } from "react";
 
 export function LeadsWorkspace({
   leads,
@@ -66,7 +66,12 @@ export function LeadsWorkspace({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const funnel = useFunnel(filters.courseId);
+
+  const [optimisticFilters, setOptimisticFilters] = useOptimistic(
+    filters,
+    (state, patch: Partial<LeadsFilterParams>) => ({ ...state, ...patch })
+  );
+  const funnel = useFunnel(optimisticFilters.courseId);
   const bulkStageOptions = useMemo(() => {
     const slugs = funnel?.activeSlugs?.length
       ? funnel.activeSlugs
@@ -82,25 +87,25 @@ export function LeadsWorkspace({
   const stageLabel = (s: string) =>
     funnel?.labels[s] ?? STAGE_LABELS[s as Stage] ?? s;
   const [pending, startTransition] = useTransition();
-  const [qLocal, setQLocal] = useState(filters.q);
+  const [qLocal, setQLocal] = useState(optimisticFilters.q);
   const [uniqueDaysLocal, setUniqueDaysLocal] = useState(
-    filters.uniqueDays != null ? String(filters.uniqueDays) : ""
+    optimisticFilters.uniqueDays != null ? String(optimisticFilters.uniqueDays) : ""
   );
   const [uniqueCallsLocal, setUniqueCallsLocal] = useState(
-    filters.uniqueCalls != null ? String(filters.uniqueCalls) : ""
+    optimisticFilters.uniqueCalls != null ? String(optimisticFilters.uniqueCalls) : ""
   );
   const [noCallDaysLocal, setNoCallDaysLocal] = useState(
-    filters.callNotLoggedDays != null
-      ? String(filters.callNotLoggedDays)
-      : filters.callNotLoggedHours != null && filters.callNotLoggedHours >= 24
-        ? String(Math.ceil(filters.callNotLoggedHours / 24))
+    optimisticFilters.callNotLoggedDays != null
+      ? String(optimisticFilters.callNotLoggedDays)
+      : optimisticFilters.callNotLoggedHours != null && optimisticFilters.callNotLoggedHours >= 24
+        ? String(Math.ceil(optimisticFilters.callNotLoggedHours / 24))
         : ""
   );
   const [minStageCallsLocal, setMinStageCallsLocal] = useState(
-    filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
+    optimisticFilters.minCallsSinceStage != null ? String(optimisticFilters.minCallsSinceStage) : ""
   );
   const [maxAvgDayLocal, setMaxAvgDayLocal] = useState(
-    filters.maxAvgCallsPerDay != null ? String(filters.maxAvgCallsPerDay) : ""
+    optimisticFilters.maxAvgCallsPerDay != null ? String(optimisticFilters.maxAvgCallsPerDay) : ""
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -111,44 +116,44 @@ export function LeadsWorkspace({
   const prefsKey = isAdmin ? "hive-admin-leads-filters" : "hive-leads-filters";
 
   useEffect(() => {
-    setQLocal(filters.q);
-  }, [filters.q]);
+    setQLocal(optimisticFilters.q);
+  }, [optimisticFilters.q]);
 
   useEffect(() => {
-    setUniqueDaysLocal(filters.uniqueDays != null ? String(filters.uniqueDays) : "");
-  }, [filters.uniqueDays]);
+    setUniqueDaysLocal(optimisticFilters.uniqueDays != null ? String(optimisticFilters.uniqueDays) : "");
+  }, [optimisticFilters.uniqueDays]);
 
   useEffect(() => {
     setUniqueCallsLocal(
-      filters.uniqueCalls != null ? String(filters.uniqueCalls) : ""
+      optimisticFilters.uniqueCalls != null ? String(optimisticFilters.uniqueCalls) : ""
     );
-  }, [filters.uniqueCalls]);
+  }, [optimisticFilters.uniqueCalls]);
 
   useEffect(() => {
     setMinStageCallsLocal(
-      filters.minCallsSinceStage != null ? String(filters.minCallsSinceStage) : ""
+      optimisticFilters.minCallsSinceStage != null ? String(optimisticFilters.minCallsSinceStage) : ""
     );
-  }, [filters.minCallsSinceStage]);
+  }, [optimisticFilters.minCallsSinceStage]);
 
   useEffect(() => {
     setMaxAvgDayLocal(
-      filters.maxAvgCallsPerDay != null ? String(filters.maxAvgCallsPerDay) : ""
+      optimisticFilters.maxAvgCallsPerDay != null ? String(optimisticFilters.maxAvgCallsPerDay) : ""
     );
-  }, [filters.maxAvgCallsPerDay]);
+  }, [optimisticFilters.maxAvgCallsPerDay]);
 
   useEffect(() => {
-    if (filters.callNotLoggedHours != null && filters.callNotLoggedHours < 24) {
+    if (optimisticFilters.callNotLoggedHours != null && optimisticFilters.callNotLoggedHours < 24) {
       setNoCallDaysLocal("");
       return;
     }
     setNoCallDaysLocal(
-      filters.callNotLoggedDays != null
-        ? String(filters.callNotLoggedDays)
-        : filters.callNotLoggedHours != null
-          ? String(Math.ceil(filters.callNotLoggedHours / 24))
+      optimisticFilters.callNotLoggedDays != null
+        ? String(optimisticFilters.callNotLoggedDays)
+        : optimisticFilters.callNotLoggedHours != null
+          ? String(Math.ceil(optimisticFilters.callNotLoggedHours / 24))
           : ""
     );
-  }, [filters.callNotLoggedDays, filters.callNotLoggedHours]);
+  }, [optimisticFilters.callNotLoggedDays, optimisticFilters.callNotLoggedHours]);
 
   // Restore saved prefs when URL has no filter params
   useEffect(() => {
@@ -172,15 +177,15 @@ export function LeadsWorkspace({
       window.localStorage.setItem(
         prefsKey,
         JSON.stringify({
-          ownership: filters.ownership,
-          courseId: filters.courseId,
-          cohortId: filters.cohortId,
-          stageGroup: filters.stageGroup,
-          staleOnly: filters.staleOnly,
-          mode: filters.mode,
+          ownership: optimisticFilters.ownership,
+          courseId: optimisticFilters.courseId,
+          cohortId: optimisticFilters.cohortId,
+          stageGroup: optimisticFilters.stageGroup,
+          staleOnly: optimisticFilters.staleOnly,
+          mode: optimisticFilters.mode,
         })
       );
-      window.localStorage.setItem("hive-leads-view", filters.mode);
+      window.localStorage.setItem("hive-leads-view", optimisticFilters.mode);
     } catch {
       /* ignore */
     }
@@ -188,7 +193,7 @@ export function LeadsWorkspace({
 
   useEffect(() => {
     const t = setTimeout(() => {
-      if (qLocal === filters.q) return;
+      if (qLocal === optimisticFilters.q) return;
       pushFilters({ q: qLocal, page: 1 });
     }, 350);
     return () => clearTimeout(t);
@@ -249,10 +254,11 @@ export function LeadsWorkspace({
 
   function pushFilters(patch: Partial<LeadsFilterParams>) {
     const next = filtersToSearchParams(
-      { ...filters, ...patch },
+      { ...optimisticFilters, ...patch },
       new URLSearchParams(searchParams.toString())
     );
     startTransition(() => {
+      setOptimisticFilters(patch);
       // replace avoids history stack + is slightly cheaper than push on rapid filter clicks
       router.replace(`${basePath || pathname}?${next.toString()}`, {
         scroll: false,
@@ -276,7 +282,7 @@ export function LeadsWorkspace({
     return "pick";
   }
 
-  const stageFamilyHint = familyForStageGroup(filters.stageGroup);
+  const stageFamilyHint = familyForStageGroup(optimisticFilters.stageGroup);
   const [callFilterFamily, setCallFilterFamily] = useState<CallFilterFamily>(
     () => (stageFamilyHint === "pick" ? "new" : stageFamilyHint)
   );
@@ -290,9 +296,9 @@ export function LeadsWorkspace({
         setUniqueDaysLocal("");
         setUniqueCallsLocal("");
         if (
-          filters.callNotLoggedHours != null ||
-          filters.uniqueDays != null ||
-          filters.uniqueCalls != null
+          optimisticFilters.callNotLoggedHours != null ||
+          optimisticFilters.uniqueDays != null ||
+          optimisticFilters.uniqueCalls != null
         ) {
           pushFilters({
             callNotLoggedHours: null,
@@ -319,11 +325,11 @@ export function LeadsWorkspace({
     stageFamilyHint === "pick" ? callFilterFamily : stageFamilyHint;
 
   const hasMetricFilters =
-    filters.callNotLoggedHours != null ||
-    filters.uniqueDays != null ||
-    filters.uniqueCalls != null ||
-    filters.minCallsSinceStage != null ||
-    filters.maxAvgCallsPerDay != null;
+    optimisticFilters.callNotLoggedHours != null ||
+    optimisticFilters.uniqueDays != null ||
+    optimisticFilters.uniqueCalls != null ||
+    optimisticFilters.minCallsSinceStage != null ||
+    optimisticFilters.maxAvgCallsPerDay != null;
 
   function clearMetricFilters() {
     setNoCallDaysLocal("");
@@ -388,10 +394,10 @@ export function LeadsWorkspace({
 
   const filteredCohorts = useMemo(
     () =>
-      filters.courseId
-        ? cohorts.filter((c) => c.course_id === filters.courseId)
+      optimisticFilters.courseId
+        ? cohorts.filter((c) => c.course_id === optimisticFilters.courseId)
         : cohorts,
-    [cohorts, filters.courseId]
+    [cohorts, optimisticFilters.courseId]
   );
 
   const cohortNums = useMemo(() => cohortNumberMap(cohorts), [cohorts]);
@@ -409,53 +415,53 @@ export function LeadsWorkspace({
 
   const metricFilteredLeads = useMemo(() => {
     let rows = leads;
-    if (filters.uniqueDays != null && Number.isFinite(filters.uniqueDays)) {
+    if (optimisticFilters.uniqueDays != null && Number.isFinite(optimisticFilters.uniqueDays)) {
       rows = rows.filter(
-        (l) => (l.cardMetrics?.uniqueDays ?? 0) <= filters.uniqueDays!
+        (l) => (l.cardMetrics?.uniqueDays ?? 0) <= optimisticFilters.uniqueDays!
       );
     }
-    if (filters.uniqueCalls != null && Number.isFinite(filters.uniqueCalls)) {
+    if (optimisticFilters.uniqueCalls != null && Number.isFinite(optimisticFilters.uniqueCalls)) {
       rows = rows.filter(
-        (l) => (l.cardMetrics?.totalCalls ?? 0) <= filters.uniqueCalls!
+        (l) => (l.cardMetrics?.totalCalls ?? 0) <= optimisticFilters.uniqueCalls!
       );
     }
-    if (filters.minCalls != null && Number.isFinite(filters.minCalls)) {
+    if (optimisticFilters.minCalls != null && Number.isFinite(optimisticFilters.minCalls)) {
       rows = rows.filter(
-        (l) => (l.cardMetrics?.totalCalls ?? 0) >= filters.minCalls!
+        (l) => (l.cardMetrics?.totalCalls ?? 0) >= optimisticFilters.minCalls!
       );
     }
     if (
-      filters.minCallsSinceStage != null &&
-      Number.isFinite(filters.minCallsSinceStage)
+      optimisticFilters.minCallsSinceStage != null &&
+      Number.isFinite(optimisticFilters.minCallsSinceStage)
     ) {
       rows = rows.filter(
         (l) =>
-          (l.cardMetrics?.callsSinceStage ?? 0) >= filters.minCallsSinceStage!
+          (l.cardMetrics?.callsSinceStage ?? 0) >= optimisticFilters.minCallsSinceStage!
       );
     }
     if (
-      filters.maxAvgCallsPerDay != null &&
-      Number.isFinite(filters.maxAvgCallsPerDay)
+      optimisticFilters.maxAvgCallsPerDay != null &&
+      Number.isFinite(optimisticFilters.maxAvgCallsPerDay)
     ) {
       rows = rows.filter(
         (l) =>
           (l.cardMetrics?.avgCallsPerDaySinceStage ?? 0) <=
-          filters.maxAvgCallsPerDay!
+          optimisticFilters.maxAvgCallsPerDay!
       );
     }
     return rows;
   }, [
     leads,
-    filters.uniqueDays,
-    filters.uniqueCalls,
-    filters.minCalls,
-    filters.minCallsSinceStage,
-    filters.maxAvgCallsPerDay,
+    optimisticFilters.uniqueDays,
+    optimisticFilters.uniqueCalls,
+    optimisticFilters.minCalls,
+    optimisticFilters.minCallsSinceStage,
+    optimisticFilters.maxAvgCallsPerDay,
   ]);
 
   const [listTab, setListTab] = useState<(typeof LEAD_LIST_TABS)[number]["id"]>("all");
   const displayList = useMemo(() => {
-    let rows = filters.mode === "list" ? metricFilteredLeads : metricFilteredLeads;
+    let rows = optimisticFilters.mode === "list" ? metricFilteredLeads : metricFilteredLeads;
     if (listTab !== "all") {
       const tabDef = LEAD_LIST_TABS.find((t) => t.id === listTab)!;
       rows = rows.filter((l) => tabDef.stages.includes(l.stage as Stage));
@@ -481,11 +487,11 @@ export function LeadsWorkspace({
       );
     }
     return rows;
-  }, [metricFilteredLeads, listTab, filters.mode]);
+  }, [metricFilteredLeads, listTab, optimisticFilters.mode]);
 
   const hasMorePages =
-    filters.mode === "list" && filters.page * LIST_PAGE_SIZE < totalEstimate;
-  const showClaim = filters.ownership === "unassigned" && !isAdmin;
+    optimisticFilters.mode === "list" && optimisticFilters.page * LIST_PAGE_SIZE < totalEstimate;
+  const showClaim = optimisticFilters.ownership === "unassigned" && !isAdmin;
 
   function exportCsv() {
     const header = ["name", "email", "phone", "stage", "course", "cohort", "counselor", "intent"];
@@ -546,7 +552,7 @@ export function LeadsWorkspace({
                   }
                   className={cn(
                     "rounded-pill px-3 py-1.5 text-xs font-semibold uppercase tracking-eyebrow transition",
-                    filters.ownership === v.id
+                    optimisticFilters.ownership === v.id
                       ? "bg-navy text-white"
                       : "text-muted hover:text-navy"
                   )}
@@ -558,7 +564,7 @@ export function LeadsWorkspace({
           ) : (
             <select
               className="input-field w-auto py-1.5 text-xs"
-              value={filters.ownership}
+              value={optimisticFilters.ownership}
               onChange={(e) =>
                 pushFilters({ ownership: e.target.value, page: 1 })
               }
@@ -579,7 +585,7 @@ export function LeadsWorkspace({
               onClick={() => pushFilters({ mode: "board", page: 1 })}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-xs font-semibold uppercase tracking-eyebrow transition",
-                filters.mode === "board"
+                optimisticFilters.mode === "board"
                   ? "bg-navy text-white"
                   : "text-muted hover:text-navy"
               )}
@@ -592,7 +598,7 @@ export function LeadsWorkspace({
               onClick={() => pushFilters({ mode: "list", page: 1 })}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-xs font-semibold uppercase tracking-eyebrow transition",
-                filters.mode === "list"
+                optimisticFilters.mode === "list"
                   ? "bg-navy text-white"
                   : "text-muted hover:text-navy"
               )}
@@ -616,7 +622,7 @@ export function LeadsWorkspace({
         <div className="flex flex-wrap items-center gap-2">
           <select
             className="input-field w-auto py-1.5 text-xs"
-            value={filters.stageGroup}
+            value={optimisticFilters.stageGroup}
             onChange={(e) =>
               pushFilters({
                 stageGroup: e.target.value as StageGroupId,
@@ -633,7 +639,7 @@ export function LeadsWorkspace({
 
           <select
             className="input-field w-auto py-1.5 text-xs"
-            value={filters.courseId ?? ""}
+            value={optimisticFilters.courseId ?? ""}
             onChange={(e) =>
               pushFilters({
                 courseId: e.target.value || null,
@@ -652,7 +658,7 @@ export function LeadsWorkspace({
 
           <select
             className="input-field w-auto py-1.5 text-xs"
-            value={filters.cohortId ?? ""}
+            value={optimisticFilters.cohortId ?? ""}
             onChange={(e) =>
               pushFilters({ cohortId: e.target.value || null, page: 1 })
             }
@@ -660,7 +666,7 @@ export function LeadsWorkspace({
             <option value="">All cohorts</option>
             {filteredCohorts.map((c) => {
               const num = cohortNums.get(c.id) ?? c.name;
-              const label = filters.courseId
+              const label = optimisticFilters.courseId
                 ? num
                 : `${courseNameById.get(c.course_id) ?? "Course"} · ${num}`;
               return (
@@ -676,7 +682,7 @@ export function LeadsWorkspace({
             <input
               className="input-field w-auto py-1.5 text-xs"
               type="date"
-              value={filters.createdFrom ?? ""}
+              value={optimisticFilters.createdFrom ?? ""}
               onChange={(e) =>
                 pushFilters({
                   createdFrom: e.target.value || null,
@@ -691,7 +697,7 @@ export function LeadsWorkspace({
             <input
               className="input-field w-auto py-1.5 text-xs"
               type="date"
-              value={filters.createdTo ?? ""}
+              value={optimisticFilters.createdTo ?? ""}
               onChange={(e) =>
                 pushFilters({
                   createdTo: e.target.value || null,
@@ -701,7 +707,7 @@ export function LeadsWorkspace({
               title="Leads created on or before this date"
             />
           </label>
-          {(filters.createdFrom || filters.createdTo) && (
+          {(optimisticFilters.createdFrom || optimisticFilters.createdTo) && (
             <button
               type="button"
               className="rounded-pill border border-border px-2 py-1 text-[11px] font-medium text-muted hover:text-navy"
@@ -716,7 +722,7 @@ export function LeadsWorkspace({
           <label className="inline-flex items-center gap-1.5 rounded-pill border border-border px-3 py-1.5 text-xs font-medium text-navy">
             <input
               type="checkbox"
-              checked={filters.staleOnly}
+              checked={optimisticFilters.staleOnly}
               onChange={(e) =>
                 pushFilters({ staleOnly: e.target.checked, page: 1 })
               }
@@ -786,7 +792,7 @@ export function LeadsWorkspace({
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] text-muted">No call for</span>
               {NO_CALL_PRESETS.map((p) => {
-                const active = filters.callNotLoggedHours === p.hours;
+                const active = optimisticFilters.callNotLoggedHours === p.hours;
                 return (
                   <button
                     key={p.hours}
@@ -936,7 +942,7 @@ export function LeadsWorkspace({
       <div className="mb-3 flex flex-wrap gap-3 text-xs text-muted">
         <span>
           Showing <strong className="text-navy">{leads.length}</strong>
-          {filters.mode === "board" ? (
+          {optimisticFilters.mode === "board" ? (
             <>
               {totalEstimate > leads.length
                 ? ` of ${totalEstimate} matching (board loads first ${leads.length})`
@@ -947,7 +953,7 @@ export function LeadsWorkspace({
           ) : (
             <>
               {" "}
-              · page {filters.page}
+              · page {optimisticFilters.page}
               {totalEstimate > 0 ? ` · ${totalEstimate} matching` : null}
             </>
           )}
@@ -961,7 +967,7 @@ export function LeadsWorkspace({
         <span>Filters run on the server · Mine is the default work view</span>
       </div>
 
-      {filters.mode === "list" ? (
+      {optimisticFilters.mode === "list" ? (
         <div className="mb-3 flex flex-wrap gap-1 rounded-pill border border-border bg-white p-1 w-fit">
           {LEAD_LIST_TABS.map((t) => (
             <button
@@ -981,7 +987,7 @@ export function LeadsWorkspace({
         </div>
       ) : null}
 
-      {filters.mode === "board" ? (
+      {optimisticFilters.mode === "board" ? (
         <PipelineBoard
           leads={metricFilteredLeads}
           isAdmin={isAdmin}
@@ -991,7 +997,7 @@ export function LeadsWorkspace({
           cohorts={cohorts}
           selectedLeadId={selectedLeadId}
           onSelectLead={setSelectedLeadId}
-          courseId={filters.courseId}
+          courseId={optimisticFilters.courseId}
           onClaim={(id) =>
             startTransition(async () => {
               await claimLead(id);
@@ -1391,17 +1397,17 @@ export function LeadsWorkspace({
             <button
               type="button"
               className="btn-secondary"
-              disabled={filters.page <= 1 || pending}
-              onClick={() => pushFilters({ page: filters.page - 1 })}
+              disabled={optimisticFilters.page <= 1 || pending}
+              onClick={() => pushFilters({ page: optimisticFilters.page - 1 })}
             >
               Previous
             </button>
-            <span className="text-xs text-muted">Page {filters.page}</span>
+            <span className="text-xs text-muted">Page {optimisticFilters.page}</span>
             <button
               type="button"
               className="btn-secondary"
               disabled={!hasMorePages || pending}
-              onClick={() => pushFilters({ page: filters.page + 1 })}
+              onClick={() => pushFilters({ page: optimisticFilters.page + 1 })}
             >
               Next
             </button>
