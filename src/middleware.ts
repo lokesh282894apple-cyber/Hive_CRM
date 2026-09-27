@@ -130,12 +130,14 @@ export async function middleware(request: NextRequest) {
     });
 
     const {
-      data: { user },
+      data: { session },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await supabase.auth.getSession();
+    
+    const user = session?.user ?? null;
 
     if (userError) {
-      console.error("[middleware] getUser", userError.message);
+      console.error("[middleware] getSession", userError.message);
     }
 
     const isPublic = isPublicPath(path) || path.startsWith("/login");
