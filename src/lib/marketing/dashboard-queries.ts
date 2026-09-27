@@ -184,52 +184,29 @@ export async function fetchLeadFunnelUncached(
 
   const [sessions, leads, history, spendRows, costRows, campsRes, notesRes, activations] =
     await Promise.all([
-      fetchAllPages<{ id: string; first_seen_at: string }>(
-        (from, to) =>
-          admin
-            .from("visitor_sessions")
-            .select("id, first_seen_at")
-            .gte("first_seen_at", fromIso)
-            .lte("first_seen_at", toIso)
-            .order("first_seen_at", { ascending: true })
-            .range(from, to),
-        "visitor_sessions.funnel"
-      ),
-      fetchAllPages<{
-        id: string;
-        created_at: string;
-        programme: string | null;
-        cohort_id: string | null;
-        source: string | null;
-        utm_medium: string | null;
-        aql_at: string | null;
-        qualification_intent: string | null;
-        financial_check: string | null;
-        stage: string;
-      }>(
-        (from, to) =>
-          admin
-            .from("leads")
-            .select(
-              "id, created_at, programme, cohort_id, source, utm_medium, aql_at, qualification_intent, financial_check, stage"
-            )
-            .gte("created_at", fromIso)
-            .lte("created_at", toIso)
-            .order("created_at", { ascending: true })
-            .range(from, to),
-        "leads.funnel"
-      ),
-      fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
-        (from, to) =>
-          admin
-            .from("stage_history")
-            .select("lead_id, to_stage, changed_at")
-            .gte("changed_at", fromIso)
-            .lte("changed_at", toIso)
-            .order("changed_at", { ascending: true })
-            .range(from, to),
-        "stage_history.funnel"
-      ),
+      admin.rpc("rpc_funnel_visitor_sessions", { p_from: fromIso, p_to: toIso }).then((res) => {
+        if (res.error) throw new Error("rpc_funnel_visitor_sessions: " + res.error.message);
+        return res.data as { id: string; first_seen_at: string }[];
+      }),
+      admin.rpc("rpc_funnel_leads", { p_from: fromIso, p_to: toIso }).then((res) => {
+        if (res.error) throw new Error("rpc_funnel_leads: " + res.error.message);
+        return res.data as {
+          id: string;
+          created_at: string;
+          programme: string | null;
+          cohort_id: string | null;
+          source: string | null;
+          utm_medium: string | null;
+          aql_at: string | null;
+          qualification_intent: string | null;
+          financial_check: string | null;
+          stage: string;
+        }[];
+      }),
+      admin.rpc("rpc_funnel_stage_history", { p_from: fromIso, p_to: toIso }).then((res) => {
+        if (res.error) throw new Error("rpc_funnel_stage_history: " + res.error.message);
+        return res.data as { lead_id: string; to_stage: string; changed_at: string }[];
+      }),
       fetchAllPages<{ date: string; spend: number }>(
         (from, to) =>
           admin
