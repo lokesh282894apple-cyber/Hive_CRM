@@ -163,6 +163,115 @@ export type MarketingDailyNote = {
   activity_log?: string | null;
 };
 
+type RpcErr = { message: string; code?: string } | null;
+
+function isMissingRpc(err: RpcErr): boolean {
+  if (!err) return false;
+  return (
+    err.code === "PGRST202" ||
+    err.code === "42883" ||
+    /could not find the function/i.test(err.message)
+  );
+}
+
+/**
+ * Sessions per UTC day in [fromIso, toIso]. Uses rpc_sessions_per_day (counts
+ * in Postgres); falls back to paging rows if the migration isn't applied.
+ */
+export async function sessionsPerDay(
+  admin: SupabaseClient,
+  fromIso: string,
+  toIso: string,
+  /** "rows" forces the old row-paging path (parity checks only). */
+  mode: "auto" | "rows" = "auto"
+): Promise<{ day: string; sessions: number }[]> {
+  const { data, error } =
+    mode === "rows"
+      ? { data: null, error: { message: "could not find the function (forced)" } }
+      : await admin.rpc("rpc_sessions_per_day", { p_from: fromIso, p_to: toIso });
+  if (!error) {
+    return ((data ?? []) as { day: string; sessions: number | string }[]).map((r) => ({
+      day: r.day,
+      sessions: Number(r.sessions) || 0,
+    }));
+  }
+  if (!isMissingRpc(error)) throw new Error(`rpc_sessions_per_day: ${error.message}`);
+  const rows = await fetchAllPages<{ id: string; first_seen_at: string }>(
+    (from, to) =>
+      admin
+        .from("visitor_sessions")
+        .select("id, first_seen_at")
+        .gte("first_seen_at", fromIso)
+        .lte("first_seen_at", toIso)
+        .order("first_seen_at", { ascending: true })
+        .range(from, to),
+    "visitor_sessions.funnel"
+  );
+  const byDay = new Map<string, number>();
+  for (const r of rows) {
+    const d = String(r.first_seen_at).slice(0, 10);
+    byDay.set(d, (byDay.get(d) ?? 0) + 1);
+  }
+  return Array.from(byDay, ([day, sessions]) => ({ day, sessions }));
+}
+
+type SessionSourceGroup = {
+  utm_source: string | null;
+  utm_medium: string | null;
+  matched_campaign_id: string | null;
+  sessions: number;
+};
+
+/** Sessions grouped by (utm_source, utm_medium, campaign) in [fromIso, toIso]. */
+export async function sessionsBySource(
+  admin: SupabaseClient,
+  fromIso: string,
+  toIso: string,
+  /** "rows" forces the old row-paging path (parity checks only). */
+  mode: "auto" | "rows" = "auto"
+): Promise<SessionSourceGroup[]> {
+  const { data, error } =
+    mode === "rows"
+      ? { data: null, error: { message: "could not find the function (forced)" } }
+      : await admin.rpc("rpc_sessions_by_source", { p_from: fromIso, p_to: toIso });
+  if (!error) {
+    return ((data ?? []) as (Omit<SessionSourceGroup, "sessions"> & {
+      sessions: number | string;
+    })[]).map((r) => ({ ...r, sessions: Number(r.sessions) || 0 }));
+  }
+  if (!isMissingRpc(error)) throw new Error(`rpc_sessions_by_source: ${error.message}`);
+  const rows = await fetchAllPages<{
+    id: string;
+    utm_source: string | null;
+    utm_medium: string | null;
+    matched_campaign_id: string | null;
+    first_seen_at: string;
+  }>(
+    (from, to) =>
+      admin
+        .from("visitor_sessions")
+        .select("id, utm_source, utm_medium, matched_campaign_id, first_seen_at")
+        .gte("first_seen_at", fromIso)
+        .lte("first_seen_at", toIso)
+        .order("first_seen_at", { ascending: true })
+        .range(from, to),
+    "visitor_sessions.channel"
+  );
+  const groups = new Map<string, SessionSourceGroup>();
+  for (const r of rows) {
+    const k = JSON.stringify([r.utm_source, r.utm_medium, r.matched_campaign_id]);
+    const g = groups.get(k) ?? {
+      utm_source: r.utm_source,
+      utm_medium: r.utm_medium,
+      matched_campaign_id: r.matched_campaign_id,
+      sessions: 0,
+    };
+    g.sessions += 1;
+    groups.set(k, g);
+  }
+  return Array.from(groups.values());
+}
+
 export async function fetchLeadFunnelUncached(
   filters: MarketingFilters
 ): Promise<FunnelDayRow[]> {
@@ -186,17 +295,7 @@ export async function fetchLeadFunnelUncached(
 
   const [sessions, leads, history, spendRows, costRows, campsRes, notesRes, activations] =
     await Promise.all([
-      fetchAllPages<{ id: string; first_seen_at: string }>(
-        (from, to) =>
-          admin
-            .from("visitor_sessions")
-            .select("id, first_seen_at")
-            .gte("first_seen_at", fromIso)
-            .lte("first_seen_at", toIso)
-            .order("first_seen_at", { ascending: true })
-            .range(from, to),
-        "visitor_sessions.funnel"
-      ),
+      sessionsPerDay(admin, fromIso, toIso),
       fetchAllPages<{
         id: string;
         created_at: string;
@@ -347,8 +446,7 @@ export async function fetchLeadFunnelUncached(
   }
 
   for (const s of sessions) {
-    const d = String(s.first_seen_at).slice(0, 10);
-    ensure(d).sessions += 1;
+    ensure(s.day).sessions += s.sessions;
   }
 
   for (const sp of spendRows) {
@@ -1451,23 +1549,7 @@ export async function fetchChannelFunnelUncached(
   const toIso = `${filters.toDate}T23:59:59.999Z`;
 
   const [sessions, leads, campsRes, spendRows, costRows] = await Promise.all([
-    fetchAllPages<{
-      id: string;
-      utm_source: string | null;
-      utm_medium: string | null;
-      matched_campaign_id: string | null;
-      first_seen_at: string;
-    }>(
-      (from, to) =>
-        admin
-          .from("visitor_sessions")
-          .select("id, utm_source, utm_medium, matched_campaign_id, first_seen_at")
-          .gte("first_seen_at", fromIso)
-          .lte("first_seen_at", toIso)
-          .order("first_seen_at", { ascending: true })
-          .range(from, to),
-      "visitor_sessions.channel"
-    ),
+    sessionsBySource(admin, fromIso, toIso),
     fetchAllPages<{
       id: string;
       stage: string;
@@ -1586,7 +1668,7 @@ export async function fetchChannelFunnelUncached(
       sourceType: camp?.sourceType ?? null,
       leadSource: null,
     });
-    byChannel.get(key)!.sessions += 1;
+    byChannel.get(key)!.sessions += s.sessions;
   }
 
   for (const l of leads) {
