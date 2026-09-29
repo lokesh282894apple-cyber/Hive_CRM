@@ -90,7 +90,7 @@ export type AdmissionsAnalytics = {
   callRows: { lead_id: string; logged_at: string; counselor_id: string }[];
 };
 
-const ATTENTION_STAGES = [
+export const ATTENTION_STAGES = [
   "dnp",
   "no_show",
   "reschedule",
@@ -103,7 +103,7 @@ function dayKey(iso: string) {
   return iso.slice(0, 10);
 }
 
-function emptyDailyBetween(fromDate: string, toDate: string): DailyCount[] {
+export function emptyDailyBetween(fromDate: string, toDate: string): DailyCount[] {
   return eachDateKey(fromDate, toDate).map((date) => ({
     date,
     leads: 0,

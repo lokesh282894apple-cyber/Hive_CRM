@@ -8,6 +8,7 @@ import {
   normalizePhone,
 } from "@/lib/leads/identity";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { invalidateLeadCaches } from "@/lib/analytics/admissions-cache";
 
 /** Map website programme/source/page hints → course name substrings */
 function programmeHints(programme: string | null, source: string, pageHint: string | null): string[] {
@@ -368,6 +369,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    invalidateLeadCaches();
     return NextResponse.json({
       ok: true,
       id: leadId!,

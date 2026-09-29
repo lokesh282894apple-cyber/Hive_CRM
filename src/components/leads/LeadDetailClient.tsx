@@ -56,7 +56,7 @@ import type {
 import { cohortNumberMap } from "@/lib/cohorts/display";
 import { formatCurrency, formatDateTime } from "@/lib/utils";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
 type Tab = "info" | "calling" | "activity" | "marketing";
@@ -126,7 +126,6 @@ export function LeadDetailClient({
   leadsBasePath?: string;
   tasks?: LeadTaskRow[];
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTabState] = useState<Tab>(
     () => (searchParams.get("tab") as Tab) || "info"
@@ -345,7 +344,6 @@ export function LeadDetailClient({
       } else {
         setError(null);
         setStudentIntent("");
-        router.refresh();
       }
     });
   }
@@ -1142,7 +1140,6 @@ export function LeadDetailClient({
             setStage("admission_team_rejected");
             setStageReason(reason);
             setError(null);
-            router.refresh();
           }}
         />
       ) : null}
@@ -1164,7 +1161,6 @@ export function LeadDetailClient({
             setShowClosedWon(false);
             setStage("closed_paid");
             setError(null);
-            router.refresh();
           }}
         />
       ) : null}
@@ -1177,7 +1173,6 @@ export function LeadDetailClient({
           onClose={() => setNoShowRound(null)}
           onDone={() => {
             setNoShowRound(null);
-            router.refresh();
           }}
         />
       ) : null}

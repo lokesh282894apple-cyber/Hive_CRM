@@ -50,7 +50,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { differenceInDays } from "date-fns";
 import { Layers, LayoutGrid, Phone, Sparkles } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 function isStale(lead: LeadWithRelations) {
@@ -654,7 +653,6 @@ export function PipelineBoard({
   const lastOverId = useRef<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [, startTransition] = useTransition();
-  const router = useRouter();
 
   useEffect(() => {
     setItems(leads);
@@ -1081,7 +1079,6 @@ export function PipelineBoard({
               )
             );
             setBooking(null);
-            router.refresh();
           }}
         />
       ) : null}
@@ -1105,7 +1102,6 @@ export function PipelineBoard({
               )
             );
             setAdmissionReject(null);
-            router.refresh();
           }}
         />
       ) : null}
@@ -1130,7 +1126,6 @@ export function PipelineBoard({
               )
             );
             setStageReject(null);
-            router.refresh();
           }}
         />
       ) : null}

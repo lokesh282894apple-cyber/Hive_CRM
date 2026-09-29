@@ -7,7 +7,6 @@ import {
   type LeadTaskRow,
 } from "@/app/actions/lead-tasks";
 import { formatDateTime } from "@/lib/utils";
-import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState, useTransition } from "react";
 
 function defaultDueLocal(): string {
@@ -31,7 +30,6 @@ export function LeadTasksPanel({
   leadId: string;
   tasks: LeadTaskRow[];
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [title, setTitle] = useState("");
   const [dueAt, setDueAt] = useState(defaultDueLocal);
@@ -68,7 +66,6 @@ export function LeadTasksPanel({
       setError(null);
       setTitle("");
       setDueAt(defaultDueLocal());
-      router.refresh();
     });
   }
 

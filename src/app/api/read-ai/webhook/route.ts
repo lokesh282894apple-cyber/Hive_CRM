@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { invalidateLeadCaches } from "@/lib/analytics/admissions-cache";
 
 /**
  * Read AI webhook — attach report URL + summary to interview_bookings.
@@ -146,5 +147,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  invalidateLeadCaches();
   return NextResponse.json({ ok: true, booking_id: bookingId });
 }

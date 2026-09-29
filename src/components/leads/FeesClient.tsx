@@ -285,7 +285,6 @@ export function FeesClient({
                       ? "one_shot"
                       : "direct";
                 router.push(`/leads/${leadId}/fees?tab=${nextTab}`);
-                router.refresh();
               }
             })
           }
@@ -437,7 +436,6 @@ export function FeesClient({
                     }
                   } else {
                     setError(null);
-                    router.refresh();
                   }
                 })
               }
@@ -486,7 +484,6 @@ export function FeesClient({
                         if (!res.ok) setError(res.error);
                         else {
                           setError(null);
-                          router.refresh();
                         }
                       })
                     }
@@ -563,7 +560,6 @@ export function FeesClient({
                         if (!res.ok) setError(res.error);
                         else {
                           setError(null);
-                          router.refresh();
                         }
                       })
                     }
@@ -702,7 +698,6 @@ export function FeesClient({
               if (!res.ok) setError(res.error);
               else {
                 setError(null);
-                router.refresh();
               }
             });
           }}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { findExistingLead, normalizePhone } from "@/lib/leads/identity";
 import { validateCronAuth } from "@/lib/marketing/track-auth";
+import { invalidateLeadCaches } from "@/lib/analytics/admissions-cache";
 
 /**
  * SIM-based dialer / Runo-style webhook.
@@ -81,6 +82,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  invalidateLeadCaches();
   return NextResponse.json({ ok: true, id: data.id, lead_id: match.lead.id });
 }
 

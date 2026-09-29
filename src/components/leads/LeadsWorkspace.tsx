@@ -1087,7 +1087,6 @@ export function LeadsWorkspace({
                     setBulkStage("");
                     setBulkReason("");
                     setBulkIntent("");
-                    router.refresh();
                   })
                 }
               >

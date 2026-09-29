@@ -703,6 +703,20 @@ export async function fetchCounselorAttributionGlance(
           : y.converted_at.localeCompare(x.converted_at)
     )
     .slice(0, 50);
+
+  return summarizeCounselorAttribution(supabase, attrList, leadIds.length);
+}
+
+/** Top-50 attribution rows (newest first) → glance card data. */
+export async function summarizeCounselorAttribution(
+  supabase: SupabaseClient,
+  attrList: {
+    lead_id: string;
+    converted_at: string;
+    first_touch_campaign_id: string | null;
+  }[],
+  totalLeads: number
+) {
   const campaignIds = Array.from(
     new Set(attrList.map((a) => a.first_touch_campaign_id).filter(Boolean))
   ) as string[];
@@ -754,7 +768,7 @@ export async function fetchCounselorAttributionGlance(
 
   return {
     attributedCount: attrList.length,
-    totalLeads: leadIds.length,
+    totalLeads,
     topSources: Array.from(sourceCounts.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
