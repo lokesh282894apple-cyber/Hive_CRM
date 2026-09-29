@@ -176,11 +176,50 @@ const cachedTrafficRpcData = cachedMarketingQuery(
  * a small instance). Cache the JSON result briefly so each range is computed
  * at most once per TTL instead of on every page load.
  */
+/** Payloads older than this are ignored (pg_cron refreshes every 10–30 min). */
+const PRECOMPUTED_MAX_AGE_MS = 45 * 60 * 1000;
+
+/**
+ * pg_cron stores marketing_overview / marketing_top_pages output in
+ * marketing_rpc_cache (see 20260929120000_marketing_precompute.sql). Use it
+ * when it was computed for exactly this window — a primary-key lookup instead
+ * of a multi-second scan. Returns undefined when unavailable.
+ */
+async function readPrecomputed(
+  fn: "marketing_overview" | "marketing_top_pages",
+  args: Record<string, unknown>
+): Promise<unknown | undefined> {
+  const since = String(args.p_since ?? "");
+  const days = Math.round((Date.now() - Date.parse(since)) / 86_400_000);
+  // Only the standard 7/30/90-day windows are precomputed
+  const range = [7, 30, 90].find((r) => Math.abs(r - days) <= 1);
+  if (!range) return undefined;
+  const key = fn === "marketing_overview" ? `overview:${range}` : `top_pages:${range}`;
+  const { data, error } = await marketingAggClient()
+    .from("marketing_rpc_cache")
+    .select("since, payload, computed_at")
+    .eq("key", key)
+    .maybeSingle();
+  if (error || !data) return undefined; // table missing / not filled yet
+  if (Date.parse(data.since as string) !== Date.parse(since)) return undefined;
+  if (Date.now() - Date.parse(data.computed_at as string) > PRECOMPUTED_MAX_AGE_MS) {
+    return undefined;
+  }
+  if (fn === "marketing_overview") {
+    const rangeDays = Number(args.p_range_days);
+    return rangeDays === range ? data.payload : undefined;
+  }
+  const limit = Math.max(1, Math.min(Number(args.p_limit) || 40, 200));
+  return Array.isArray(data.payload) ? data.payload.slice(0, limit) : undefined;
+}
+
 async function trafficRpc(
   fn: "marketing_overview" | "marketing_top_pages",
   args: Record<string, unknown>
 ): Promise<{ data: unknown; error: RpcError | null }> {
   try {
+    const pre = await readPrecomputed(fn, args).catch(() => undefined);
+    if (pre !== undefined) return { data: pre, error: null };
     return { data: await cachedTrafficRpcData(fn, args), error: null };
   } catch (e) {
     const err = e as Error & { code?: string };
