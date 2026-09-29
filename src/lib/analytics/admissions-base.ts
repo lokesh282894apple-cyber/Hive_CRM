@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { admissionsAggClient } from "@/lib/analytics/agg-client";
-import { fetchAllPages } from "@/lib/supabase/paginate";
+import { PAGE_SIZE, fetchAllPages } from "@/lib/supabase/paginate";
 
 export type BaseLead = {
   id: string;
@@ -60,6 +60,7 @@ export type AdmissionsBase = {
 
 const LEAD_ID_CHUNK = 200;
 const ID_FETCH_CONCURRENCY = 4;
+const ID_CHUNK_MAX_FOR_BIG_PAGES = LEAD_ID_CHUNK * ID_FETCH_CONCURRENCY;
 
 function defaultSinceIso(): string {
   const d = new Date();
@@ -157,9 +158,14 @@ export const getAdmissionsBase = cache(
     const leadIds = leads.map((l) => l.id);
     const leadIdSet = new Set(leadIds);
 
-    // Prefer lead-id chunks when the set is small (course/cohort filters).
-    // For large unfiltered sets, one date-scoped paginated scan is fewer round-trips.
-    const useIdChunks = filtered || leadIds.length <= 2500;
+    // Lead-id chunks (200 ids/request, 4 in flight) vs one date-scoped scan
+    // filtered to leadIdSet — same rows either way, pick fewer round-trips.
+    // With large pages (SUPABASE_MAX_ROWS ≥ 5000) a scan is 1–3 requests, so
+    // chunks only win for ≤ 800 ids (a single wave).
+    const bigPages = PAGE_SIZE >= 5000;
+    const useIdChunks = bigPages
+      ? leadIds.length <= ID_CHUNK_MAX_FOR_BIG_PAGES
+      : filtered || leadIds.length <= 2500;
 
     const [historyRaw, bookingsRaw, attrs] = await Promise.all([
       leadIds.length === 0
@@ -218,19 +224,33 @@ export const getAdmissionsBase = cache(
                   .range(from, to),
               "interview_bookings"
             ),
-      // Never pull full attribution table — only rows for leads we kept
-      mapIdChunks<BaseAttr>(leadIds, async (chunk) =>
-        fetchAllPages<BaseAttr>(
-          (from, to) =>
-            db
-              .from("lead_attribution")
-              .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
-              .in("lead_id", chunk)
-              .order("lead_id", { ascending: true })
-              .range(from, to),
-          "lead_attribution"
-        )
-      ),
+      // Small sets: only rows for leads we kept. Large sets with big pages:
+      // one scan of lead_attribution (≈ one row per attributed lead) is far
+      // fewer round-trips than hundreds of id chunks; filtered below.
+      leadIds.length === 0
+        ? Promise.resolve([] as BaseAttr[])
+        : useIdChunks
+          ? mapIdChunks<BaseAttr>(leadIds, async (chunk) =>
+              fetchAllPages<BaseAttr>(
+                (from, to) =>
+                  db
+                    .from("lead_attribution")
+                    .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
+                    .in("lead_id", chunk)
+                    .order("lead_id", { ascending: true })
+                    .range(from, to),
+                "lead_attribution"
+              )
+            )
+          : fetchAllPages<BaseAttr>(
+              (from, to) =>
+                db
+                  .from("lead_attribution")
+                  .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
+                  .order("id", { ascending: true })
+                  .range(from, to),
+              "lead_attribution"
+            ).then((rows) => rows.filter((a) => leadIdSet.has(a.lead_id))),
     ]);
 
     const history = useIdChunks

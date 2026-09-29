@@ -4,8 +4,11 @@ import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import {
   LEAD_LIST_SELECT,
   applyLeadsFilters,
+  leadsPrefsCookieName,
   parseLeadsSearchParams,
+  withSavedLeadPrefs,
 } from "@/lib/leads-query";
+import { cookies } from "next/headers";
 import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
@@ -22,10 +25,13 @@ export default async function AdminLeadsPage({
   const user = await requireUser(["admin"]);
   const supabase = createClient();
 
-  const filters = parseLeadsSearchParams(searchParams, {
-    ownership: "all",
-    isAdmin: true,
-  });
+  const defaults = { ownership: "all", isAdmin: true };
+  const saved = withSavedLeadPrefs(
+    searchParams,
+    cookies().get(leadsPrefsCookieName(true))?.value,
+    defaults
+  );
+  const filters = parseLeadsSearchParams(saved.params, defaults);
 
   const filterOpts = {
     filters,
@@ -115,6 +121,7 @@ export default async function AdminLeadsPage({
       basePath="/admin/leads"
       attributionByLead={attributionByLead}
       showImport
+      prefsFromServer={saved.applied}
     />
   );
 }

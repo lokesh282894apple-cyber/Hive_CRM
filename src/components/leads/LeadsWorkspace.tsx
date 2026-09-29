@@ -22,6 +22,7 @@ import {
 } from "@/lib/constants";
 import {
   filtersToSearchParams,
+  leadsPrefsCookieName,
   type LeadsFilterParams,
 } from "@/lib/leads-query";
 import { cohortNumberMap } from "@/lib/cohorts/display";
@@ -43,6 +44,7 @@ export function LeadsWorkspace({
   counselors,
   isAdmin,
   basePath = "/leads",
+  prefsFromServer = false,
   attributionByLead = {},
   showImport = false,
   addLeadHref,
@@ -56,6 +58,8 @@ export function LeadsWorkspace({
   counselors?: AppUser[];
   isAdmin: boolean;
   basePath?: string;
+  /** Server already applied saved filters from the cookie — don't re-navigate. */
+  prefsFromServer?: boolean;
   /** lead_id → campaign/channel label for Source column */
   attributionByLead?: Record<string, { campaign_name: string | null; channel_name: string | null }>;
   /** Admin CSV import control in the filter bar */
@@ -157,7 +161,7 @@ export function LeadsWorkspace({
 
   // Restore saved prefs when URL has no filter params
   useEffect(() => {
-    if (searchParams.toString()) return;
+    if (searchParams.toString() || prefsFromServer) return;
     try {
       const raw = window.localStorage.getItem(prefsKey);
       if (!raw) return;
@@ -174,22 +178,34 @@ export function LeadsWorkspace({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(
-        prefsKey,
-        JSON.stringify({
-          ownership: optimisticFilters.ownership,
-          courseId: optimisticFilters.courseId,
-          cohortId: optimisticFilters.cohortId,
-          stageGroup: optimisticFilters.stageGroup,
-          staleOnly: optimisticFilters.staleOnly,
-          mode: optimisticFilters.mode,
-        })
-      );
+      const prefs = JSON.stringify({
+        ownership: optimisticFilters.ownership,
+        courseId: optimisticFilters.courseId,
+        cohortId: optimisticFilters.cohortId,
+        stageGroup: optimisticFilters.stageGroup,
+        staleOnly: optimisticFilters.staleOnly,
+        mode: optimisticFilters.mode,
+      });
+      window.localStorage.setItem(prefsKey, prefs);
       window.localStorage.setItem("hive-leads-view", optimisticFilters.mode);
+      // Server reads this on the next visit so the board renders once with
+      // saved filters instead of rendering defaults and then re-navigating.
+      document.cookie = `${leadsPrefsCookieName(isAdmin)}=${encodeURIComponent(
+        prefs
+      )}; path=/; max-age=31536000; samesite=lax`;
     } catch {
       /* ignore */
     }
-  }, [filters, prefsKey]);
+  }, [
+    optimisticFilters.ownership,
+    optimisticFilters.courseId,
+    optimisticFilters.cohortId,
+    optimisticFilters.stageGroup,
+    optimisticFilters.staleOnly,
+    optimisticFilters.mode,
+    prefsKey,
+    isAdmin,
+  ]);
 
   useEffect(() => {
     const t = setTimeout(() => {
