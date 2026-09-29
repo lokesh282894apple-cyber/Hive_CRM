@@ -76,5 +76,7 @@ select cron.schedule(
   $$select public.refresh_marketing_rpc_cache(array[7, 90])$$
 );
 
--- Fill it now so the first page load after deploy is already fast.
-select public.refresh_marketing_rpc_cache(array[7, 30, 90]);
+-- Not filled here (it can take ~a minute on a small instance and would risk
+-- the SQL editor timing out). pg_cron fills 30d within 10 min, 7d/90d within
+-- 30 min; until then pages use the live call. To fill immediately, run once:
+--   select public.refresh_marketing_rpc_cache(array[30]);
