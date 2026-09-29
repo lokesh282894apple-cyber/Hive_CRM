@@ -10,7 +10,7 @@ import {
 } from "@/lib/constants";
 import { ensureAdmissionFeeLine, normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ProgramResult = { ok: true } | { ok: false; error: string };
 
@@ -19,7 +19,7 @@ async function requireProgram() {
 }
 
 function touch() {
-  revalidatePath("/program/fees");
+  revalidateLeadPath("/program/fees");
 }
 
 async function syncLoanRowForDeal(

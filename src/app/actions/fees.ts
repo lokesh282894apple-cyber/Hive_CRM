@@ -5,7 +5,7 @@ import type { InstallmentStatus, LoanStage, PaymentMode, Stage } from "@/lib/con
 import { createClient } from "@/lib/supabase/server";
 import type { AppUser } from "@/types/database";
 import { addDays, format } from "date-fns";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -160,8 +160,8 @@ export async function setOfferFee(input: {
       }
     }
 
-    revalidatePath(`/leads/${input.leadId}/fees`);
-    revalidatePath(`/leads/${input.leadId}`);
+    revalidateLeadPath(`/leads/${input.leadId}/fees`);
+    revalidateLeadPath(`/leads/${input.leadId}`);
     return { ok: true, feeRecordId: existing.id };
   }
 
@@ -188,8 +188,8 @@ export async function setOfferFee(input: {
     .single();
 
   if (error) return { ok: false, error: error.message };
-  revalidatePath(`/leads/${input.leadId}/fees`);
-  revalidatePath(`/leads/${input.leadId}`);
+  revalidateLeadPath(`/leads/${input.leadId}/fees`);
+  revalidateLeadPath(`/leads/${input.leadId}`);
   return { ok: true, feeRecordId: data.id };
 }
 
@@ -300,8 +300,8 @@ export async function generateInstallments(input: {
     })
     .eq("id", feeId);
 
-  revalidatePath(`/leads/${input.leadId}/fees`);
-  revalidatePath(`/leads/${input.leadId}`);
+  revalidateLeadPath(`/leads/${input.leadId}/fees`);
+  revalidateLeadPath(`/leads/${input.leadId}`);
   return { ok: true };
 }
 
@@ -387,9 +387,9 @@ export async function recordInstallmentPayment(
     .update({ remaining_fee: recomputeRemaining(owed, realisedSum) })
     .eq("id", inst.fee_record_id);
 
-  revalidatePath(`/leads/${leadId}/fees`);
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath(`/program/fees`);
+  revalidateLeadPath(`/leads/${leadId}/fees`);
+  revalidateLeadPath(`/leads/${leadId}`);
+  revalidateLeadPath(`/program/fees`);
   return { ok: true };
 }
 
@@ -416,7 +416,7 @@ export async function updateInstallmentRow(
     .update({ amount_to_realise, deadline, status })
     .eq("id", installmentId);
   if (error) return { ok: false, error: error.message };
-  revalidatePath(`/leads/${leadId}/fees`);
+  revalidateLeadPath(`/leads/${leadId}/fees`);
   return { ok: true };
 }
 
@@ -513,8 +513,8 @@ export async function upsertLoan(input: {
     })
     .eq("id", feeId!);
 
-  revalidatePath(`/leads/${input.leadId}/fees`);
-  revalidatePath(`/leads/${input.leadId}`);
+  revalidateLeadPath(`/leads/${input.leadId}/fees`);
+  revalidateLeadPath(`/leads/${input.leadId}`);
   return { ok: true };
 }
 

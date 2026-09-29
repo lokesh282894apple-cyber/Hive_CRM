@@ -40,7 +40,6 @@ export function LeadOfferFields({
   function save(patch: Parameters<typeof updateLeadCardFields>[1]) {
     startTransition(async () => {
       await updateLeadCardFields(lead.id, patch);
-      router.refresh();
     });
   }
 

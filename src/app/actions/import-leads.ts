@@ -9,7 +9,7 @@ import {
 } from "@/lib/hubspot-import";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ImportLeadsResult =
   | {
@@ -201,8 +201,8 @@ export async function importLeadsFromCsv(input: {
     }
   }
 
-  revalidatePath("/admin/leads");
-  revalidatePath("/leads");
+  revalidateLeadPath("/admin/leads");
+  revalidateLeadPath("/leads");
   return { ok: true, created, updated, skipped, errors: errors.slice(0, 50) };
 }
 
@@ -331,7 +331,7 @@ export async function importFeesFromCsv(input: {
     }
   }
 
-  revalidatePath("/admin/payments");
-  revalidatePath("/admin/leads");
+  revalidateLeadPath("/admin/payments");
+  revalidateLeadPath("/admin/leads");
   return { ok: true, created, updated, skipped, errors: errors.slice(0, 50) };
 }

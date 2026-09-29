@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { admissionsAggClient } from "@/lib/analytics/agg-client";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 
@@ -77,7 +79,7 @@ function pct(n: number, d: number) {
   return d > 0 ? (n / d) * 100 : 0;
 }
 
-export async function fetchPanelPerformance(
+async function fetchPanelPerformanceUncached(
   supabase: SupabaseClient,
   filters: PanelFilters = {}
 ): Promise<PanelPerformance> {
@@ -291,4 +293,22 @@ export async function fetchPanelPerformance(
     totals: grand,
     overall: Boolean(filters.overall),
   };
+}
+
+const fetchPanelPerformanceCached = cachedAdmissionsQuery(
+  "fetchPanelPerformance-v1",
+  (opts: Parameters<typeof fetchPanelPerformanceUncached>[1]) => JSON.stringify(opts ?? null),
+  (opts: Parameters<typeof fetchPanelPerformanceUncached>[1]) =>
+    fetchPanelPerformanceUncached(createAdminClient(), opts)
+);
+
+/**
+ * Cached ~60s (busted by lead writes). Admin-only callers: runs with the
+ * service client because cookies are unavailable inside the cache.
+ */
+export function fetchPanelPerformance(
+  _supabase: SupabaseClient,
+  opts?: Parameters<typeof fetchPanelPerformanceUncached>[1]
+): Promise<PanelPerformance> {
+  return fetchPanelPerformanceCached(opts);
 }

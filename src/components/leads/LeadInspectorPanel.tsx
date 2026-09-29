@@ -19,7 +19,6 @@ import { leadSourceClassLabel } from "@/lib/leads/source-class";
 import { cn, formatDate, formatDateTime, formatRelativeAgo } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState, useTransition } from "react";
 
 const PREFS_KEY = "hive-leads-inspector";
@@ -70,7 +69,6 @@ export function LeadInspectorPanel({
   const [title, setTitle] = useState("");
   const [dueAt, setDueAt] = useState(defaultDueLocal);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   useEffect(() => {
     try {
@@ -195,7 +193,6 @@ export function LeadInspectorPanel({
       else {
         setError(null);
         (e.target as HTMLFormElement).reset();
-        router.refresh();
       }
     });
   }

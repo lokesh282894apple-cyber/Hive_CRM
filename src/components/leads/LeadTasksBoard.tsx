@@ -8,7 +8,6 @@ import {
 import { formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 export type TaskWithLead = LeadTaskRow & {
@@ -61,7 +60,6 @@ function TaskSection({
   empty: string;
   tone?: "danger" | "default";
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -118,7 +116,6 @@ function TaskSection({
                     if (!res.ok) setError(res.error);
                     else {
                       setError(null);
-                      router.refresh();
                     }
                   })
                 }
@@ -135,7 +132,6 @@ function TaskSection({
                     if (!res.ok) setError(res.error);
                     else {
                       setError(null);
-                      router.refresh();
                     }
                   })
                 }

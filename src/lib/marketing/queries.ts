@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mapInChunks } from "@/lib/supabase/paginate";
 
 export type RangeKey = "7" | "30" | "90";
 
@@ -676,14 +677,32 @@ export async function fetchCounselorAttributionGlance(
     };
   }
 
-  const { data: attrs } = await supabase
-    .from("lead_attribution")
-    .select("lead_id, converted_at, first_touch_campaign_id")
-    .in("lead_id", leadIds)
-    .order("converted_at", { ascending: false })
-    .limit(50);
-
-  const attrList = attrs ?? [];
+  // Chunk ids (a counselor book can be thousands of UUIDs — too long for one
+  // URL); take the 50 most recent across chunks, same as one query would.
+  type AttrRow = {
+    lead_id: string;
+    converted_at: string;
+    first_touch_campaign_id: string | null;
+  };
+  const attrChunks = await mapInChunks<AttrRow>(leadIds, async (chunk) => {
+    const { data } = await supabase
+      .from("lead_attribution")
+      .select("lead_id, converted_at, first_touch_campaign_id")
+      .in("lead_id", chunk)
+      .order("converted_at", { ascending: false })
+      .limit(50);
+    return (data ?? []) as AttrRow[];
+  });
+  // Postgres DESC puts NULLs first — keep that order
+  const attrList = attrChunks
+    .sort((x, y) =>
+      x.converted_at == null
+        ? -1
+        : y.converted_at == null
+          ? 1
+          : y.converted_at.localeCompare(x.converted_at)
+    )
+    .slice(0, 50);
   const campaignIds = Array.from(
     new Set(attrList.map((a) => a.first_touch_campaign_id).filter(Boolean))
   ) as string[];

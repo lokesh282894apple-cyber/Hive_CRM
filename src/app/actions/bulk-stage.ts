@@ -11,7 +11,7 @@ import {
   type Stage,
 } from "@/lib/constants";
 import { getFunnelConfig } from "@/lib/funnel/config";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -91,7 +91,7 @@ export async function bulkUpdateLeadStages(input: {
     else failed.push({ id, error: res.error });
   }
 
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  revalidateLeadPath("/leads");
+  revalidateLeadPath("/admin/leads");
   return { ok: true, data: { updated, failed } };
 }

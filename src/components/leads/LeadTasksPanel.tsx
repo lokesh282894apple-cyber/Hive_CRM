@@ -159,7 +159,6 @@ export function LeadTasksPanel({
                       if (!res.ok) setError(res.error);
                       else {
                         setError(null);
-                        router.refresh();
                       }
                     })
                   }
@@ -176,7 +175,6 @@ export function LeadTasksPanel({
                       if (!res.ok) setError(res.error);
                       else {
                         setError(null);
-                        router.refresh();
                       }
                     })
                   }

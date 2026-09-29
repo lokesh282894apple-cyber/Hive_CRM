@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { cohortDisplayLabel } from "@/lib/cohorts/display";
 import { LOAN_STAGE_LABELS, type LoanStage, type PaymentMode } from "@/lib/constants";
 
@@ -86,7 +88,7 @@ function resolveRevenue(fee: {
   return (Number(fee.total_fee) || 0) - (Number(fee.remaining_fee) || 0);
 }
 
-export async function fetchPaymentsDashboard(
+async function fetchPaymentsDashboardUncached(
   supabase: SupabaseClient,
   opts?: {
     cohortId?: string | null;
@@ -260,4 +262,22 @@ export async function fetchPaymentsDashboard(
     loans: loanRows,
     byCohort: Array.from(byCohortMap.values()),
   };
+}
+
+const fetchPaymentsDashboardCached = cachedAdmissionsQuery(
+  "fetchPaymentsDashboard-v1",
+  (opts: Parameters<typeof fetchPaymentsDashboardUncached>[1]) => JSON.stringify(opts ?? null),
+  (opts: Parameters<typeof fetchPaymentsDashboardUncached>[1]) =>
+    fetchPaymentsDashboardUncached(createAdminClient(), opts)
+);
+
+/**
+ * Cached ~60s (busted by lead writes). Admin-only callers: runs with the
+ * service client because cookies are unavailable inside the cache.
+ */
+export function fetchPaymentsDashboard(
+  _supabase: SupabaseClient,
+  opts?: Parameters<typeof fetchPaymentsDashboardUncached>[1]
+): Promise<PaymentsDashboard> {
+  return fetchPaymentsDashboardCached(opts);
 }

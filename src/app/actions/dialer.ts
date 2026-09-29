@@ -8,7 +8,7 @@ import {
   isTwilioConfigured,
   twilioFromNumber,
 } from "@/lib/twilio";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type DialerResult =
   | { ok: true; callLogId: string; callSid: string }
@@ -101,7 +101,7 @@ export async function startClickToCall(input: {
       .update({ twilio_call_sid: call.sid, call_status: call.status })
       .eq("id", callLog.id);
 
-    revalidatePath(`/leads/${lead.id}`);
+    revalidateLeadPath(`/leads/${lead.id}`);
     return { ok: true, callLogId: callLog.id, callSid: call.sid };
   } catch (err) {
     await supabase

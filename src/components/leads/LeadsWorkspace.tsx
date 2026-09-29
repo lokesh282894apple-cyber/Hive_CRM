@@ -1001,7 +1001,6 @@ export function LeadsWorkspace({
           onClaim={(id) =>
             startTransition(async () => {
               await claimLead(id);
-              router.refresh();
             })
           }
         />
@@ -1350,7 +1349,6 @@ export function LeadsWorkspace({
                                   onClick={() =>
                                     startTransition(async () => {
                                       await claimLead(l.id);
-                                      router.refresh();
                                     })
                                   }
                                 >
@@ -1364,7 +1362,6 @@ export function LeadsWorkspace({
                                   onChange={(e) =>
                                     startTransition(async () => {
                                       await reassignLead(l.id, e.target.value);
-                                      router.refresh();
                                     })
                                   }
                                 >

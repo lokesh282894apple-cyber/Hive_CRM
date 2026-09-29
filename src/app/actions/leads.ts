@@ -15,7 +15,7 @@ import {
 import { getFunnelConfig } from "@/lib/funnel/config";
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -126,8 +126,8 @@ async function ensureApplicationFeeLine(
 }
 
 function touchLeadPaths(leadId?: string) {
-  if (leadId) revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
+  if (leadId) revalidateLeadPath(`/leads/${leadId}`);
+  revalidateLeadPath("/leads");
 }
 
 export async function createLead(
@@ -422,7 +422,7 @@ export async function updateLeadInfo(
 
   await recomputeLeadScore(supabase, leadId);
 
-  revalidatePath(`/leads/${leadId}`);
+  revalidateLeadPath(`/leads/${leadId}`);
   return { ok: true };
 }
 
@@ -587,7 +587,7 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
 
   await recomputeLeadScore(supabase, leadId);
 
-  revalidatePath(`/leads/${leadId}`);
+  revalidateLeadPath(`/leads/${leadId}`);
   return { ok: true };
 }
 
@@ -611,7 +611,7 @@ export async function deleteCallLog(id: string, leadId: string): Promise<ActionR
     .eq("id", leadId);
 
   await recomputeLeadScore(supabase, leadId);
-  revalidatePath(`/leads/${leadId}`);
+  revalidateLeadPath(`/leads/${leadId}`);
   return { ok: true };
 }
 
@@ -682,6 +682,6 @@ export async function upsertPanelistGrade(input: {
   );
   if (error) return { ok: false, error: error.message };
   touchLeadPaths(input.leadId);
-  revalidatePath("/interviewer/interviews");
+  revalidateLeadPath("/interviewer/interviews");
   return { ok: true };
 }

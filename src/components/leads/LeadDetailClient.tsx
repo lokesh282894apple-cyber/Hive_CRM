@@ -298,7 +298,6 @@ export function LeadDetailClient({
         setLocalLead(prev);
       } else {
         setError(null);
-        router.refresh();
       }
     });
   }
@@ -360,7 +359,6 @@ export function LeadDetailClient({
         setOwnerId(allocatedToId ?? "");
       } else {
         setError(null);
-        router.refresh();
       }
     });
   }
@@ -375,7 +373,6 @@ export function LeadDetailClient({
       else {
         setError(null);
         (e.target as HTMLFormElement).reset();
-        router.refresh();
       }
     });
   }
@@ -437,7 +434,6 @@ export function LeadDetailClient({
                 onClick={() =>
                   startTransition(async () => {
                     await claimLead(lead.id);
-                    router.refresh();
                   })
                 }
               >
@@ -641,7 +637,6 @@ export function LeadDetailClient({
                       if (!res.ok) setError(res.error);
                       else {
                         setError(null);
-                        router.refresh();
                       }
                     })
                   }
@@ -915,7 +910,6 @@ export function LeadDetailClient({
                             round,
                             kind: "reschedule",
                           });
-                          router.refresh();
                         })
                       }
                     >
@@ -1079,7 +1073,6 @@ export function LeadDetailClient({
                             return;
                           }
                           setError(null);
-                          router.refresh();
                         })
                       }
                     >

@@ -913,8 +913,6 @@ export function PipelineBoard({
           if (!res.ok) {
             setItems(prev);
             setError(res.error);
-          } else {
-            router.refresh();
           }
         });
         return;

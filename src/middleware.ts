@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import {
+  AUTH_UID_HEADER,
   IMPERSONATE_HEADER,
   VIEW_AS_ROLES,
   isViewAsAllowedRestPath,
@@ -99,8 +100,19 @@ export async function middleware(request: NextRequest) {
     return redirectTo(request, "/login");
   }
 
+  // Webhooks, cron, tracking, static files: no session needed — skip the
+  // Supabase Auth round-trip entirely.
+  if (isPublicPath(path) && !path.startsWith("/login")) {
+    return NextResponse.next();
+  }
+
+  // Never trust client-sent copies of our internal headers.
+  const forwardHeaders = new Headers(request.headers);
+  forwardHeaders.delete(AUTH_UID_HEADER);
+  forwardHeaders.delete(IMPERSONATE_HEADER);
+
   let response = NextResponse.next({
-    request: { headers: request.headers },
+    request: { headers: forwardHeaders },
   });
 
   try {
@@ -119,8 +131,10 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => {
             request.cookies.set(name, value);
           });
+          // Keep forwarded cookie header in sync with refreshed tokens
+          forwardHeaders.set("cookie", request.headers.get("cookie") ?? "");
           response = NextResponse.next({
-            request: { headers: request.headers },
+            request: { headers: forwardHeaders },
           });
           cookiesToSet.forEach(({ name, value, options }) => {
             response.cookies.set(name, value, options);
@@ -134,7 +148,7 @@ export async function middleware(request: NextRequest) {
       error: userError,
     } = await supabase.auth.getUser();
 
-    if (userError) {
+    if (userError && userError.name !== "AuthSessionMissingError") {
       console.error("[middleware] getUser", userError.message);
     }
 
@@ -162,6 +176,14 @@ export async function middleware(request: NextRequest) {
       role = profile?.active ? profile.role : null;
       setRoleCookie(response, user.id, role);
     }
+
+    // Hand the verified id to server code (lib/auth) so it can skip a second
+    // supabase.auth.getUser() round-trip. Rebuild the response with the header
+    // while keeping any refreshed auth / role cookies.
+    forwardHeaders.set(AUTH_UID_HEADER, user.id);
+    const withUid = NextResponse.next({ request: { headers: forwardHeaders } });
+    response.cookies.getAll().forEach((c) => withUid.cookies.set(c));
+    response = withUid;
 
     // Inactive account → force login
     if (!role && !path.startsWith("/login")) {
@@ -201,7 +223,7 @@ export async function middleware(request: NextRequest) {
         return redirectTo(request, viewAsHome(viewAs.targetUserId, targetRole));
       }
 
-      const requestHeaders = new Headers(request.headers);
+      const requestHeaders = new Headers(forwardHeaders);
       requestHeaders.set(IMPERSONATE_HEADER, viewAs.targetUserId);
 
       const rewriteUrl = request.nextUrl.clone();
@@ -211,9 +233,7 @@ export async function middleware(request: NextRequest) {
         request: { headers: requestHeaders },
       });
       // Preserve auth cookies refreshed above
-      response.cookies.getAll().forEach((c) => {
-        rewrite.cookies.set(c.name, c.value);
-      });
+      response.cookies.getAll().forEach((c) => rewrite.cookies.set(c));
       return rewrite;
     }
 
@@ -282,8 +302,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
     if (request.cookies.getAll().some((c) => c.name.includes("auth-token"))) {
+      // Internal headers stripped — server code will verify the session itself
       return NextResponse.next({
-        request: { headers: request.headers },
+        request: { headers: forwardHeaders },
       });
     }
     return redirectTo(request, "/login");
@@ -291,5 +312,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Skip Next internals and static files (anything with an extension) —
+  // they never need a session check.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.[a-zA-Z0-9]+$).*)"],
 };

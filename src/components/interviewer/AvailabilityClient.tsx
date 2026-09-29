@@ -10,7 +10,6 @@ import {
   startOfWeek,
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState, useTransition } from "react";
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 9); // 9–19
@@ -21,7 +20,6 @@ function timeInHour(slot: InterviewerAvailability, hour: number) {
 }
 
 export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[] }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [weekStart, setWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
@@ -49,7 +47,6 @@ export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[]
     startTransition(async () => {
       await addAvailabilitySlot(fd);
       (e.target as HTMLFormElement).reset();
-      router.refresh();
     });
   }
 
@@ -60,7 +57,6 @@ export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[]
     fd.set("end_time", `${String(hour + 1).padStart(2, "0")}:00`);
     startTransition(async () => {
       await addAvailabilitySlot(fd);
-      router.refresh();
     });
   }
 
@@ -163,7 +159,6 @@ export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[]
                               onClick={() =>
                                 startTransition(async () => {
                                   await removeAvailabilitySlot(s.id);
-                                  router.refresh();
                                 })
                               }
                             >

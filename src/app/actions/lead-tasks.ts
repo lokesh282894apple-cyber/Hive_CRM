@@ -2,7 +2,7 @@
 
 import { requireAuth, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -19,9 +19,9 @@ export type LeadTaskRow = {
 };
 
 function touchTaskPaths(leadId: string) {
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/admin/leads");
-  revalidatePath("/leads");
+  revalidateLeadPath(`/leads/${leadId}`);
+  revalidateLeadPath("/admin/leads");
+  revalidateLeadPath("/leads");
 }
 
 export async function listOpenLeadTasks(

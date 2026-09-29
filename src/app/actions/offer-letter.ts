@@ -2,7 +2,7 @@
 
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -35,6 +35,6 @@ export async function resendOfferLetter(leadId: string): Promise<ActionResult> {
     };
   }
 
-  revalidatePath(`/leads/${leadId}`);
+  revalidateLeadPath(`/leads/${leadId}`);
   return { ok: true };
 }

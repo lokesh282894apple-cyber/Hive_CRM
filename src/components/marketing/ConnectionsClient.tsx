@@ -112,7 +112,6 @@ export function ConnectionsClient({
       if (!res.ok) setError(res.error);
       else {
         if (editingId === id) clearForm();
-        router.refresh();
       }
     });
   }
@@ -155,7 +154,6 @@ export function ConnectionsClient({
       else {
         setError(null);
         setMsg("Webhook verify token saved.");
-        router.refresh();
       }
     });
   }

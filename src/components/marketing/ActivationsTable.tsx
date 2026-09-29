@@ -2,7 +2,6 @@
 
 import { updateActivationStatus } from "@/app/actions/marketing-dashboard";
 import { formatInr } from "@/lib/marketing/metrics";
-import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 type ActivationRow = {
@@ -21,13 +20,11 @@ type ActivationRow = {
 };
 
 export function ActivationsTable({ rows }: { rows: ActivationRow[] }) {
-  const router = useRouter();
   const [pending, start] = useTransition();
 
   function markDone(id: string) {
     start(async () => {
       await updateActivationStatus(id, "done");
-      router.refresh();
     });
   }
 

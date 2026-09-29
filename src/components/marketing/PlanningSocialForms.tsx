@@ -91,7 +91,6 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
       else {
         setError(null);
         setOk(res.message ?? "Actuals updated from CRM.");
-        router.refresh();
       }
     });
   }
@@ -140,7 +139,6 @@ export function ForecastEntryPanel({ monthKey }: { monthKey: string }) {
       else {
         setError(null);
         setOk(`Recomputed Simer attribution for ${res.updated ?? 0} activations.`);
-        router.refresh();
       }
     });
   }
@@ -346,13 +344,11 @@ export function CalendarStatusButtons({
   id: string;
   current: string | null;
 }) {
-  const router = useRouter();
   const [pending, start] = useTransition();
 
   function setStatus(status: string) {
     start(async () => {
       await updateCalendarItemStatus(id, status);
-      router.refresh();
     });
   }
 
@@ -587,7 +583,6 @@ export function TaskEntryPanel() {
 }
 
 export function TaskStatusSelect({ id, status }: { id: string; status: string }) {
-  const router = useRouter();
   const [pending, start] = useTransition();
   return (
     <select
@@ -597,7 +592,6 @@ export function TaskStatusSelect({ id, status }: { id: string; status: string })
       onChange={(e) => {
         start(async () => {
           await updateMarketingTaskStatus(id, e.target.value);
-          router.refresh();
         });
       }}
     >

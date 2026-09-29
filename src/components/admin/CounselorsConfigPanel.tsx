@@ -37,7 +37,6 @@ export function CounselorsConfigPanel({
     startTransition(async () => {
       const res = await setCounselorPrograms(userId, selected[userId] ?? []);
       setMsg(res.ok ? "Programs saved" : res.error ?? "Error");
-      router.refresh();
     });
   }
 

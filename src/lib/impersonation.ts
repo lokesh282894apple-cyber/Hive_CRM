@@ -3,6 +3,13 @@ import { homeForRole, type Role } from "@/lib/constants";
 /** Request header set by middleware when rewriting /view/[userId]/… */
 export const IMPERSONATE_HEADER = "x-hive-impersonate";
 
+/**
+ * Request header set by middleware after it has verified the session with
+ * supabase.auth.getUser(). Middleware always strips any client-sent copy, so
+ * server code can trust it and skip a second Auth round-trip.
+ */
+export const AUTH_UID_HEADER = "x-hive-auth-uid";
+
 /** Roles an admin may View as (never another admin). */
 export const VIEW_AS_ROLES: Role[] = [
   "counselor",

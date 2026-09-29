@@ -1,11 +1,9 @@
 "use client";
 
 import { updateStageTriggerRule, type StageTriggerRule } from "@/app/actions/triggers";
-import { useRouter } from "next/navigation";
 import { Fragment, useState, useTransition } from "react";
 
 export function TriggerRulesPanel({ rules: initial }: { rules: StageTriggerRule[] }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rules, setRules] = useState(initial);
   const [msg, setMsg] = useState<string | null>(null);
@@ -18,7 +16,6 @@ export function TriggerRulesPanel({ rules: initial }: { rules: StageTriggerRule[
         setRules((prev) =>
           prev.map((r) => (r.id === id ? { ...r, ...patch } : r))
         );
-        router.refresh();
       }
     });
   }

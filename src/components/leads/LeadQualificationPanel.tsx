@@ -2,7 +2,6 @@
 
 import { updateLeadQualification } from "@/app/actions/marketing-dashboard";
 import { DQ_REASON_LABELS, FINANCIAL_CHECKS, QUALIFICATION_INTENTS } from "@/lib/marketing/aql";
-import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 export function LeadQualificationPanel({
@@ -18,7 +17,6 @@ export function LeadQualificationPanel({
   dqReason: string | null;
   aqlAt: string | null;
 }) {
-  const router = useRouter();
   const [pending, start] = useTransition();
 
   return (
@@ -42,7 +40,6 @@ export function LeadQualificationPanel({
               financial_check: (fd.get("financial_check") as string) || null,
               dq_reason: (fd.get("dq_reason") as string) || null,
             });
-            router.refresh();
           });
         }}
       >

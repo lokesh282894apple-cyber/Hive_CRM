@@ -660,7 +660,6 @@ export function FeesClient({
                               markPaid: true,
                               dateHitBank: new Date().toISOString().slice(0, 10),
                             });
-                            router.refresh();
                           });
                         }}
                       >
