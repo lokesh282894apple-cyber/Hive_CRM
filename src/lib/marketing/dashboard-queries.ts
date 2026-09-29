@@ -172,7 +172,7 @@ export async function fetchLeadFunnelUncached(
 
   if (error) throw new Error("rpc_funnel_aggregate_daily: " + error.message);
 
-  return (data as FunnelDayRow[]).map((row) => {
+  return ((data as FunnelDayRow[]) || []).map((row) => {
     const totalCplSpend = Number(row.metaSpend) + Number(row.nonMetaSpend);
     return {
       ...row,
