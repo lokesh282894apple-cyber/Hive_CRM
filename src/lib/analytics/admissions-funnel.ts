@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 
@@ -753,7 +755,7 @@ function weekLabel(n: number, start: string, end: string): string {
   return `Week ${n} · ${fmt(start)}–${fmt(end)}`;
 }
 
-export async function fetchAdmissionsFunnel(
+async function fetchAdmissionsFunnelUncached(
   supabase: SupabaseClient,
   opts?: {
     month?: string | null;
@@ -981,4 +983,22 @@ export async function fetchAdmissionsFunnel(
       offerFunnel: computeOffer(inorganicFacts, mode),
     },
   };
+}
+
+const fetchAdmissionsFunnelCached = cachedAdmissionsQuery(
+  "fetchAdmissionsFunnel-v1",
+  (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) => JSON.stringify(opts ?? null),
+  (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) =>
+    fetchAdmissionsFunnelUncached(createAdminClient(), opts)
+);
+
+/**
+ * Cached ~60s (busted by lead writes). Admin-only callers: runs with the
+ * service client because cookies are unavailable inside the cache.
+ */
+export function fetchAdmissionsFunnel(
+  _supabase: SupabaseClient,
+  opts?: Parameters<typeof fetchAdmissionsFunnelUncached>[1]
+): Promise<AdmissionsFunnel> {
+  return fetchAdmissionsFunnelCached(opts);
 }

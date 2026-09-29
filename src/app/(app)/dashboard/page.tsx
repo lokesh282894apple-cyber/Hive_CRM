@@ -1,8 +1,6 @@
 import { requireAuth } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
 import { PageHeader, EmptyState } from "@/components/ui/Primitives";
-import { fetchAdmissionsAnalytics } from "@/lib/analytics/admissions";
-import { fetchCounselorAttributionGlance } from "@/lib/marketing/queries";
+import { fetchCounselorHome } from "@/lib/analytics/counselor-home";
 import { DualTrend, HBarList } from "@/components/charts/SimpleCharts";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
@@ -56,19 +54,13 @@ export default async function CounselorDashboardPage({
 }) {
   const ctx = await requireAuth(["counselor", "admin"]);
   const user = ctx.user;
-  const supabase = createClient();
   const isCounselor = user.role === "counselor" || ctx.impersonating;
   const rangeDays = ["7", "30", "90"].includes(searchParams.range ?? "")
     ? Number(searchParams.range)
     : 30;
 
-  const data = await fetchAdmissionsAnalytics(supabase, {
-    counselorId: isCounselor ? user.id : null,
-    rangeDays,
-  });
-  const { kpis } = data;
-  const myLeadIds = data.leadRows.map((l) => l.id);
-  const attribution = await fetchCounselorAttributionGlance(supabase, myLeadIds);
+  const data = await fetchCounselorHome(isCounselor ? user.id : null, rangeDays);
+  const { kpis, attribution } = data;
   const ranges = [7, 30, 90];
   const vid = ctx.impersonating ? user.id : null;
   const h = (path: string) => viewAsHref(vid, path);

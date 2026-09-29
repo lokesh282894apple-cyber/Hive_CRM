@@ -2,7 +2,6 @@
 
 import { setLeadApproval, updateLeadCardFields } from "@/app/actions/leads";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 const APPROVAL_SLOTS: { slot: string; label: string }[] = [
@@ -19,7 +18,6 @@ export function LeadCardApprovals({
   lead: LeadWithCard;
   canWriteApproval: boolean;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [url, setUrl] = useState(
     lead.cardMetrics?.recordingUrl ||
@@ -53,7 +51,6 @@ export function LeadCardApprovals({
             if (next === prev) return;
             startTransition(async () => {
               await updateLeadCardFields(lead.id, { recording_url: next });
-              router.refresh();
             });
           }}
         />
@@ -76,7 +73,6 @@ export function LeadCardApprovals({
                     label,
                     status,
                   });
-                  router.refresh();
                 });
               }}
             />

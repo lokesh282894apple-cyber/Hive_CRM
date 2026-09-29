@@ -35,7 +35,6 @@ export function AddLeadForm({
         return;
       }
       router.push("/leads");
-      router.refresh();
     });
   }
 

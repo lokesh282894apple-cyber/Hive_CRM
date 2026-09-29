@@ -2,7 +2,7 @@
 
 import { requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -74,9 +74,9 @@ export async function recordLeadStageScore(input: {
   if (error) return { ok: false, error: error.message };
 
   await recomputeAvgStudentIntent(supabase, input.leadId);
-  revalidatePath(`/leads/${input.leadId}`);
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  revalidateLeadPath(`/leads/${input.leadId}`);
+  revalidateLeadPath("/leads");
+  revalidateLeadPath("/admin/leads");
   return { ok: true };
 }
 

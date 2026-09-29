@@ -9,29 +9,13 @@ import { ImpersonationBanner } from "@/components/shell/ImpersonationBanner";
 import { SessionGuard } from "@/components/shell/SessionGuard";
 import { ForcePasswordChange } from "@/components/shell/ForcePasswordChange";
 import { getFunnelCatalog } from "@/lib/funnel/config";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireAuth();
   const { user, actor, impersonating } = ctx;
 
-  // Soft fail if migration not applied yet
-  let mustChange = false;
-  if (!impersonating) {
-    try {
-      const admin = createAdminClient();
-      const { data } = await admin
-        .from("users")
-        .select("must_change_password")
-        .eq("id", actor.id)
-        .maybeSingle();
-      mustChange = Boolean(
-        (data as { must_change_password?: boolean } | null)?.must_change_password
-      );
-    } catch {
-      mustChange = false;
-    }
-  }
+  // Loaded with the cached session profile — no extra query per navigation
+  const mustChange = !impersonating && Boolean(actor.must_change_password);
 
   const showAi =
     !impersonating && (user.role === "admin" || user.role === "marketing");

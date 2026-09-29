@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { admissionsAggClient } from "@/lib/analytics/agg-client";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import {
@@ -12,7 +14,7 @@ import {
   eachDateKey,
   resolveAnalyticsRange,
 } from "@/lib/analytics/date-range";
-import { fetchAllPages } from "@/lib/supabase/paginate";
+import { fetchAllPages, mapInChunks } from "@/lib/supabase/paginate";
 
 export type NamedCount = { name: string; count: number; id?: string };
 export type DailyCount = { date: string; leads: number; won: number; calls: number };
@@ -119,6 +121,11 @@ export async function fetchAdmissionsAnalytics(
     rangeDays?: number;
     fromDate?: string | null;
     toDate?: string | null;
+    /**
+     * Skip fee / loan / marketing aggregates (counselor home never shows them).
+     * Those KPIs come back as 0 / empty.
+     */
+    lite?: boolean;
   }
 ): Promise<AdmissionsAnalytics> {
   const range = resolveAnalyticsRange({
@@ -130,6 +137,8 @@ export async function fetchAdmissionsAnalytics(
   const counselorId = opts?.counselorId ?? null;
   const courseId = opts?.courseId ?? null;
   const cohortId = opts?.cohortId ?? null;
+  const lite = Boolean(opts?.lite);
+  const noCount = Promise.resolve({ count: 0 as number | null });
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -183,19 +192,25 @@ export async function fetchAdmissionsAnalytics(
       });
       return { count: inWeek.length };
     })(),
-    db
-      .from("visitor_sessions")
-      .select("id", { count: "exact", head: true })
-      .gte("first_seen_at", sinceIso)
-      .lt("first_seen_at", untilExclusiveIso),
-    db
-      .from("lead_attribution")
-      .select("id", { count: "exact", head: true })
-      .gte("converted_at", sinceIso)
-      .lt("converted_at", untilExclusiveIso),
-    db.from("lead_attribution").select("id", { count: "exact", head: true }),
+    lite
+      ? noCount
+      : db
+          .from("visitor_sessions")
+          .select("id", { count: "exact", head: true })
+          .gte("first_seen_at", sinceIso)
+          .lt("first_seen_at", untilExclusiveIso),
+    lite
+      ? noCount
+      : db
+          .from("lead_attribution")
+          .select("id", { count: "exact", head: true })
+          .gte("converted_at", sinceIso)
+          .lt("converted_at", untilExclusiveIso),
+    lite
+      ? noCount
+      : db.from("lead_attribution").select("id", { count: "exact", head: true }),
     (async () => {
-      if (filtered && leadIds.length === 0) {
+      if (lite || (filtered && leadIds.length === 0)) {
         return {
           feeRecords: [] as {
             lead_id?: string;
@@ -213,25 +228,27 @@ export async function fetchAdmissionsAnalytics(
         };
       }
       if (filtered) {
-        const { data: fees } = await db
-          .from("fee_records")
-          .select("id, lead_id, total_fee, remaining_fee, payment_mode")
-          .in("lead_id", leadIds);
-        const feeRecords = fees ?? [];
+        // Chunk ids — thousands of UUIDs in one ?in=() URL is slow / rejected
+        const feeRecords = await mapInChunks(leadIds, async (chunk) => {
+          const { data } = await db
+            .from("fee_records")
+            .select("id, lead_id, total_fee, remaining_fee, payment_mode")
+            .in("lead_id", chunk);
+          return data ?? [];
+        });
         const feeIds = feeRecords.map((f) => f.id).filter(Boolean);
-        let loans: {
+        const loans: {
           stage: string;
           loan_vendor_id: string | null;
           amount_realised?: number;
           total_fee?: number;
-        }[] = [];
-        if (feeIds.length) {
-          const { data: loanRows } = await db
+        }[] = await mapInChunks(feeIds, async (chunk) => {
+          const { data } = await db
             .from("loans")
             .select("stage, loan_vendor_id, amount_realised, total_fee, fee_record_id")
-            .in("fee_record_id", feeIds);
-          loans = loanRows ?? [];
-        }
+            .in("fee_record_id", chunk);
+          return data ?? [];
+        });
         const { data: vendorRows } = await db.from("loan_vendors").select("id, name");
         return { feeRecords, loans, vendors: vendorRows ?? [] };
       }
@@ -277,6 +294,7 @@ export async function fetchAdmissionsAnalytics(
   const loans = feesBundle.loans;
   const vendors = feesBundle.vendors;
 
+  const leadById = new Map(base.leads.map((l) => [l.id, l]));
   const interviewsTodayRows = base.bookings
     .filter((b) => {
       const at = b.scheduled_at;
@@ -284,7 +302,7 @@ export async function fetchAdmissionsAnalytics(
     })
     .slice(0, 50)
     .map((b) => {
-      const lead = base.leads.find((l) => l.id === b.lead_id);
+      const lead = leadById.get(b.lead_id);
       return {
         id: b.id,
         scheduled_at: b.scheduled_at,
@@ -550,7 +568,7 @@ export type AdmissionsMonthlyRow = {
 };
 
 /** Year-at-a-glance admissions rollup (month cohort + open pipeline). */
-export async function fetchAdmissionsMonthlyRollup(
+async function fetchAdmissionsMonthlyRollupUncached(
   supabase: SupabaseClient,
   monthsBack = 18
 ): Promise<AdmissionsMonthlyRow[]> {
@@ -676,4 +694,22 @@ export async function fetchAdmissionsMonthlyRollup(
       ...t,
     };
   });
+}
+
+const fetchAdmissionsMonthlyRollupCached = cachedAdmissionsQuery(
+  "fetchAdmissionsMonthlyRollup-v1",
+  (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) => JSON.stringify(opts ?? null),
+  (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) =>
+    fetchAdmissionsMonthlyRollupUncached(createAdminClient(), opts)
+);
+
+/**
+ * Cached ~60s (busted by lead writes). Admin-only callers: runs with the
+ * service client because cookies are unavailable inside the cache.
+ */
+export function fetchAdmissionsMonthlyRollup(
+  _supabase: SupabaseClient,
+  opts?: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]
+): Promise<AdmissionsMonthlyRow[]> {
+  return fetchAdmissionsMonthlyRollupCached(opts);
 }

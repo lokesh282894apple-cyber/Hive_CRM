@@ -2,7 +2,7 @@
 
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type BulkAssignScope = "unassigned" | "assigned_to_selected" | "all";
 
@@ -194,9 +194,9 @@ export async function applyBulkAssign(
     }
   }
 
-  revalidatePath("/admin/leads");
-  revalidatePath("/leads");
-  revalidatePath("/admin/assign");
+  revalidateLeadPath("/admin/leads");
+  revalidateLeadPath("/leads");
+  revalidateLeadPath("/admin/assign");
   return { ok: true, data: { assigned: shuffled.length, perCounselor } };
 }
 
@@ -235,8 +235,8 @@ export async function clearBulkAssign(
     if (uErr) return { ok: false, error: uErr.message };
   }
 
-  revalidatePath("/admin/leads");
-  revalidatePath("/leads");
-  revalidatePath("/admin/assign");
+  revalidateLeadPath("/admin/leads");
+  revalidateLeadPath("/leads");
+  revalidateLeadPath("/admin/assign");
   return { ok: true, data: { cleared: ids.length } };
 }

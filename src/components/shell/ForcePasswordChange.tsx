@@ -39,7 +39,6 @@ export function ForcePasswordChange({ role }: { role: Role }) {
       return;
     }
     router.push(homeForRole(role));
-    router.refresh();
   }
 
   return (

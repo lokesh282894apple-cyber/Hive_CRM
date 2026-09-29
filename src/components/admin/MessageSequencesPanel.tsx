@@ -280,7 +280,6 @@ export function MessageSequencesPanel({
               startTransition(async () => {
                 const res = await deleteMessageSequence(matching.id);
                 setMsg(res.ok ? "Override removed" : res.error ?? "Error");
-                router.refresh();
               })
             }
           >

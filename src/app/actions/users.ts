@@ -1,7 +1,7 @@
 "use server";
 
 import { randomBytes } from "crypto";
-import { requireUser } from "@/lib/auth";
+import { requireUser, revalidateProfile } from "@/lib/auth";
 import type { Role } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -101,6 +101,7 @@ export async function updateUserProfile(input: {
     .update({ name: input.name, role: input.role, active: input.active })
     .eq("id", input.id);
   if (error) return { ok: false, error: error.message };
+  revalidateProfile(input.id);
   revalidatePath("/admin/users");
   return { ok: true };
 }
@@ -150,6 +151,7 @@ export async function deleteUserAccount(userId: string): Promise<ActionResult> {
     .update({ active: false })
     .eq("id", userId);
   if (profileErr) return { ok: false, error: profileErr.message };
+  revalidateProfile(userId);
 
   await admin.from("counselor_scope").delete().eq("user_id", userId);
   await admin.from("counselor_program_alloc").delete().eq("user_id", userId);
@@ -194,6 +196,7 @@ export async function resetUserTempPassword(input: {
     .eq("id", input.userId);
   if (error) return { ok: false, error: error.message };
 
+  revalidateProfile(input.userId);
   revalidatePath("/admin/users");
   return { ok: true };
 }
@@ -243,6 +246,7 @@ export async function generateMissingTempPasswords(): Promise<
       })
       .eq("id", userId);
     if (updateError) return { ok: false, error: updateError.message };
+    revalidateProfile(userId);
     count += 1;
   }
 

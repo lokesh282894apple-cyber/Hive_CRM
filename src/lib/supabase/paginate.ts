@@ -50,3 +50,27 @@ export async function fetchAllPages<T>(
   }
   return all;
 }
+
+/**
+ * Run an `.in(column, ids)` query in id chunks (bounded concurrency) and
+ * concatenate the rows. Thousands of UUIDs in a single PostgREST URL exceed
+ * gateway limits and are slow to parse.
+ */
+export async function mapInChunks<T>(
+  ids: string[],
+  fn: (chunk: string[]) => Promise<T[]>,
+  chunkSize = 200,
+  concurrency = 4
+): Promise<T[]> {
+  if (ids.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    chunks.push(ids.slice(i, i + chunkSize));
+  }
+  const out: T[] = [];
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const parts = await Promise.all(chunks.slice(i, i + concurrency).map(fn));
+    for (const p of parts) out.push(...p);
+  }
+  return out;
+}

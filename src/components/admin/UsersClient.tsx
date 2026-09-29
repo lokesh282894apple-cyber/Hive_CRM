@@ -198,7 +198,6 @@ export function UsersClient({
                 if (!res.ok) setError(res.error);
                 else {
                   setError(null);
-                  router.refresh();
                 }
               });
             }}
@@ -273,7 +272,6 @@ export function UsersClient({
                             role: e.target.value as Role,
                             active: u.active,
                           });
-                          router.refresh();
                         })
                       }
                     >
@@ -313,7 +311,6 @@ export function UsersClient({
                           if (!res.ok) setError(res.error);
                           else {
                             setError(null);
-                            router.refresh();
                           }
                         });
                       }}
@@ -331,7 +328,6 @@ export function UsersClient({
                             role: u.role,
                             active: !u.active,
                           });
-                          router.refresh();
                         })
                       }
                     >
@@ -365,7 +361,6 @@ export function UsersClient({
                           if (!res.ok) setError(res.error);
                           else {
                             setError(null);
-                            router.refresh();
                           }
                         });
                       }}
@@ -396,7 +391,6 @@ export function UsersClient({
                             .filter(Boolean) as { course_id: string; cohort_id: string }[];
                           startTransition(async () => {
                             await setCounselorScopes(u.id, next);
-                            router.refresh();
                           });
                         }}
                       >

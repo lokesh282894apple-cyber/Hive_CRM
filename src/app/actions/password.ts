@@ -1,6 +1,6 @@
 "use server";
 
-import { requireUser } from "@/lib/auth";
+import { requireUser, revalidateProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -19,6 +19,7 @@ export async function clearMustChangePassword(): Promise<
     .update({ must_change_password: false, admin_temp_password: null })
     .eq("id", user.id);
   if (error) return { ok: false, error: error.message };
+  revalidateProfile(user.id);
   revalidatePath("/");
   return { ok: true };
 }

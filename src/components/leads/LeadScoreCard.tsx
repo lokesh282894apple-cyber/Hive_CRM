@@ -174,7 +174,6 @@ export function LeadScoreCard({
               onClick={() =>
                 startTransition(async () => {
                   await recomputeLeadScoreAction(leadId);
-                  router.refresh();
                 })
               }
             >
@@ -296,7 +295,6 @@ export function LeadScoreCard({
                     startTransition(async () => {
                       await clearLeadScoreOverride(leadId);
                       setReason("");
-                      router.refresh();
                     })
                   }
                 >

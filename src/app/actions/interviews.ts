@@ -16,7 +16,7 @@ import {
 } from "@/lib/google-calendar";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, format } from "date-fns";
-import { revalidatePath } from "next/cache";
+import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
 export type ActionResult =
   | { ok: true; meetLink?: string | null; warning?: string }
@@ -57,7 +57,7 @@ export async function addAvailabilitySlot(formData: FormData): Promise<ActionRes
 
   const { error } = await supabase.from("interviewer_availability").insert(payload);
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/interviewer/availability");
+  revalidateLeadPath("/interviewer/availability");
   return { ok: true };
 }
 
@@ -68,7 +68,7 @@ export async function removeAvailabilitySlot(id: string): Promise<ActionResult> 
   if (user.role !== "admin") q = q.eq("interviewer_id", user.id);
   const { error } = await q;
   if (error) return { ok: false, error: error.message };
-  revalidatePath("/interviewer/availability");
+  revalidateLeadPath("/interviewer/availability");
   return { ok: true };
 }
 
@@ -299,12 +299,12 @@ export async function bookInterview(input: {
     if (!scored.ok) return scored;
   }
 
-  revalidatePath(`/leads/${input.leadId}`);
-  revalidatePath(`/leads/${input.leadId}/book-interview`);
-  revalidatePath("/interviewer/interviews");
-  revalidatePath("/dashboard");
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  revalidateLeadPath(`/leads/${input.leadId}`);
+  revalidateLeadPath(`/leads/${input.leadId}/book-interview`);
+  revalidateLeadPath("/interviewer/interviews");
+  revalidateLeadPath("/dashboard");
+  revalidateLeadPath("/leads");
+  revalidateLeadPath("/admin/leads");
 
   try {
     const stageKey =
@@ -530,12 +530,12 @@ export async function bookInterviewManual(input: {
     if (!scored.ok) return scored;
   }
 
-  revalidatePath(`/leads/${input.leadId}`);
-  revalidatePath(`/leads/${input.leadId}/book-interview`);
-  revalidatePath("/interviewer/interviews");
-  revalidatePath("/dashboard");
-  revalidatePath("/leads");
-  revalidatePath("/admin/leads");
+  revalidateLeadPath(`/leads/${input.leadId}`);
+  revalidateLeadPath(`/leads/${input.leadId}/book-interview`);
+  revalidateLeadPath("/interviewer/interviews");
+  revalidateLeadPath("/dashboard");
+  revalidateLeadPath("/leads");
+  revalidateLeadPath("/admin/leads");
 
   try {
     const isReschedule = Boolean(input.rescheduleBookingId);
@@ -647,8 +647,8 @@ export async function submitInterviewOutcome(input: {
     });
   }
 
-  revalidatePath(`/leads/${booking.lead_id}`);
-  revalidatePath("/interviewer/interviews");
+  revalidateLeadPath(`/leads/${booking.lead_id}`);
+  revalidateLeadPath("/interviewer/interviews");
   return { ok: true };
 }
 
@@ -744,7 +744,7 @@ export async function markNoShowOrReschedule(input: {
 
   const { recomputeLeadScore } = await import("@/lib/leads/score");
   await recomputeLeadScore(supabase, input.leadId);
-  revalidatePath(`/leads/${input.leadId}`);
+  revalidateLeadPath(`/leads/${input.leadId}`);
   return { ok: true };
 }
 

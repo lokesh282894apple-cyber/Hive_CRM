@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 
 export type RejectionFunnel = {
@@ -75,7 +77,7 @@ type LeadRejectRow = {
   reject_reason_category?: string | null;
 };
 
-export async function fetchRejectionFunnel(
+async function fetchRejectionFunnelUncached(
   supabase: SupabaseClient,
   opts: { sinceIso: string; untilExclusiveIso: string }
 ): Promise<RejectionFunnel> {
@@ -228,3 +230,21 @@ export async function fetchRejectionFunnel(
 }
 
 export { emptyFunnel };
+
+const fetchRejectionFunnelCached = cachedAdmissionsQuery(
+  "fetchRejectionFunnel-v1",
+  (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) => JSON.stringify(opts ?? null),
+  (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) =>
+    fetchRejectionFunnelUncached(createAdminClient(), opts)
+);
+
+/**
+ * Cached ~60s (busted by lead writes). Admin-only callers: runs with the
+ * service client because cookies are unavailable inside the cache.
+ */
+export function fetchRejectionFunnel(
+  _supabase: SupabaseClient,
+  opts: Parameters<typeof fetchRejectionFunnelUncached>[1]
+): Promise<RejectionFunnel> {
+  return fetchRejectionFunnelCached(opts);
+}
