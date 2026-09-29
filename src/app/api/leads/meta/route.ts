@@ -10,6 +10,7 @@ import {
   getMetaPageAccessToken,
   getMetaWebhookVerifyToken,
 } from "@/lib/integrations/meta-credentials";
+import { invalidateLeadCaches } from "@/lib/analytics/admissions-cache";
 
 /**
  * Meta Lead Ads webhook.
@@ -173,6 +174,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (ingested) invalidateLeadCaches();
   return NextResponse.json({ ok: true, ingested });
 }
 

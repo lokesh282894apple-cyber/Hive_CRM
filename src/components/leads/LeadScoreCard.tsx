@@ -6,7 +6,6 @@ import {
   setLeadScoreOverride,
 } from "@/app/actions/leads";
 import type { ScoreBreakdown, ScoreReason } from "@/lib/leads/score";
-import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 export const LEAD_SCORE_DETAIL_ID = "lead-conversion-detail";
@@ -120,7 +119,6 @@ export function LeadScoreCard({
   scoreOverrideAt: string | null;
   breakdown?: ScoreBreakdown | null;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [score, setScore] = useState(
     String(scoreOverride ?? intentScore ?? scoreAuto ?? "")
@@ -280,7 +278,6 @@ export function LeadScoreCard({
                       setError(res.error);
                       return;
                     }
-                    router.refresh();
                   })
                 }
               >

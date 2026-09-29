@@ -1,7 +1,6 @@
 "use client";
 
 import { startClickToCall } from "@/app/actions/dialer";
-import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 const STORAGE_KEY = "hive-dialer-agent-phone";
@@ -15,7 +14,6 @@ export function ClickToCallButton({
   leadPhone: string;
   twilioConfigured: boolean;
 }) {
-  const router = useRouter();
   const [agentPhone, setAgentPhone] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +80,6 @@ export function ClickToCallButton({
               return;
             }
             setOkNote("Calling your phone now — answer to connect to the lead.");
-            router.refresh();
           });
         }}
       >

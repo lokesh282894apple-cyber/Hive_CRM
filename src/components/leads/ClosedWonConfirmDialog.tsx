@@ -3,7 +3,6 @@
 import { updateLeadStage } from "@/app/actions/leads";
 import { cohortEntryLabel } from "@/lib/cohorts/display";
 import type { Cohort, Course } from "@/types/database";
-import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 export function ClosedWonConfirmDialog({
@@ -29,7 +28,6 @@ export function ClosedWonConfirmDialog({
   onClose: () => void;
   onSuccess?: () => void;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [courseId, setCourseId] = useState(initialCourseId ?? "");
   const [cohortId, setCohortId] = useState(initialCohortId ?? "");
@@ -174,7 +172,6 @@ export function ClosedWonConfirmDialog({
                 setError(null);
                 onClose();
                 onSuccess?.();
-                router.refresh();
               });
             }}
           >
