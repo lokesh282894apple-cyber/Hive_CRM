@@ -5,8 +5,11 @@ import {
   LEAD_LIST_SELECT,
   applyLeadsFilters,
   getCounselorScopePairs,
+  leadsPrefsCookieName,
   parseLeadsSearchParams,
+  withSavedLeadPrefs,
 } from "@/lib/leads-query";
+import { cookies } from "next/headers";
 import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
@@ -29,10 +32,13 @@ export default async function LeadsPage({
     ? viewAsHref(user.id, "/leads")
     : "/leads";
 
-  const filters = parseLeadsSearchParams(searchParams, {
-    ownership: isAdmin ? "all" : "mine",
-    isAdmin,
-  });
+  const defaults = { ownership: isAdmin ? "all" : "mine", isAdmin };
+  const saved = withSavedLeadPrefs(
+    searchParams,
+    cookies().get(leadsPrefsCookieName(isAdmin))?.value,
+    defaults
+  );
+  const filters = parseLeadsSearchParams(saved.params, defaults);
 
   const [scopes, courses, cohorts] = await Promise.all([
     isAdmin ? Promise.resolve([]) : getCounselorScopePairs(supabase, user.id),
@@ -113,6 +119,7 @@ export default async function LeadsPage({
       attributionByLead={attributionByLead}
       showImport={isAdmin}
       addLeadHref={`${basePath}/new`}
+      prefsFromServer={saved.applied}
     />
   );
 }

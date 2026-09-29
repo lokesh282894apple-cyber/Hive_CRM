@@ -1,8 +1,19 @@
-/** PostgREST/Supabase silently caps a single response at ~1000 rows (project max_rows). */
-const PAGE_SIZE = 1000;
-const MAX_PAGES = 100;
+/**
+ * PostgREST caps every response at the project's "Max rows" API setting
+ * (Supabase default 1000). We request SUPABASE_MAX_ROWS rows per page — set it
+ * to match the dashboard value (e.g. 20000) and large rollups arrive in 1–3
+ * round-trips instead of dozens. Paging stays correct even if the two
+ * disagree: we advance by rows actually received, see isLastPage().
+ */
+const DEFAULT_CAP = 1000;
+export const PAGE_SIZE = Math.max(
+  DEFAULT_CAP,
+  Number(process.env.SUPABASE_MAX_ROWS) || DEFAULT_CAP
+);
+/** Overall safety ceiling (same 100k rows as before). */
+const MAX_ROWS_TOTAL = 100 * DEFAULT_CAP;
 
-type PageResult<T> = {
+export type PageResult<T> = {
   data: T[] | null;
   error: { message: string; code?: string; details?: string; hint?: string } | null;
 };
@@ -11,7 +22,7 @@ function isTimeoutError(message: string) {
   return /timeout|canceling statement/i.test(message);
 }
 
-async function withTimeoutRetry<T>(
+export async function withTimeoutRetry<T>(
   run: () => PromiseLike<PageResult<T>>,
   attempts = 3
 ): Promise<PageResult<T>> {
@@ -26,16 +37,30 @@ async function withTimeoutRetry<T>(
 }
 
 /**
- * Page through a query with .range() so rollups are not stuck at the API max_rows ceiling.
- * Sequential with timeout retry — parallel deep OFFSET overloaded Postgres.
+ * A page is the last one only if it is shorter than what the server can
+ * return. If we asked for more rows than the server cap, a "short" page may
+ * just be the cap — keep going. `largestPage` is the biggest page seen so far
+ * (a lower bound on the cap).
+ */
+export function isLastPage(received: number, requested: number, largestPage: number) {
+  if (received === 0) return true;
+  const knownCap = Math.max(largestPage, DEFAULT_CAP);
+  return received < Math.min(requested, knownCap);
+}
+
+/**
+ * Page through a query with .range() so rollups are not stuck at the API
+ * max_rows ceiling. Sequential with timeout retry — parallel deep OFFSET
+ * overloaded Postgres.
  */
 export async function fetchAllPages<T>(
   page: (from: number, to: number) => PromiseLike<PageResult<T>>,
   label = "query"
 ): Promise<T[]> {
   const all: T[] = [];
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const from = i * PAGE_SIZE;
+  let largest = 0;
+  while (all.length < MAX_ROWS_TOTAL) {
+    const from = all.length;
     const to = from + PAGE_SIZE - 1;
     const { data, error } = await withTimeoutRetry(() => page(from, to));
     if (error) {
@@ -46,7 +71,9 @@ export async function fetchAllPages<T>(
     }
     const rows = data ?? [];
     all.push(...rows);
-    if (rows.length < PAGE_SIZE) break;
+    const last = isLastPage(rows.length, PAGE_SIZE, largest);
+    largest = Math.max(largest, rows.length);
+    if (last) break;
   }
   return all;
 }

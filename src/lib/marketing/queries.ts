@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { mapInChunks } from "@/lib/supabase/paginate";
+import {
+  PAGE_SIZE,
+  fetchAllPages as fetchAllPagesShared,
+  isLastPage,
+  mapInChunks,
+  withTimeoutRetry,
+  type PageResult,
+} from "@/lib/supabase/paginate";
 
 export type RangeKey = "7" | "30" | "90";
 
@@ -79,49 +86,14 @@ export type AttributionSource = {
 /** Calendar day in India (CRM default) — avoids UTC shifting visits onto the wrong day. */
 const MARKETING_TZ = "Asia/Kolkata";
 
-/** PostgREST/Supabase silently caps a single response at ~1000 rows (project max_rows). */
-const PAGE_SIZE = 1000;
-const MAX_PAGES = 100;
+/** Same 100k-row ceiling as before, whatever the page size. */
+const MAX_ROWS_TOTAL = 100_000;
 
-type PageResult<T> = { data: T[] | null; error: { message: string } | null };
-
-function isTimeoutError(message: string) {
-  return /timeout|canceling statement/i.test(message);
-}
-
-async function withTimeoutRetry<T>(
-  run: () => PromiseLike<PageResult<T>>,
-  attempts = 3
-): Promise<PageResult<T>> {
-  let last: PageResult<T> = { data: null, error: { message: "unknown" } };
-  for (let i = 0; i < attempts; i++) {
-    last = await run();
-    if (!last.error) return last;
-    if (!isTimeoutError(last.error.message) || i === attempts - 1) return last;
-    await new Promise((r) => setTimeout(r, 350 * (i + 1)));
-  }
-  return last;
-}
-
-/**
- * Page through a query with .range() so KPI / rollups are not stuck at the
- * API max_rows ceiling. Sequential + retry — parallel deep OFFSET was timing out
- * on large page_events tables.
- */
-async function fetchAllPages<T>(
+/** Shared cap-aware paging (see lib/supabase/paginate). */
+function fetchAllPages<T>(
   page: (from: number, to: number) => PromiseLike<PageResult<T>>
 ): Promise<T[]> {
-  const all: T[] = [];
-  for (let i = 0; i < MAX_PAGES; i++) {
-    const from = i * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await withTimeoutRetry(() => page(from, to));
-    if (error) throw new Error(error.message);
-    const rows = data ?? [];
-    all.push(...rows);
-    if (rows.length < PAGE_SIZE) break;
-  }
-  return all;
+  return fetchAllPagesShared(page, "marketing");
 }
 
 /**
@@ -134,12 +106,15 @@ async function fetchAllByTimeCursor<T extends { id: string }>(
 ): Promise<T[]> {
   const all: T[] = [];
   let cursor: { at: string; id: string } | null = null;
-  for (let i = 0; i < MAX_PAGES; i++) {
+  let largest = 0;
+  while (all.length < MAX_ROWS_TOTAL) {
     const { data, error } = await withTimeoutRetry(() => fetchPage(cursor));
     if (error) throw new Error(error.message);
     const rows = data ?? [];
     all.push(...rows);
-    if (rows.length < PAGE_SIZE) break;
+    const done = isLastPage(rows.length, PAGE_SIZE, largest);
+    largest = Math.max(largest, rows.length);
+    if (done) break;
     const last = rows[rows.length - 1]!;
     cursor = { at: getAt(last), id: last.id };
   }

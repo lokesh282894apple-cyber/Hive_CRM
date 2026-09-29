@@ -296,3 +296,53 @@ export function filtersToSearchParams(
   }
   return sp;
 }
+
+/** Cookie mirror of the saved board filters (localStorage is client-only). */
+export function leadsPrefsCookieName(isAdmin: boolean) {
+  return isAdmin ? "hive_admin_leads_filters" : "hive_leads_filters";
+}
+
+const SAVED_PREF_KEYS = [
+  "ownership",
+  "courseId",
+  "cohortId",
+  "stageGroup",
+  "staleOnly",
+  "mode",
+] as const;
+
+/**
+ * When the URL has no filter params, apply the user's saved filters on the
+ * server — same merge the client used to do after load with router.replace(),
+ * which rendered the whole board twice. Returns the params to parse and
+ * whether saved prefs were applied.
+ */
+export function withSavedLeadPrefs(
+  sp: Record<string, string | string[] | undefined>,
+  cookieValue: string | undefined,
+  defaults: { ownership: LeadsFilterParams["ownership"]; isAdmin: boolean }
+): { params: Record<string, string | string[] | undefined>; applied: boolean } {
+  if (!cookieValue || Object.keys(sp).length > 0) return { params: sp, applied: false };
+  try {
+    // Next decodes cookie values; fall back to decoding ourselves just in case
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(cookieValue);
+    } catch {
+      raw = JSON.parse(decodeURIComponent(cookieValue));
+    }
+    const saved: Partial<LeadsFilterParams> = {};
+    for (const k of SAVED_PREF_KEYS) {
+      const v = raw[k];
+      if (typeof v === "string" || typeof v === "boolean" || v === null) {
+        (saved as Record<string, unknown>)[k] = v;
+      }
+    }
+    const base = parseLeadsSearchParams(sp, defaults);
+    const next = filtersToSearchParams({ ...base, ...saved, page: 1 });
+    if (!next.toString()) return { params: sp, applied: false };
+    return { params: Object.fromEntries(next.entries()), applied: true };
+  } catch {
+    return { params: sp, applied: false };
+  }
+}
