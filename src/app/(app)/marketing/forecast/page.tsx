@@ -5,6 +5,10 @@ import { ForecastEntryPanel } from "@/components/marketing/PlanningSocialForms";
 import { ActivationsTable } from "@/components/marketing/ActivationsTable";
 import { formatInr } from "@/lib/marketing/metrics";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 export default async function MarketingForecastPage() {
   await requireUser(["admin", "marketing"]);
   const admin = createAdminClient();

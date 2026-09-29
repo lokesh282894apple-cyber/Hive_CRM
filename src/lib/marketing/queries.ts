@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  MARKETING_CACHE_TAGS,
+  MARKETING_TRAFFIC_REVALIDATE_SEC,
+  cachedMarketingQuery,
+} from "@/lib/marketing/query-cache";
+import {
   PAGE_SIZE,
   fetchAllPages as fetchAllPagesShared,
   isLastPage,
@@ -138,6 +143,51 @@ function emptyDays(range: RangeKey): Map<string, DailyPoint> {
   return map;
 }
 
+type RpcError = { message: string; code?: string };
+
+/** PostgREST / Postgres "function not found" — only then is a raw-row fallback useful. */
+function isMissingFunction(err: RpcError | null): boolean {
+  if (!err) return false;
+  return (
+    err.code === "PGRST202" ||
+    err.code === "42883" ||
+    /could not find the function/i.test(err.message)
+  );
+}
+
+const cachedTrafficRpcData = cachedMarketingQuery(
+  {
+    keyPrefix: "marketing-traffic-rpc-v1",
+    tags: [MARKETING_CACHE_TAGS.traffic],
+    revalidate: MARKETING_TRAFFIC_REVALIDATE_SEC,
+    serializeArgs: (fn: string, args: Record<string, unknown>) =>
+      `${fn}:${JSON.stringify(args)}`,
+  },
+  async (fn: string, args: Record<string, unknown>) => {
+    const { data, error } = await marketingAggClient().rpc(fn, args);
+    // Errors are thrown (never cached) and turned back into { error } below
+    if (error) throw Object.assign(new Error(error.message), { code: error.code });
+    return data as unknown;
+  }
+);
+
+/**
+ * Sessions/pageview aggregates scan page_events + visitor_sessions (seconds on
+ * a small instance). Cache the JSON result briefly so each range is computed
+ * at most once per TTL instead of on every page load.
+ */
+async function trafficRpc(
+  fn: "marketing_overview" | "marketing_top_pages",
+  args: Record<string, unknown>
+): Promise<{ data: unknown; error: RpcError | null }> {
+  try {
+    return { data: await cachedTrafficRpcData(fn, args), error: null };
+  } catch (e) {
+    const err = e as Error & { code?: string };
+    return { data: null, error: { message: err.message, code: err.code } };
+  }
+}
+
 export async function fetchMarketingOverview(
   supabase: SupabaseClient,
   range: RangeKey
@@ -149,7 +199,7 @@ export async function fetchMarketingOverview(
   // Fast path: DB aggregates via service role (same metrics, no row shipping / no RLS tax)
   const [{ data: rpcData, error: rpcError }, { data: campaigns }, { data: channels }] =
     await Promise.all([
-      db.rpc("marketing_overview", {
+      trafficRpc("marketing_overview", {
         p_since: since,
         p_range_days: rangeDays,
       }),
@@ -164,6 +214,11 @@ export async function fetchMarketingOverview(
     );
   }
 
+  // Only fall back to raw-row scans when the function is missing. On a
+  // timeout the scan is far heavier and just piles more load on Postgres.
+  if (rpcError && !isMissingFunction(rpcError)) {
+    throw new Error(`marketing_overview: ${rpcError.message}`);
+  }
   if (!rpcError && rpcData && typeof rpcData === "object") {
     const payload = rpcData as {
       kpis: {
@@ -433,7 +488,7 @@ export async function fetchTopPages(
   const since = rangeStartIso(range);
   const db = marketingAggClient();
 
-  const { data: rpcRows, error: rpcError } = await db.rpc("marketing_top_pages", {
+  const { data: rpcRows, error: rpcError } = await trafficRpc("marketing_top_pages", {
     p_since: since,
     p_limit: limit,
   });
@@ -445,6 +500,11 @@ export async function fetchTopPages(
     );
   }
 
+  // Only fall back to raw-row scans when the function is missing. On a
+  // timeout the scan is far heavier and just piles more load on Postgres.
+  if (rpcError && !isMissingFunction(rpcError)) {
+    throw new Error(`marketing_top_pages: ${rpcError.message}`);
+  }
   if (!rpcError && Array.isArray(rpcRows)) {
     return (rpcRows as PageRow[]).map((r) => ({
       page_url: r.page_url,
@@ -523,10 +583,15 @@ export async function fetchCampaignMetrics(
   const db = marketingAggClient();
 
   // Prefer overview RPC campaign slice when available (one round-trip)
-  const { data: rpcData, error: rpcError } = await db.rpc("marketing_overview", {
+  const { data: rpcData, error: rpcError } = await trafficRpc("marketing_overview", {
     p_since: since,
     p_range_days: Number(range),
   });
+  // Only fall back to raw-row scans when the function is missing. On a
+  // timeout the scan is far heavier and just piles more load on Postgres.
+  if (rpcError && !isMissingFunction(rpcError)) {
+    throw new Error(`marketing_overview (campaigns): ${rpcError.message}`);
+  }
   if (!rpcError && rpcData && typeof rpcData === "object") {
     const byCampaign = (rpcData as { byCampaign?: NamedCount[] }).byCampaign ?? [];
     const map = new Map<string, { sessions: number; attributed: number }>();

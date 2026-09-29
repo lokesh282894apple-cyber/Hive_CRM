@@ -5,6 +5,10 @@ import { CsvUploadPanel } from "@/components/marketing/CsvUploadPanel";
 import { SocialEntryPanel } from "@/components/marketing/PlanningSocialForms";
 import { publishRate } from "@/lib/marketing/metrics";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 const PLATFORMS = ["instagram", "youtube", "linkedin", "whatsapp"] as const;
 
 export default async function MarketingSocialPage({

@@ -1,5 +1,5 @@
 import { revalidatePath, revalidateTag } from "next/cache";
-import { cachedMarketingQuery, invalidateMarketingCaches } from "@/lib/marketing/query-cache";
+import { cachedMarketingQuery } from "@/lib/marketing/query-cache";
 
 /**
  * Admissions dashboards scan thousands of leads / history rows per load.
@@ -16,7 +16,9 @@ export const ADMISSIONS_CACHE_TAG = "admissions-analytics";
 export function invalidateLeadCaches() {
   revalidateTag(ADMISSIONS_CACHE_TAG);
   revalidateTag("counselor-dashboard");
-  invalidateMarketingCaches();
+  // Marketing caches are NOT busted here: counselors write leads all day, so
+  // busting them kept the heavy marketing rollups permanently cold. They
+  // refresh on their own short TTL (see lib/marketing/query-cache).
 }
 
 /**

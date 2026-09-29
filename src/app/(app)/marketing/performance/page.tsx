@@ -5,6 +5,10 @@ import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchMarketingOverview, parseRange, type RangeKey } from "@/lib/marketing/queries";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 function Table({
   title,
   rows,
