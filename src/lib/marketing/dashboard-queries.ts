@@ -89,10 +89,7 @@ export function parseMarketingFilters(sp: Record<string, string | undefined>): M
   };
 }
 
-function inRange(iso: string, from: string, to: string): boolean {
-  const d = iso.slice(0, 10);
-  return d >= from && d <= to;
-}
+
 
 const R1_BOOKED_STAGES = new Set(["r1_booked", "r1_confirmed"]);
 const R1_DONE_STAGES = new Set([
@@ -175,7 +172,7 @@ export async function fetchLeadFunnelUncached(
 
   if (error) throw new Error("rpc_funnel_aggregate_daily: " + error.message);
 
-  return (data as FunnelDayRow[]).map((row: any) => {
+  return (data as FunnelDayRow[]).map((row) => {
     const totalCplSpend = Number(row.metaSpend) + Number(row.nonMetaSpend);
     return {
       ...row,
