@@ -11,6 +11,10 @@ import { DailyVisitsConversions } from "@/components/charts/SimpleCharts";
 import Link from "next/link";
 import { CheckCircle2, Circle, ArrowRight } from "lucide-react";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 function ChecklistItem({
   done,
   title,

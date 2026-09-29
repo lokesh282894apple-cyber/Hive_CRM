@@ -6,6 +6,10 @@ import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchSessionList, parseRange, type RangeKey } from "@/lib/marketing/queries";
 import Link from "next/link";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 export default async function MarketingSessionsPage({
   searchParams,
 }: {

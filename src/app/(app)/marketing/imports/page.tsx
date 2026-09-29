@@ -3,6 +3,10 @@ import { PageHeader } from "@/components/ui/Primitives";
 import { CsvUploadPanel } from "@/components/marketing/CsvUploadPanel";
 import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 export default async function MarketingImportsPage() {
   await requireUser(["admin", "marketing"]);
 

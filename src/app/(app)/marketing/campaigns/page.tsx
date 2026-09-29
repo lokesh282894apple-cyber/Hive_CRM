@@ -8,6 +8,10 @@ import { CampaignsClient } from "@/components/marketing/CampaignsClient";
 import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import type { AdCreative, Campaign, MarketingChannel } from "@/types/database";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 export default async function MarketingCampaignsPage() {
   await requireUser(["admin", "marketing"]);
   const supabase = createClient();

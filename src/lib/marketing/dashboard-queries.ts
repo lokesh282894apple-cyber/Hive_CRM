@@ -91,6 +91,11 @@ export function parseMarketingFilters(sp: Record<string, string | undefined>): M
 
 
 
+function inRange(iso: string, from: string, to: string): boolean {
+  const d = iso.slice(0, 10);
+  return d >= from && d <= to;
+}
+
 const R1_BOOKED_STAGES = new Set(["r1_booked", "r1_confirmed"]);
 const R1_DONE_STAGES = new Set([
   "r1_confirmed",
@@ -162,33 +167,360 @@ export async function fetchLeadFunnelUncached(
   filters: MarketingFilters
 ): Promise<FunnelDayRow[]> {
   const admin = db();
-  
-  const { data, error } = await admin.rpc("rpc_funnel_aggregate_daily", {
-    p_from: filters.fromDate,
-    p_to: filters.toDate,
-    p_programme: filters.programme || null,
-    p_cohort_id: filters.cohortId || null
-  });
+  const fromIso = `${filters.fromDate}T00:00:00.000Z`;
+  const toIso = `${filters.toDate}T23:59:59.999Z`;
 
-  if (error) throw new Error("rpc_funnel_aggregate_daily: " + error.message);
+  const monthKeys = Array.from(
+    new Set(
+      (() => {
+        const keys: string[] = [];
+        const start = new Date(`${filters.fromDate}T00:00:00Z`);
+        const end = new Date(`${filters.toDate}T00:00:00Z`);
+        for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+          keys.push(d.toISOString().slice(0, 7));
+        }
+        return keys;
+      })()
+    )
+  );
 
-  return ((data as FunnelDayRow[]) || []).map((row) => {
-    const totalCplSpend = Number(row.metaSpend) + Number(row.nonMetaSpend);
-    return {
-      ...row,
-      sessionsToLeadsPct: row.sessions ? row.leads / row.sessions : null,
-      r1ToLeadPct: row.leads ? row.r1Booked / row.leads : null,
-      r1ToLeadOrganicPct: row.organicLeads ? row.r1BookedOrganic / row.organicLeads : null,
-      r1ToLeadInorganicPct: row.inorganicLeads ? row.r1BookedInorganic / row.inorganicLeads : null,
-      blendedCpl: row.leads ? totalCplSpend / row.leads : null,
-      organicCpl: row.organicLeads ? Number(row.organicSpend) / row.organicLeads : null,
-      inorganicCpl: row.inorganicLeads ? Number(row.inorganicSpend) / row.inorganicLeads : null,
-      blendedCpaql: row.aqlTotal ? totalCplSpend / row.aqlTotal : null,
-      costPerR1: row.r1Booked ? totalCplSpend / row.r1Booked : null,
-      organicCostPerR1: row.r1BookedOrganic ? Number(row.organicSpend) / row.r1BookedOrganic : null,
-      inorganicCostPerR1: row.r1BookedInorganic ? Number(row.inorganicSpend) / row.r1BookedInorganic : null,
+  const [sessions, leads, history, spendRows, costRows, campsRes, notesRes, activations] =
+    await Promise.all([
+      fetchAllPages<{ id: string; first_seen_at: string }>(
+        (from, to) =>
+          admin
+            .from("visitor_sessions")
+            .select("id, first_seen_at")
+            .gte("first_seen_at", fromIso)
+            .lte("first_seen_at", toIso)
+            .order("first_seen_at", { ascending: true })
+            .range(from, to),
+        "visitor_sessions.funnel"
+      ),
+      fetchAllPages<{
+        id: string;
+        created_at: string;
+        programme: string | null;
+        cohort_id: string | null;
+        source: string | null;
+        utm_medium: string | null;
+        aql_at: string | null;
+        qualification_intent: string | null;
+        financial_check: string | null;
+        stage: string;
+      }>(
+        (from, to) =>
+          admin
+            .from("leads")
+            .select(
+              "id, created_at, programme, cohort_id, source, utm_medium, aql_at, qualification_intent, financial_check, stage"
+            )
+            .gte("created_at", fromIso)
+            .lte("created_at", toIso)
+            .order("created_at", { ascending: true })
+            .range(from, to),
+        "leads.funnel"
+      ),
+      fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
+        (from, to) =>
+          admin
+            .from("stage_history")
+            .select("lead_id, to_stage, changed_at")
+            .gte("changed_at", fromIso)
+            .lte("changed_at", toIso)
+            .order("changed_at", { ascending: true })
+            .range(from, to),
+        "stage_history.funnel"
+      ),
+      fetchAllPages<{ date: string; spend: number }>(
+        (from, to) =>
+          admin
+            .from("ad_spend_daily")
+            .select("date, spend")
+            .gte("date", filters.fromDate)
+            .lte("date", filters.toDate)
+            .order("date", { ascending: true })
+            .range(from, to),
+        "ad_spend_daily.funnel"
+      ),
+      fetchAllPages<{ entry_date: string; amount_inr: number; is_organic: boolean }>(
+        (from, to) =>
+          admin
+            .from("marketing_cost_entries")
+            .select("entry_date, amount_inr, is_organic")
+            .gte("entry_date", filters.fromDate)
+            .lte("entry_date", filters.toDate)
+            .order("entry_date", { ascending: true })
+            .range(from, to),
+        "marketing_cost_entries.funnel"
+      ),
+      admin.from("campaigns").select("id, source_type"),
+      admin
+        .from("marketing_daily_notes")
+        .select("note_date, notes, organic_spend_inr, inorganic_spend_inr, activity_log")
+        .gte("note_date", filters.fromDate)
+        .lte("note_date", filters.toDate),
+      monthKeys.length
+        ? admin
+            .from("marketing_activations")
+            .select(
+              "id, activity, owner, planned_date, actual_date, status, month_key, attributed_leads_count, channel"
+            )
+            .in("month_key", monthKeys)
+        : Promise.resolve({ data: [] as Record<string, unknown>[] }),
+    ]);
+
+  const leadIds = leads.map((l) => l.id);
+  const attrs = await selectInChunks<{
+    lead_id: string;
+    first_touch_campaign_id: string | null;
+  }>("lead_attribution", "lead_id", leadIds, "lead_id, first_touch_campaign_id");
+
+  const campMap = new Map(
+    (campsRes.data ?? []).map((c) => [c.id as string, c.source_type as string])
+  );
+  const attrMap = new Map(
+    attrs.map((a) => [a.lead_id as string, a.first_touch_campaign_id as string])
+  );
+
+  const notesByDate = new Map(
+    (notesRes.data ?? []).map((n) => [
+      String(n.note_date),
+      n as MarketingDailyNote,
+    ])
+  );
+
+  const dayMap = new Map<string, FunnelDayRow>();
+  const ensure = (date: string): FunnelDayRow => {
+    let row = dayMap.get(date);
+    if (!row) {
+      row = {
+        date,
+        sessions: 0,
+        metaSpend: 0,
+        nonMetaSpend: 0,
+        organicSpend: 0,
+        inorganicSpend: 0,
+        totalSpend: 0,
+        leads: 0,
+        organicLeads: 0,
+        inorganicLeads: 0,
+        aqlOrganic: 0,
+        aqlInorganic: 0,
+        aqlTotal: 0,
+        r1Booked: 0,
+        r1BookedOrganic: 0,
+        r1BookedInorganic: 0,
+        r1Completed: 0,
+        sessionsToLeadsPct: null,
+        r1ToLeadPct: null,
+        r1ToLeadOrganicPct: null,
+        r1ToLeadInorganicPct: null,
+        blendedCpl: null,
+        organicCpl: null,
+        inorganicCpl: null,
+        blendedCpaql: null,
+        costPerR1: null,
+        organicCostPerR1: null,
+        inorganicCostPerR1: null,
+        notes: "",
+        activityLog: "",
+        activityItems: [],
+        doneActivations: [],
+      };
+      dayMap.set(date, row);
+    }
+    return row;
+  };
+
+  const leadInorgById = new Map<string, boolean>();
+  for (const l of leads) {
+    const campId = attrMap.get(l.id);
+    leadInorgById.set(
+      l.id,
+      isInorganicLead({
+        utm_medium: l.utm_medium,
+        source: l.source,
+        campaignSourceType: campId ? campMap.get(campId) : null,
+      })
+    );
+  }
+
+  for (const s of sessions) {
+    const d = String(s.first_seen_at).slice(0, 10);
+    ensure(d).sessions += 1;
+  }
+
+  for (const sp of spendRows) {
+    const d = String(sp.date);
+    ensure(d).metaSpend += Number(sp.spend) || 0;
+  }
+
+  for (const c of costRows) {
+    const d = String(c.entry_date);
+    const amt = Number(c.amount_inr) || 0;
+    if (c.is_organic) ensure(d).nonMetaSpend += amt;
+    else ensure(d).metaSpend += amt;
+  }
+
+  for (const l of leads) {
+    if (filters.programme && l.programme !== filters.programme) continue;
+    if (filters.cohortId && l.cohort_id !== filters.cohortId) continue;
+    const d = String(l.created_at).slice(0, 10);
+    const campId = attrMap.get(l.id);
+    const inorg = isInorganicLead({
+      utm_medium: l.utm_medium,
+      source: l.source,
+      campaignSourceType: campId ? campMap.get(campId) : null,
+    });
+    if (filters.organicOnly && inorg) continue;
+    if (filters.inorganicOnly && !inorg) continue;
+    const row = ensure(d);
+    row.leads += 1;
+    if (inorg) row.inorganicLeads += 1;
+    else row.organicLeads += 1;
+  }
+
+  for (const l of leads) {
+    const aqlDate = l.aql_at
+      ? String(l.aql_at).slice(0, 10)
+      : meetsAqlCriteria(l)
+        ? String(l.created_at).slice(0, 10)
+        : null;
+    if (!aqlDate || !inRange(aqlDate, filters.fromDate, filters.toDate)) continue;
+    const campId = attrMap.get(l.id);
+    const inorg = isInorganicLead({
+      utm_medium: l.utm_medium,
+      source: l.source,
+      campaignSourceType: campId ? campMap.get(campId) : null,
+    });
+    const row = ensure(aqlDate);
+    row.aqlTotal += 1;
+    if (inorg) row.aqlInorganic += 1;
+    else row.aqlOrganic += 1;
+  }
+
+  const historyLeadIds = Array.from(new Set(history.map((h) => h.lead_id)));
+  const missingHistoryIds = historyLeadIds.filter((id) => !leadInorgById.has(id));
+  if (missingHistoryIds.length) {
+    const missingLeads = await selectInChunks<{
+      id: string;
+      source: string | null;
+      utm_medium: string | null;
+    }>("leads", "id", missingHistoryIds, "id, source, utm_medium");
+    const missingAttrs = await selectInChunks<{
+      lead_id: string;
+      first_touch_campaign_id: string | null;
+    }>(
+      "lead_attribution",
+      "lead_id",
+      missingHistoryIds,
+      "lead_id, first_touch_campaign_id"
+    );
+    const missingAttrMap = new Map(
+      missingAttrs.map((a) => [a.lead_id, a.first_touch_campaign_id])
+    );
+    for (const l of missingLeads) {
+      const campId = missingAttrMap.get(l.id);
+      leadInorgById.set(
+        l.id,
+        isInorganicLead({
+          utm_medium: l.utm_medium,
+          source: l.source,
+          campaignSourceType: campId ? campMap.get(campId) : null,
+        })
+      );
+    }
+  }
+
+  const r1BookedLeads = new Set<string>();
+  const r1DoneLeads = new Set<string>();
+  for (const h of history) {
+    const d = String(h.changed_at).slice(0, 10);
+    if (R1_BOOKED_STAGES.has(h.to_stage) && !r1BookedLeads.has(`${h.lead_id}:${d}`)) {
+      r1BookedLeads.add(`${h.lead_id}:${d}`);
+      const row = ensure(d);
+      row.r1Booked += 1;
+      if (leadInorgById.get(h.lead_id)) row.r1BookedInorganic += 1;
+      else row.r1BookedOrganic += 1;
+    }
+    if (R1_DONE_STAGES.has(h.to_stage) && !r1DoneLeads.has(`${h.lead_id}:${d}`)) {
+      r1DoneLeads.add(`${h.lead_id}:${d}`);
+      ensure(d).r1Completed += 1;
+    }
+  }
+
+  for (const a of activations.data ?? []) {
+    const eventDate = a.actual_date
+      ? String(a.actual_date).slice(0, 10)
+      : a.planned_date
+        ? String(a.planned_date).slice(0, 10)
+        : null;
+    if (!eventDate || !inRange(eventDate, filters.fromDate, filters.toDate)) continue;
+    const item = {
+      id: a.id as string,
+      activity: a.activity as string,
+      owner: (a.owner as string | null) ?? null,
+      status: (a.status as string | null) ?? null,
+      source: "activation" as const,
+      attributedLeads: Number(a.attributed_leads_count) || 0,
+      channel: (a.channel as string | null) ?? null,
     };
-  });
+    const row = ensure(eventDate);
+    row.activityItems.push(item);
+    if (a.status === "done") {
+      row.doneActivations.push({
+        id: item.id,
+        activity: item.activity,
+        owner: item.owner,
+      });
+    }
+  }
+
+  for (const [date, note] of Array.from(notesByDate.entries())) {
+    const row = ensure(date);
+    row.notes = note.notes ?? "";
+    row.activityLog = note.activity_log ?? "";
+    const manualLines = String(note.activity_log ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    for (let i = 0; i < manualLines.length; i++) {
+      row.activityItems.push({
+        id: `manual:${date}:${i}`,
+        activity: manualLines[i],
+        owner: null,
+        status: null,
+        source: "manual",
+      });
+    }
+  }
+
+  const rows = Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+  for (const row of rows) {
+    const note = notesByDate.get(row.date);
+    row.organicSpend =
+      note?.organic_spend_inr != null
+        ? Number(note.organic_spend_inr) || 0
+        : row.nonMetaSpend;
+    row.inorganicSpend =
+      note?.inorganic_spend_inr != null
+        ? Number(note.inorganic_spend_inr) || 0
+        : row.metaSpend;
+    row.totalSpend = row.organicSpend + row.inorganicSpend;
+    row.sessionsToLeadsPct = pct(row.leads, row.sessions);
+    row.r1ToLeadPct = pct(row.r1Booked, row.leads);
+    row.r1ToLeadOrganicPct = pct(row.r1BookedOrganic, row.organicLeads);
+    row.r1ToLeadInorganicPct = pct(row.r1BookedInorganic, row.inorganicLeads);
+    row.blendedCpl = blendedCpl(row.totalSpend, row.leads);
+    row.organicCpl = blendedCpl(row.organicSpend, row.organicLeads);
+    row.inorganicCpl = blendedCpl(row.inorganicSpend, row.inorganicLeads);
+    row.blendedCpaql = cpaql(row.totalSpend, row.r1Booked);
+    row.costPerR1 = costPerR1(row.totalSpend, row.r1Booked);
+    row.organicCostPerR1 = costPerR1(row.organicSpend, row.r1BookedOrganic);
+    row.inorganicCostPerR1 = costPerR1(row.inorganicSpend, row.r1BookedInorganic);
+  }
+  return rows;
 }
 /** Cached funnel — same numbers; request dedupe + 90s TTL (CRM dashboard pattern). */
 export const fetchLeadFunnel = cachedMarketingQuery(

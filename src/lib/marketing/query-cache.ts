@@ -9,7 +9,11 @@ export const MARKETING_CACHE_TAGS = {
   channel: "marketing-channel",
   monthly: "marketing-monthly",
   overview: "marketing-overview",
+  traffic: "marketing-traffic",
 } as const;
+
+/** Sessions / pageviews rollups — not tied to lead writes; 5 min is plenty fresh. */
+export const MARKETING_TRAFFIC_REVALIDATE_SEC = 300;
 
 /** Bust TTL caches after spend / notes / activations / lead stage writes. */
 export function invalidateMarketingCaches() {
@@ -17,6 +21,7 @@ export function invalidateMarketingCaches() {
   revalidateTag(MARKETING_CACHE_TAGS.channel);
   revalidateTag(MARKETING_CACHE_TAGS.monthly);
   revalidateTag(MARKETING_CACHE_TAGS.overview);
+  revalidateTag(MARKETING_CACHE_TAGS.traffic);
 }
 
 export function marketingFilterCacheKey(filters: {

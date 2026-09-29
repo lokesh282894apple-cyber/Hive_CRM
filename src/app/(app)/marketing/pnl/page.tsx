@@ -13,6 +13,10 @@ import { createClient } from "@/lib/supabase/server";
 import { cohortDisplayLabel } from "@/lib/cohorts/display";
 import Link from "next/link";
 
+// Cold aggregates can take several seconds on a small DB — finish and fill
+// the cache instead of hitting the default function timeout.
+export const maxDuration = 60;
+
 type PnlView = "total" | "organic" | "inorganic" | "meta_forms" | "channels";
 
 function indianFyBounds(fyStartYear: number) {
