@@ -33,7 +33,7 @@ function db(): SupabaseClient {
 
 /** PostgREST `.in()` URL length + row caps — chunk ids and fetch in parallel batches. */
 const IN_CHUNK = 150;
-const IN_CONCURRENCY = 4;
+const IN_CONCURRENCY = 20;
 
 async function selectInChunks<T extends Record<string, unknown>>(
   table: string,
@@ -207,28 +207,14 @@ export async function fetchLeadFunnelUncached(
         if (res.error) throw new Error("rpc_funnel_stage_history: " + res.error.message);
         return res.data as { lead_id: string; to_stage: string; changed_at: string }[];
       }),
-      fetchAllPages<{ date: string; spend: number }>(
-        (from, to) =>
-          admin
-            .from("ad_spend_daily")
-            .select("date, spend")
-            .gte("date", filters.fromDate)
-            .lte("date", filters.toDate)
-            .order("date", { ascending: true })
-            .range(from, to),
-        "ad_spend_daily.funnel"
-      ),
-      fetchAllPages<{ entry_date: string; amount_inr: number; is_organic: boolean }>(
-        (from, to) =>
-          admin
-            .from("marketing_cost_entries")
-            .select("entry_date, amount_inr, is_organic")
-            .gte("entry_date", filters.fromDate)
-            .lte("entry_date", filters.toDate)
-            .order("entry_date", { ascending: true })
-            .range(from, to),
-        "marketing_cost_entries.funnel"
-      ),
+      admin.rpc("rpc_funnel_ad_spend_daily", { p_from: filters.fromDate, p_to: filters.toDate }).then((res) => {
+        if (res.error) throw new Error("rpc_funnel_ad_spend_daily: " + res.error.message);
+        return res.data as { date: string; spend: number }[];
+      }),
+      admin.rpc("rpc_funnel_cost_entries", { p_from: filters.fromDate, p_to: filters.toDate }).then((res) => {
+        if (res.error) throw new Error("rpc_funnel_cost_entries: " + res.error.message);
+        return res.data as { entry_date: string; amount_inr: number; is_organic: boolean }[];
+      }),
       admin.from("campaigns").select("id, source_type"),
       admin
         .from("marketing_daily_notes")
