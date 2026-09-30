@@ -1,5 +1,7 @@
 import { requireAuth } from "@/lib/auth";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/ui-prefs";
+import { cookies } from "next/headers";
 import { TopBar } from "@/components/shell/TopBar";
 import { NavProgress } from "@/components/shell/NavProgress";
 import { AiChatWidget } from "@/components/shell/AiChatWidget";
@@ -34,7 +36,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <SessionGuard userId={actor.id} />
         {mustChange ? <ForcePasswordChange role={actor.role} /> : null}
         <NavProgress />
-        <Sidebar role={user.role} userName={user.name} />
+        <Sidebar
+          role={user.role}
+          userName={user.name}
+          initialCollapsed={cookies().get(SIDEBAR_COLLAPSED_COOKIE)?.value === "1"}
+        />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <TopBar actorLabel={impersonating ? actor.name : null} />
           <ImpersonationBanner />
