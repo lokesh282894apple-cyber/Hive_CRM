@@ -148,7 +148,7 @@ export default async function AdminCounselorPage({
           hint="Current open allocated leads (all ages). Can be higher than Analytics Total if older leads are still open"
         />
         <StatCard label="Total calls" value={t.calling.totalCalls} />
-        <StatCard label="Last call" value={t.calling.lastCallAt ? formatRelativeAgo(t.calling.lastCallAt) : "—"} />
+        <StatCard label="Unique leads called" value={t.calling.uniqueCalls} />
         <StatCard label="Avg calls / lead" value={t.calling.avgCallsPerLead} />
         <StatCard label="Avg calls / day" value={t.calling.avgCallsPerDay} />
         <StatCard

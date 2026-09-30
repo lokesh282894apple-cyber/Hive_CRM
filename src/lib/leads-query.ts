@@ -189,10 +189,10 @@ export function applyLeadsFilters(
   if (filters.cohortId) query = query.eq("cohort_id", filters.cohortId);
 
   if (filters.createdFrom) {
-    query = query.gte("created_at", `${filters.createdFrom}T00:00:00.000`);
+    query = query.gte("created_at", `${filters.createdFrom}T00:00:00.000+05:30`);
   }
   if (filters.createdTo) {
-    query = query.lte("created_at", `${filters.createdTo}T23:59:59.999`);
+    query = query.lte("created_at", `${filters.createdTo}T23:59:59.999+05:30`);
   }
 
   const stages = stagesForGroup(filters.stageGroup);
