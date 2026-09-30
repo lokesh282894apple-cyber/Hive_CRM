@@ -231,16 +231,19 @@ export async function sessionsBySource(
   /** "rows" forces the old row-paging path (parity checks only). */
   mode: "auto" | "rows" = "auto"
 ): Promise<SessionSourceGroup[]> {
+  // v2 returns ONE jsonb value. The v1 set-returning function was capped at
+  // PostgREST Max rows (20k groups) and silently dropped the rest.
   const { data, error } =
     mode === "rows"
       ? { data: null, error: { message: "could not find the function (forced)" } }
-      : await admin.rpc("rpc_sessions_by_source", { p_from: fromIso, p_to: toIso });
+      : await admin.rpc("rpc_sessions_by_source_v2", { p_from: fromIso, p_to: toIso });
   if (!error) {
     return ((data ?? []) as (Omit<SessionSourceGroup, "sessions"> & {
       sessions: number | string;
     })[]).map((r) => ({ ...r, sessions: Number(r.sessions) || 0 }));
   }
-  if (!isMissingRpc(error)) throw new Error(`rpc_sessions_by_source: ${error.message}`);
+  // Missing v2 → uncapped row path (never fall back to the capped v1)
+  if (!isMissingRpc(error)) throw new Error(`rpc_sessions_by_source_v2: ${error.message}`);
   const rows = await fetchAllPages<{
     id: string;
     utm_source: string | null;
