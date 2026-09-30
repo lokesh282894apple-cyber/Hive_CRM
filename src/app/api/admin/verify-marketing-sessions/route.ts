@@ -74,6 +74,17 @@ export async function GET() {
 
     const dayOk = !rpcError && norm(dayMap(dayRows)) === norm(dayMap(dayRpc));
     const srcOk = !rpcError && norm(srcMap(srcRows)) === norm(srcMap(srcRpc));
+    // Which source groups disagree (top 15) — to tell a real bug from
+    // sessions whose UTM / campaign changed while the check was running
+    const a1 = srcMap(srcRows);
+    const a2 = srcMap(srcRpc);
+    const sourceDiffs = srcOk
+      ? []
+      : Array.from(new Set([...Array.from(a1.keys()), ...Array.from(a2.keys())]))
+          .map((k) => ({ group: k, rows: a1.get(k) ?? 0, rpc: a2.get(k) ?? 0 }))
+          .filter((d) => d.rows !== d.rpc)
+          .sort((x, y) => Math.abs(y.rows - y.rpc) - Math.abs(x.rows - x.rpc))
+          .slice(0, 15);
     results.push({
       range: `${fromDate}..${toDate}`,
       totalSessions: dayRows.reduce((s, r) => s + r.sessions, 0),
@@ -82,6 +93,8 @@ export async function GET() {
       rpcError,
       perDayMatches: dayOk,
       perSourceMatches: srcOk,
+      groups: { rows: a1.size, rpc: a2.size },
+      sourceDiffs,
     });
   }
 
