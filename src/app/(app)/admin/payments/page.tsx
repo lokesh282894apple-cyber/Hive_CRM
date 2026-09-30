@@ -141,6 +141,18 @@ export default async function AdminPaymentsPage({
         description="Fee and loan tracking per student. Fees unlock on Offered / Closed – paid."
       />
 
+      <p className="rounded-xl border border-border bg-navy/5 px-4 py-2.5 text-xs text-muted">
+        <span className="font-semibold text-navy">What’s counted here:</span> only students
+        currently in <span className="font-medium text-navy">Offered</span> or{" "}
+        <span className="font-medium text-navy">Closed – paid</span>. Application fees paid at
+        earlier stages, and money from refunded or deferred students, are not included — so
+        collected totals can be lower than on the{" "}
+        <a href="/admin/revenue" className="font-medium text-periwinkle hover:underline">
+          Revenue
+        </a>{" "}
+        page, which counts every fee record.
+      </p>
+
       <HubspotImportClient defaultTarget="fees" />
 
       {usingDemo ? (
