@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuth } from "@/lib/marketing/track-auth";
 import { dispatchStageTriggers } from "@/lib/integrations/dispatch";
+import { istDateKey } from "@/lib/tz";
 
 /**
  * Fee-deadline reminders + retry failed message_logs.
@@ -21,8 +22,8 @@ export async function POST(request: NextRequest) {
 
   const in3d = new Date();
   in3d.setDate(in3d.getDate() + 3);
-  const today = new Date().toISOString().slice(0, 10);
-  const until = in3d.toISOString().slice(0, 10);
+  const today = istDateKey();
+  const until = istDateKey(in3d);
 
   const { data: due } = await admin
     .from("installments")

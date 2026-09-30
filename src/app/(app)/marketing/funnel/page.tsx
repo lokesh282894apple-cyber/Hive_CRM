@@ -326,10 +326,11 @@ export default async function MarketingFunnelPage({
 function rollWeekly(rows: FunnelDayRow[]) {
   const map = new Map<string, FunnelDayRow>();
   for (const r of rows) {
-    const d = new Date(r.date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const mon = new Date(d.setDate(diff)).toISOString().slice(0, 10);
+    // r.date is a YYYY-MM-DD key — pure calendar math (Monday start)
+    const d = new Date(`${r.date}T00:00:00.000Z`);
+    const day = d.getUTCDay();
+    d.setUTCDate(d.getUTCDate() - day + (day === 0 ? -6 : 1));
+    const mon = d.toISOString().slice(0, 10);
     const cur = map.get(mon) ?? emptyRow(mon);
     mergeRow(cur, r);
     map.set(mon, cur);

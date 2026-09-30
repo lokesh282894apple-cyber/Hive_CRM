@@ -26,6 +26,7 @@ import {
 } from "@/lib/marketing/metrics";
 import { meetsAqlCriteria } from "@/lib/marketing/aql";
 import { isClosedStage } from "@/lib/constants";
+import { istDateKey, istEndIso, istMonthKey, istStartIso } from "@/lib/tz";
 
 function db(): SupabaseClient {
   return createAdminClient();
@@ -74,10 +75,10 @@ export type MarketingFilters = {
 
 export function parseMarketingFilters(sp: Record<string, string | undefined>): MarketingFilters {
   const today = new Date();
-  const to = sp.to ?? today.toISOString().slice(0, 10);
+  const to = sp.to ?? istDateKey(today);
   const fromDefault = new Date(today);
   fromDefault.setDate(fromDefault.getDate() - 30);
-  const from = sp.from ?? fromDefault.toISOString().slice(0, 10);
+  const from = sp.from ?? istDateKey(fromDefault);
   return {
     fromDate: from,
     toDate: to,
@@ -92,7 +93,7 @@ export function parseMarketingFilters(sp: Record<string, string | undefined>): M
 
 
 function inRange(iso: string, from: string, to: string): boolean {
-  const d = iso.slice(0, 10);
+  const d = istDateKey(iso);
   return d >= from && d <= to;
 }
 
@@ -175,7 +176,7 @@ function isMissingRpc(err: RpcErr): boolean {
 }
 
 /**
- * Sessions per UTC day in [fromIso, toIso]. Uses rpc_sessions_per_day (counts
+ * Sessions per IST day in [fromIso, toIso]. Uses rpc_sessions_per_day_ist (counts
  * in Postgres); falls back to paging rows if the migration isn't applied.
  */
 export async function sessionsPerDay(
@@ -188,14 +189,14 @@ export async function sessionsPerDay(
   const { data, error } =
     mode === "rows"
       ? { data: null, error: { message: "could not find the function (forced)" } }
-      : await admin.rpc("rpc_sessions_per_day", { p_from: fromIso, p_to: toIso });
+      : await admin.rpc("rpc_sessions_per_day_ist", { p_from: fromIso, p_to: toIso });
   if (!error) {
     return ((data ?? []) as { day: string; sessions: number | string }[]).map((r) => ({
       day: r.day,
       sessions: Number(r.sessions) || 0,
     }));
   }
-  if (!isMissingRpc(error)) throw new Error(`rpc_sessions_per_day: ${error.message}`);
+  if (!isMissingRpc(error)) throw new Error(`rpc_sessions_per_day_ist: ${error.message}`);
   const rows = await fetchAllPages<{ id: string; first_seen_at: string }>(
     (from, to) =>
       admin
@@ -209,7 +210,7 @@ export async function sessionsPerDay(
   );
   const byDay = new Map<string, number>();
   for (const r of rows) {
-    const d = String(r.first_seen_at).slice(0, 10);
+    const d = istDateKey(r.first_seen_at);
     byDay.set(d, (byDay.get(d) ?? 0) + 1);
   }
   return Array.from(byDay, ([day, sessions]) => ({ day, sessions }));
@@ -276,8 +277,8 @@ export async function fetchLeadFunnelUncached(
   filters: MarketingFilters
 ): Promise<FunnelDayRow[]> {
   const admin = db();
-  const fromIso = `${filters.fromDate}T00:00:00.000Z`;
-  const toIso = `${filters.toDate}T23:59:59.999Z`;
+  const fromIso = istStartIso(filters.fromDate);
+  const toIso = istEndIso(filters.toDate);
 
   const monthKeys = Array.from(
     new Set(
@@ -464,7 +465,7 @@ export async function fetchLeadFunnelUncached(
   for (const l of leads) {
     if (filters.programme && l.programme !== filters.programme) continue;
     if (filters.cohortId && l.cohort_id !== filters.cohortId) continue;
-    const d = String(l.created_at).slice(0, 10);
+    const d = istDateKey(l.created_at);
     const campId = attrMap.get(l.id);
     const inorg = isInorganicLead({
       utm_medium: l.utm_medium,
@@ -481,9 +482,9 @@ export async function fetchLeadFunnelUncached(
 
   for (const l of leads) {
     const aqlDate = l.aql_at
-      ? String(l.aql_at).slice(0, 10)
+      ? istDateKey(l.aql_at)
       : meetsAqlCriteria(l)
-        ? String(l.created_at).slice(0, 10)
+        ? istDateKey(l.created_at)
         : null;
     if (!aqlDate || !inRange(aqlDate, filters.fromDate, filters.toDate)) continue;
     const campId = attrMap.get(l.id);
@@ -534,7 +535,7 @@ export async function fetchLeadFunnelUncached(
   const r1BookedLeads = new Set<string>();
   const r1DoneLeads = new Set<string>();
   for (const h of history) {
-    const d = String(h.changed_at).slice(0, 10);
+    const d = istDateKey(h.changed_at);
     if (R1_BOOKED_STAGES.has(h.to_stage) && !r1BookedLeads.has(`${h.lead_id}:${d}`)) {
       r1BookedLeads.add(`${h.lead_id}:${d}`);
       const row = ensure(d);
@@ -623,7 +624,7 @@ export async function fetchLeadFunnelUncached(
 /** Cached funnel — same numbers; request dedupe + 90s TTL (CRM dashboard pattern). */
 export const fetchLeadFunnel = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-lead-funnel",
+    keyPrefix: "marketing-lead-funnel-ist",
     tags: [MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (filters: MarketingFilters) => marketingFilterCacheKey(filters),
   },
@@ -651,22 +652,46 @@ export async function fetchQualificationLeads(
   filters: MarketingFilters
 ): Promise<QualificationLeadRow[]> {
   const admin = db();
-  const { data } = await admin
-    .from("leads")
-    .select(
-      "id, name, created_at, programme, qualification_intent, financial_check, source, meta_campaign_name, meta_ad_set, meta_ad_name, stage, dq_reason, lead_allocated_to, aql_at, utm_campaign"
-    )
-    .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
-    .lte("created_at", `${filters.toDate}T23:59:59.999Z`)
-    .order("created_at", { ascending: false })
-    .limit(500);
+  // All leads in range — DQ reason counts/percentages are computed from these
+  // (a 500-row cap undercounted busy months).
+  type QualRaw = {
+    id: string;
+    name: string;
+    created_at: string;
+    stage: string;
+    programme: string | null;
+    qualification_intent: string | null;
+    financial_check: string | null;
+    source: string | null;
+    meta_campaign_name: string | null;
+    meta_ad_set: string | null;
+    meta_ad_name: string | null;
+    dq_reason: string | null;
+    lead_allocated_to: string | null;
+    aql_at: string | null;
+    utm_campaign: string | null;
+  };
+  const data = await fetchAllPages<QualRaw>(
+    (from, to) =>
+      admin
+        .from("leads")
+        .select(
+          "id, name, created_at, programme, qualification_intent, financial_check, source, meta_campaign_name, meta_ad_set, meta_ad_name, stage, dq_reason, lead_allocated_to, aql_at, utm_campaign"
+        )
+        .gte("created_at", istStartIso(filters.fromDate))
+        .lte("created_at", istEndIso(filters.toDate))
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to),
+    "leads.qualification"
+  );
 
   return (data ?? [])
     .filter((l) => !filters.programme || l.programme === filters.programme)
     .map((l) => ({
       id: l.id,
       name: l.name,
-      leadDate: String(l.created_at).slice(0, 10),
+      leadDate: istDateKey(l.created_at),
       programme: l.programme,
       intent: l.qualification_intent,
       financialCheck: l.financial_check,
@@ -721,8 +746,8 @@ export async function fetchAttributionReport(
     .select(
       "id, stage, aql_at, qualification_intent, financial_check, utm_source, utm_medium, utm_campaign, created_at"
     )
-    .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
-    .lte("created_at", `${filters.toDate}T23:59:59.999Z`);
+    .gte("created_at", istStartIso(filters.fromDate))
+    .lte("created_at", istEndIso(filters.toDate));
 
   const leadList = leads ?? [];
   if (!leadList.length) return [];
@@ -838,8 +863,8 @@ export async function fetchCampaignRoi(filters: MarketingFilters): Promise<Campa
     admin
       .from("leads")
       .select("id, stage, aql_at, qualification_intent, financial_check")
-      .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
-      .lte("created_at", `${filters.toDate}T23:59:59.999Z`),
+      .gte("created_at", istStartIso(filters.fromDate))
+      .lte("created_at", istEndIso(filters.toDate)),
   ]);
 
   const campaigns = campaignsRes.data ?? [];
@@ -1026,9 +1051,9 @@ export async function fetchMonthlyMarketingDataUncached(
 
   const oldest = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
   const fromDate = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, "0")}-01`;
-  const toDate = now.toISOString().slice(0, 10);
-  const fromIso = `${fromDate}T00:00:00.000Z`;
-  const toIso = `${toDate}T23:59:59.999Z`;
+  const toDate = istDateKey(now);
+  const fromIso = istStartIso(fromDate);
+  const toIso = istEndIso(toDate);
 
   const monthKeys: string[] = [];
   for (let i = monthsBack; i >= 0; i--) {
@@ -1102,17 +1127,17 @@ export async function fetchMonthlyMarketingDataUncached(
   }
 
   for (const l of offeredLeads.data ?? []) {
-    const mk = String(l.updated_at).slice(0, 7);
+    const mk = istMonthKey(l.updated_at);
     const t = byMonth.get(mk);
     if (t) t.offers += 1;
   }
   for (const l of wonLeads.data ?? []) {
-    const mk = String(l.updated_at).slice(0, 7);
+    const mk = istMonthKey(l.updated_at);
     const t = byMonth.get(mk);
     if (t) t.converts += 1;
   }
   for (const f of fees.data ?? []) {
-    const mk = String(f.updated_at).slice(0, 7);
+    const mk = istMonthKey(f.updated_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     const booked = Number(f.total_fee) || 0;
@@ -1125,7 +1150,7 @@ export async function fetchMonthlyMarketingDataUncached(
   }
 
   for (const l of cohortLeads.data ?? []) {
-    const mk = String(l.created_at).slice(0, 7);
+    const mk = istMonthKey(l.created_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     if (!isClosedStage(String(l.stage))) t.availableLeads += 1;
@@ -1174,7 +1199,7 @@ export async function fetchMonthlyMarketingDataUncached(
 
 export const fetchMonthlyMarketingData = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-monthly",
+    keyPrefix: "marketing-monthly-ist",
     tags: [MARKETING_CACHE_TAGS.monthly, MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (monthsBack = 12) => String(monthsBack),
   },
@@ -1242,14 +1267,14 @@ export async function fetchMarketingPnl(
     "closed_deferred",
   ];
   const monthSet = new Set<string>();
-  for (const l of filtered) monthSet.add(String(l.created_at).slice(0, 7));
+  for (const l of filtered) monthSet.add(istMonthKey(l.created_at));
   const months = Array.from(monthSet).sort();
 
   const grid: Record<string, Record<string, number>> = {};
   for (const sk of stageKeys) grid[sk] = Object.fromEntries(months.map((m) => [m, 0]));
 
   for (const l of filtered) {
-    const m = String(l.created_at).slice(0, 7);
+    const m = istMonthKey(l.created_at);
     grid.total_leads[m] = (grid.total_leads[m] ?? 0) + 1;
     if (R1_BOOKED_STAGES.has(l.stage)) grid.r1_booked[m] = (grid.r1_booked[m] ?? 0) + 1;
     if (R1_DONE_STAGES.has(l.stage)) grid.r1_completed[m] = (grid.r1_completed[m] ?? 0) + 1;
@@ -1299,8 +1324,10 @@ export async function fetchLeadWebsiteMetrics(
     .from("leads")
     .select("id, name, stage, website_session_id, clarity_session_url")
     .not("website_session_id", "is", null)
-    .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
-    .lte("created_at", `${filters.toDate}T23:59:59.999Z`)
+    .gte("created_at", istStartIso(filters.fromDate))
+    .lte("created_at", istEndIso(filters.toDate))
+    // Latest 200 (was unordered — an arbitrary 200)
+    .order("created_at", { ascending: false })
     .limit(200);
 
   const leadList = (leads ?? []).filter((l) => l.website_session_id);
@@ -1371,8 +1398,8 @@ export type CallTrackerRow = {
 };
 
 function callDayOffset(leadCreatedIso: string, callLoggedIso: string): number {
-  const leadDay = leadCreatedIso.slice(0, 10);
-  const callDay = callLoggedIso.slice(0, 10);
+  const leadDay = istDateKey(leadCreatedIso);
+  const callDay = istDateKey(callLoggedIso);
   const t0 = new Date(`${leadDay}T00:00:00Z`).getTime();
   const t1 = new Date(`${callDay}T00:00:00Z`).getTime();
   return Math.round((t1 - t0) / 86_400_000);
@@ -1386,8 +1413,8 @@ export async function fetchDailyCallTracker(
   const { data: leads } = await admin
     .from("leads")
     .select("id, created_at, stage")
-    .gte("created_at", `${filters.fromDate}T00:00:00.000Z`)
-    .lte("created_at", `${filters.toDate}T23:59:59.999Z`)
+    .gte("created_at", istStartIso(filters.fromDate))
+    .lte("created_at", istEndIso(filters.toDate))
     .order("created_at", { ascending: true });
 
   if (!leads?.length) return [];
@@ -1410,7 +1437,7 @@ export async function fetchDailyCallTracker(
   const byDate = new Map<string, CallTrackerRow>();
 
   for (const lead of leads) {
-    const date = String(lead.created_at).slice(0, 10);
+    const date = istDateKey(lead.created_at);
     const row =
       byDate.get(date) ??
       ({
@@ -1545,8 +1572,8 @@ export async function fetchChannelFunnelUncached(
   filters: MarketingFilters
 ): Promise<ChannelFunnelRow[]> {
   const admin = db();
-  const fromIso = `${filters.fromDate}T00:00:00.000Z`;
-  const toIso = `${filters.toDate}T23:59:59.999Z`;
+  const fromIso = istStartIso(filters.fromDate);
+  const toIso = istEndIso(filters.toDate);
 
   const [sessions, leads, campsRes, spendRows, costRows] = await Promise.all([
     sessionsBySource(admin, fromIso, toIso),
@@ -1758,7 +1785,7 @@ export async function fetchChannelFunnelUncached(
 
 export const fetchChannelFunnel = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-channel-funnel",
+    keyPrefix: "marketing-channel-funnel-ist",
     tags: [MARKETING_CACHE_TAGS.channel],
     serializeArgs: (filters: MarketingFilters) => marketingFilterCacheKey(filters),
   },
@@ -1800,8 +1827,8 @@ export async function fetchMonthPnlUncached(
   const m = Number(monthKey.slice(5, 7));
   const lastDay = new Date(y, m, 0).getDate();
   const toDate = `${monthKey}-${String(lastDay).padStart(2, "0")}`;
-  const fromIso = `${fromDate}T00:00:00.000Z`;
-  const toIso = `${toDate}T23:59:59.999Z`;
+  const fromIso = istStartIso(fromDate);
+  const toIso = istEndIso(toDate);
   const filters: MarketingFilters = {
     fromDate,
     toDate,
@@ -1979,7 +2006,7 @@ export async function fetchMonthPnlUncached(
 
 export const fetchMonthPnl = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-month-pnl",
+    keyPrefix: "marketing-month-pnl-ist",
     tags: [MARKETING_CACHE_TAGS.monthly, MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (
       monthKey: string,

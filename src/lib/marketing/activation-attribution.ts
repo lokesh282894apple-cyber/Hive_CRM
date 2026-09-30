@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { istDateKey, istEndIso, istStartIso } from "@/lib/tz";
 
 export type ActivationAttributionRow = {
   id: string;
@@ -77,7 +78,7 @@ export function matchLeadToActivation(
   if (!start) return null;
   const windowDays = Math.max(1, Number(activation.attribution_window_days) || 7);
   const end = addDays(start, windowDays);
-  const created = String(lead.created_at).slice(0, 10);
+  const created = istDateKey(lead.created_at);
   if (created < start || created > end) return null;
 
   const blob = [
@@ -156,8 +157,8 @@ export async function recomputeActivationAttribution(
   // Simer window: go-live date → +N days; credit every matching lead (not last-click only)
   const windowDays = Math.max(1, Number(row.attribution_window_days) || 7);
   const end = addDays(start, windowDays);
-  const fromIso = `${start}T00:00:00.000Z`;
-  const toIso = `${end}T23:59:59.999Z`;
+  const fromIso = istStartIso(start);
+  const toIso = istEndIso(end);
 
   const { data: leads, error: leadErr } = await db
     .from("leads")

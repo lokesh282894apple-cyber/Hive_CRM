@@ -38,6 +38,7 @@ import { useEffect, useMemo, useState, useTransition, useOptimistic } from "reac
 export function LeadsWorkspace({
   leads,
   totalEstimate,
+  stageTotals,
   filters,
   courses,
   cohorts,
@@ -52,6 +53,8 @@ export function LeadsWorkspace({
   leads: LeadWithCard[];
   /** For list pagination — count of matching rows if known, else leads.length */
   totalEstimate: number;
+  /** Exact per-stage totals when the board is capped (server-computed). */
+  stageTotals?: Record<string, number>;
   filters: LeadsFilterParams;
   courses: Course[];
   cohorts: Cohort[];
@@ -1006,6 +1009,19 @@ export function LeadsWorkspace({
       {optimisticFilters.mode === "board" ? (
         <PipelineBoard
           leads={metricFilteredLeads}
+          // Server totals ignore the call-metric filters applied in the
+          // browser, so only use them when none are active.
+          stageTotals={
+            [
+              optimisticFilters.uniqueDays,
+              optimisticFilters.uniqueCalls,
+              optimisticFilters.minCalls,
+              optimisticFilters.minCallsSinceStage,
+              optimisticFilters.maxAvgCallsPerDay,
+            ].every((v) => v == null)
+              ? stageTotals
+              : undefined
+          }
           isAdmin={isAdmin}
           showClaim={showClaim}
           cohortNums={cohortNums}

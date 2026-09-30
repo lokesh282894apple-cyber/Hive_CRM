@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/ui/Primitives";
 import type { AdPlatformConnectionStatus } from "@/types/database";
 import { FormEvent, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 const PLATFORMS = ["meta", "google", "linkedin"] as const;
 
@@ -308,9 +309,9 @@ export function ConnectionsClient({
                         {c.platform} · {c.account_id}
                       </p>
                       <p className="text-xs text-muted">
-                        Saved {new Date(c.connected_at).toLocaleString("en-IN")}
+                        Saved {new Date(c.connected_at).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}
                         {c.last_tested_at
-                          ? ` · tested ${new Date(c.last_tested_at).toLocaleString("en-IN")}`
+                          ? ` · tested ${new Date(c.last_tested_at).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}`
                           : ""}
                       </p>
                       {c.last_test_error ? (

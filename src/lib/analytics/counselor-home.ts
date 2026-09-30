@@ -14,7 +14,7 @@ const useRpc = process.env.ADMISSIONS_RPC === "1";
  * (counselor, range). Callers must have authorized `counselorId` already.
  */
 export const fetchCounselorHome = cachedAdmissionsQuery(
-  "counselor-home-v2",
+  "counselor-home-v3-ist",
   (counselorId: string | null, rangeDays: number) =>
     `${counselorId ?? "all"}|${rangeDays}|${useRpc ? "rpc" : "js"}`,
   async (counselorId: string | null, rangeDays: number) => {

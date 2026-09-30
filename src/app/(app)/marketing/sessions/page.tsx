@@ -5,6 +5,7 @@ import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchSessionList, parseRange, type RangeKey } from "@/lib/marketing/queries";
 import Link from "next/link";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -136,7 +137,7 @@ export default async function MarketingSessionsPage({
               {rows.map((s) => (
                 <tr key={s.id} className="border-b border-border last:border-0 hover:bg-navy/[0.02]">
                   <td className="whitespace-nowrap px-4 py-2.5 text-xs text-muted">
-                    {new Date(s.first_seen_at).toLocaleString("en-IN")}
+                    {new Date(s.first_seen_at).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}
                   </td>
                   <td className="max-w-[220px] truncate px-4 py-2.5 text-navy" title={s.entry_page_url ?? ""}>
                     {(s.entry_page_url || "—").replace(/^https?:\/\//, "")}

@@ -10,6 +10,8 @@ import {
   type PaymentMode,
 } from "@/lib/constants";
 import type { FeeRecord, Installment, Lead, Loan } from "@/types/database";
+import { istDateKey } from "@/lib/tz";
+import { mapInChunks } from "@/lib/supabase/paginate";
 
 export type FeeTrackerStudent = {
   fee: FeeRecord;
@@ -137,17 +139,27 @@ export async function fetchFeeTrackerStudents(
   const leadIds = fees.map((f) => f.lead_id as string);
   const feeIds = fees.map((f) => f.id as string);
 
-  const [{ data: leads }, { data: lines }, { data: loans }, { data: courses }, { data: cohorts }] =
-    await Promise.all([
-      db
-        .from("leads")
-        .select("id, name, course_id, cohort_id, stage, created_at, updated_at, programme")
-        .in("id", leadIds),
-      db.from("installments").select("*").in("fee_record_id", feeIds).order("installment_number"),
-      db.from("loans").select("*").in("fee_record_id", feeIds),
-      db.from("courses").select("id, name"),
-      db.from("cohorts").select("id, name"),
-    ]);
+  // Chunked id lookups — one ?in=() with every student breaks as the book grows
+  const inChunks = <T,>(table: string, col: string, ids: string[], select: string, order?: string) =>
+    mapInChunks<T>(ids, async (chunk) => {
+      let q = db.from(table).select(select).in(col, chunk);
+      if (order) q = q.order(order);
+      const { data, error } = await q;
+      if (error) throw new Error(`${table}: ${error.message}`);
+      return (data ?? []) as T[];
+    });
+  const [leads, lines, loans, { data: courses }, { data: cohorts }] = await Promise.all([
+    inChunks<Record<string, unknown>>(
+      "leads",
+      "id",
+      leadIds,
+      "id, name, course_id, cohort_id, stage, created_at, updated_at, programme"
+    ),
+    inChunks<Record<string, unknown>>("installments", "fee_record_id", feeIds, "*", "installment_number"),
+    inChunks<Record<string, unknown>>("loans", "fee_record_id", feeIds, "*"),
+    db.from("courses").select("id, name"),
+    db.from("cohorts").select("id, name"),
+  ]);
 
   const leadMap = new Map((leads ?? []).map((l) => [l.id as string, l]));
   const courseMap = new Map((courses ?? []).map((c) => [c.id as string, c.name as string]));
@@ -174,7 +186,7 @@ export async function fetchFeeTrackerStudents(
       if (!loan || loan.stage !== filters.loanStage) continue;
     }
     // Soft date filter when PostgREST or-clause is too loose
-    const anchor = String(fee.fee_set_at || fee.created_at || "").slice(0, 10);
+    const anchor = istDateKey(fee.fee_set_at || fee.created_at || "");
     if (filters.fromDate && anchor && anchor < filters.fromDate) continue;
     if (filters.toDate && anchor && anchor > filters.toDate) continue;
     out.push({
@@ -216,7 +228,7 @@ export function computeFeeRevenueMonth(
   let converts = 0;
 
   for (const s of students) {
-    const close = (s.lead.updated_at || s.lead.created_at).slice(0, 10);
+    const close = istDateKey(s.lead.updated_at || s.lead.created_at);
     if (close < from || close > to) continue;
     if (s.lead.stage !== "closed_paid" && s.lead.stage !== "closed_deferred") {
       // still count fee records tied to converted students
@@ -275,7 +287,7 @@ export async function ensureAdmissionFeeLine(
     .maybeSingle();
   if (existing) return existing.id;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istDateKey();
   const { data, error } = await db
     .from("installments")
     .insert({

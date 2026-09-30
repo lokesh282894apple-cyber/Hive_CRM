@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { istDateKey } from "@/lib/tz";
 
 export type CohortResolveRow = {
   id: string;
@@ -10,11 +11,8 @@ export type CohortResolveRow = {
 };
 
 function toDateKey(d: Date | string): string {
-  if (typeof d === "string") {
-    // ISO or date-only
-    return d.slice(0, 10);
-  }
-  return d.toISOString().slice(0, 10);
+  // IST calendar date — a bare "YYYY-MM-DD" maps to itself
+  return istDateKey(d);
 }
 
 function inIntakeWindow(

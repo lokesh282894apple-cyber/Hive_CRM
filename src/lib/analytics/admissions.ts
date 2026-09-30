@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { admissionsAggClient } from "@/lib/analytics/agg-client";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import {
+  LOST_STAGES,
   OPEN_STAGES,
   STAGE_GROUPS,
   STAGE_LABELS,
@@ -15,6 +16,7 @@ import {
   resolveAnalyticsRange,
 } from "@/lib/analytics/date-range";
 import { fetchAllPages, mapInChunks } from "@/lib/supabase/paginate";
+import { istDateKey, istEndIso, istMidnight, istMonthKey, istParts, istStartIso } from "@/lib/tz";
 
 export type NamedCount = { name: string; count: number; id?: string };
 export type DailyCount = { date: string; leads: number; won: number; calls: number };
@@ -100,12 +102,12 @@ export const ATTENTION_STAGES = [
 ] as const;
 
 function dayKey(iso: string) {
-  return iso.slice(0, 10);
+  return istDateKey(iso);
 }
 
 /** India month (YYYY-MM) of a timestamp — IST is UTC+5:30 with no DST. */
 function istMonth(iso: string): string {
-  return new Date(Date.parse(iso) + 330 * 60 * 1000).toISOString().slice(0, 7);
+  return istMonthKey(iso);
 }
 
 export function emptyDailyBetween(fromDate: string, toDate: string): DailyCount[] {
@@ -145,12 +147,10 @@ export async function fetchAdmissionsAnalytics(
   const lite = Boolean(opts?.lite);
   const noCount = Promise.resolve({ count: 0 as number | null });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const weekAhead = new Date(today);
-  weekAhead.setDate(weekAhead.getDate() + 7);
+  // Midnight IST (server runs in UTC; IST has no DST so +N days is exact)
+  const today = istMidnight();
+  const tomorrow = new Date(today.getTime() + 86_400_000);
+  const weekAhead = new Date(today.getTime() + 7 * 86_400_000);
 
   const db = admissionsAggClient();
   // Align book scan with analytics range (extra 30d buffer for stage context)
@@ -338,7 +338,7 @@ export async function fetchAdmissionsAnalytics(
     (ATTENTION_STAGES as readonly string[]).includes(l.stage)
   ).length;
   const won = all.filter((l) => l.stage === "closed_paid").length;
-  const lost = all.filter((l) => l.stage === "closed_deferred").length;
+  const lost = all.filter((l) => (LOST_STAGES as readonly string[]).includes(l.stage)).length;
   const closed = won + lost;
   const unassigned = all.filter((l) => !l.lead_allocated_to).length;
   const attributed = attributedCount ?? 0;
@@ -346,7 +346,7 @@ export async function fetchAdmissionsAnalytics(
   const funnelGroups = [
     ...STAGE_GROUPS.filter((g) => !["open", "all"].includes(g.id)),
     { id: "won", label: "Closed Won", stages: ["closed_paid"] as Stage[] },
-    { id: "lost", label: "Closed Lost", stages: ["closed_deferred"] as Stage[] },
+    { id: "lost", label: "Closed Lost", stages: [...LOST_STAGES] as Stage[] },
   ].map((g) => ({
     name: g.label,
     count: all.filter((l) => (g.stages as readonly string[]).includes(l.stage)).length,
@@ -400,7 +400,7 @@ export async function fetchAdmissionsAnalytics(
     .map((c) => {
       const mine = all.filter((l) => l.lead_allocated_to === c.id);
       const cWon = mine.filter((l) => l.stage === "closed_paid").length;
-      const cLost = mine.filter((l) => l.stage === "closed_deferred").length;
+      const cLost = mine.filter((l) => (LOST_STAGES as readonly string[]).includes(l.stage)).length;
       const cClosed = cWon + cLost;
       return {
         id: c.id,
@@ -577,21 +577,21 @@ async function fetchAdmissionsMonthlyRollupUncached(
   supabase: SupabaseClient,
   monthsBack = 18
 ): Promise<AdmissionsMonthlyRow[]> {
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const oldest = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
-  const fromDate = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, "0")}-01`;
-  const toDate = now.toISOString().slice(0, 10);
+  const { year: nowY, month: nowM } = istParts();
+  const monthAgo = (back: number) => {
+    const d = new Date(Date.UTC(nowY, nowM - 1 - back, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  };
+  const currentMonth = monthAgo(0);
+  const fromDate = `${monthAgo(monthsBack)}-01`;
+  const toDate = istDateKey();
   // Months are India months (IST) — same calendar as the leads list filter
-  const fromIso = new Date(`${fromDate}T00:00:00.000+05:30`).toISOString();
-  const toIso = new Date(`${toDate}T23:59:59.999+05:30`).toISOString();
+  const fromIso = istStartIso(fromDate);
+  const toIso = istEndIso(toDate);
 
   const monthKeys: string[] = [];
   for (let i = monthsBack; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    monthKeys.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
-    );
+    monthKeys.push(monthAgo(i));
   }
 
   const empty = () => ({
@@ -703,7 +703,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
 }
 
 const fetchAdmissionsMonthlyRollupCached = cachedAdmissionsQuery(
-  "fetchAdmissionsMonthlyRollup-v2-ist",
+  "fetchAdmissionsMonthlyRollup-v3-ist",
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) =>
     fetchAdmissionsMonthlyRollupUncached(createAdminClient(), opts)

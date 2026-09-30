@@ -17,6 +17,7 @@ import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { istDateKey } from "@/lib/tz";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -90,7 +91,7 @@ async function ensureApplicationFeeLine(
     .eq("line_type", "application_fee")
     .maybeSingle();
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istDateKey();
   if (existing) {
     if (markPaid) {
       await supabase

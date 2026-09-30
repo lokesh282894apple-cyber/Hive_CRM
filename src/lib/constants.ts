@@ -867,6 +867,14 @@ export function isPaidClosedStage(stage: string): boolean {
   return stage === "closed_paid";
 }
 
+/** Closed Won — the single definition every report uses. */
+export const WON_STAGES = ["closed_paid"] as const satisfies readonly Stage[];
+
+/** Closed Lost — every closed outcome that is not paid (deferred, refund, lost). */
+export const LOST_STAGES = CLOSED_STAGES.filter(
+  (s) => s !== "closed_paid"
+) as readonly Stage[];
+
 /** Days without contact before a card is marked stale (Salesforce-style aging signal). */
 export const STALE_LEAD_DAYS = 3;
 

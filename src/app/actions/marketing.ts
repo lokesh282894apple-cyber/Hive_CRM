@@ -6,6 +6,7 @@ import type { CampaignSourceType, CreativeType } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 export type ActionResult = { ok: true; id?: string; slug?: string } | { ok: false; error: string };
 
@@ -385,7 +386,7 @@ async function testMetaToken(
     message: never
       ? `Valid · ${probeBody.name || graphId} · token does not expire`
       : expiresAt
-        ? `Valid · ${probeBody.name || graphId} · expires ${new Date(expiresAt).toLocaleString("en-IN")}`
+        ? `Valid · ${probeBody.name || graphId} · expires ${new Date(expiresAt).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}`
         : `Valid · ${probeBody.name || graphId}`,
     expiresAt,
   };

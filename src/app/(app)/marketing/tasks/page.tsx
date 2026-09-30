@@ -6,6 +6,7 @@ import {
   TaskEntryPanel,
   TaskStatusSelect,
 } from "@/components/marketing/PlanningSocialForms";
+import { istDateKey } from "@/lib/tz";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -14,7 +15,7 @@ export const maxDuration = 60;
 export default async function MarketingTasksPage() {
   await requireUser(["admin", "marketing"]);
   const admin = createAdminClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istDateKey();
 
   const { data: tasks } = await admin
     .from("marketing_tasks")

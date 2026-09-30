@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sessionsBySource, sessionsPerDay } from "@/lib/marketing/dashboard-queries";
+import { addDays, istDateKey, istEndIso, istStartIso } from "@/lib/tz";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,9 +15,8 @@ export const maxDuration = 60;
 export async function GET() {
   await requireUser(["admin"]);
   const db = createAdminClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const daysAgo = (n: number) =>
-    new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+  const today = istDateKey();
+  const daysAgo = (n: number) => addDays(today, -n);
 
   const ranges: [string, string][] = [
     [daysAgo(7), today],
@@ -29,21 +29,21 @@ export async function GET() {
   // the comparison would prove nothing.
   const probeWindow = { p_from: new Date().toISOString(), p_to: new Date().toISOString() };
   const [p1, p2] = await Promise.all([
-    db.rpc("rpc_sessions_per_day", probeWindow),
+    db.rpc("rpc_sessions_per_day_ist", probeWindow),
     db.rpc("rpc_sessions_by_source", probeWindow),
   ]);
   if (p1.error || p2.error) {
     return NextResponse.json({
       ok: false,
-      verdict: "Run supabase/migrations/20260929130000_session_count_rpcs.sql first",
+      verdict: "Run the latest supabase/migrations (session count RPCs) first",
       errors: [p1.error?.message, p2.error?.message].filter(Boolean),
     });
   }
 
   const results = [];
   for (const [fromDate, toDate] of ranges) {
-    const fromIso = `${fromDate}T00:00:00.000Z`;
-    const toIso = `${toDate}T23:59:59.999Z`;
+    const fromIso = istStartIso(fromDate);
+    const toIso = istEndIso(toDate);
 
     const t0 = Date.now();
     const [dayRows, srcRows] = await Promise.all([

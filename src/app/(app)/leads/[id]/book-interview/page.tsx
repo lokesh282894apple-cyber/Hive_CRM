@@ -9,7 +9,7 @@ import {
 import { isGoogleCalendarConfigured } from "@/lib/google-calendar";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { addDays, format } from "date-fns";
+import { addDays as istAddDays, istDateKey } from "@/lib/tz";
 
 export default async function BookInterviewPage({
   params,
@@ -36,8 +36,8 @@ export default async function BookInterviewPage({
     .maybeSingle();
   if (!lead) notFound();
 
-  const today = format(new Date(), "yyyy-MM-dd");
-  const endDate = format(addDays(new Date(), windowDays), "yyyy-MM-dd");
+  const today = istDateKey();
+  const endDate = istAddDays(today, windowDays);
 
   const [{ data: slots }, { data: bookings }, { data: panelists }] = await Promise.all([
     supabase

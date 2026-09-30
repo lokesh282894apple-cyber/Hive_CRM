@@ -4,8 +4,8 @@ import { requireUser, isAdmin } from "@/lib/auth";
 import type { InstallmentStatus, LoanStage, PaymentMode, Stage } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { AppUser } from "@/types/database";
-import { addDays, format } from "date-fns";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
+import { addDays as istAddDays, istDateKey } from "@/lib/tz";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -273,7 +273,7 @@ export async function generateInstallments(input: {
     const deadline =
       input.deadlines?.[i] ||
       (mode === "one_shot" && input.oneShotDeadline) ||
-      format(addDays(start, i * days), "yyyy-MM-dd");
+      istAddDays(istDateKey(start), i * days);
     rows.push({
       fee_record_id: feeId,
       installment_number: i + 1,
@@ -351,7 +351,7 @@ export async function recordInstallmentPayment(
   if (opts?.dateHitBank !== undefined) {
     patch.date_hit_bank = opts.dateHitBank;
   } else if (hit > 0 && !inst.date_hit_bank) {
-    patch.date_hit_bank = new Date().toISOString().slice(0, 10);
+    patch.date_hit_bank = istDateKey();
   }
   if (hit > prevRealised) {
     patch.paid_at = new Date().toISOString();

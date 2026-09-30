@@ -7,6 +7,7 @@ import { admissionsAggClient } from "@/lib/analytics/agg-client";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 import { OPEN_STAGES, type Stage } from "@/lib/constants";
+import { istEndIso, istStartIso } from "@/lib/tz";
 
 export type Confidence = "low" | "medium" | "high";
 export type FillVerdict = "on_track" | "at_risk" | "off_track" | "unset";
@@ -232,7 +233,7 @@ export async function fetchFounderCommand(
       courseId,
       cohortId,
       opts?.fromDate
-        ? `${opts.fromDate}T00:00:00.000Z`
+        ? istStartIso(opts.fromDate)
         : undefined
     ),
     Promise.all([
@@ -259,7 +260,7 @@ export async function fetchFounderCommand(
   ]);
 
   const rangeDays = admissions.rangeDays;
-  const sinceIso = `${admissions.fromDate}T00:00:00.000Z`;
+  const sinceIso = istStartIso(admissions.fromDate);
   const today = new Date();
   today.setHours(12, 0, 0, 0);
   const todayKey = today.toISOString().slice(0, 10);
@@ -416,7 +417,7 @@ export async function fetchFounderCommand(
   const latencies: number[] = [];
   for (const l of allLeads) {
     if (l.created_at < sinceIso) continue;
-    if (l.created_at >= `${admissions.toDate}T23:59:59.999Z`) continue;
+    if (l.created_at >= istEndIso(admissions.toDate)) continue;
     const first = firstCallByLead.get(l.id) ?? l.last_contacted_at;
     if (!first) continue;
     const hours =

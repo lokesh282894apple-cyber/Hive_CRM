@@ -3,6 +3,7 @@
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
+import { istStartIso } from "@/lib/tz";
 
 export type BulkAssignScope = "unassigned" | "assigned_to_selected" | "all";
 
@@ -24,7 +25,7 @@ export type ActionResult<T = undefined> =
   | { ok: false; error: string };
 
 function dayStartIso(date: string) {
-  return `${date}T00:00:00.000Z`;
+  return istStartIso(date);
 }
 
 function dayEndExclusiveIso(date: string) {

@@ -3,11 +3,12 @@ import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import { classifyLeadSource } from "@/lib/leads/source-class";
+import { istDateKey, istMonthKey, istStartIso } from "@/lib/tz";
+import { LOST_STAGES, WON_STAGES } from "@/lib/constants";
 
 /** Business days are India (IST, UTC+5:30, no DST) — same as the leads list filter. */
-const IST_OFFSET_MS = 330 * 60 * 1000;
 function istDay(iso: string): string {
-  return new Date(Date.parse(iso) + IST_OFFSET_MS).toISOString().slice(0, 10);
+  return istDateKey(iso);
 }
 
 export type FunnelAttribution = "all" | "organic" | "inorganic";
@@ -229,8 +230,8 @@ const OFFER_PLUS = new Set([
   "closed_deferred",
   "closed_refund",
 ]);
-const WON = new Set(["closed_paid"]);
-const LOST = new Set(["closed_deferred", "closed_refund"]);
+const WON = new Set<string>(WON_STAGES);
+const LOST = new Set<string>(LOST_STAGES);
 
 function rate(to: number, from: number): number | null {
   if (from <= 0) return null;
@@ -289,8 +290,8 @@ function monthLabel(month: string): string {
   return d.toLocaleString("en-US", { month: "short", year: "2-digit" });
 }
 
-export function currentMonthKey(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+export function currentMonthKey(d: Date = new Date()): string {
+  return istMonthKey(d);
 }
 
 function daysInRange(start: string, end: string): string[] {
@@ -497,7 +498,7 @@ function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
       won += 1;
     } else if (
       hasAny(pool, LOST) ||
-      (mode === "snapshot" && f.lead.stage === "closed_deferred")
+      (mode === "snapshot" && LOST.has(f.lead.stage))
     ) {
       lost += 1;
     }
@@ -822,7 +823,7 @@ async function fetchAdmissionsFunnelUncached(
       ? opts.chartFromDate
       : periodStart;
   // Day buckets are India dates, so the window starts at IST midnight
-  const sinceIso = new Date(`${chartFromForBound}T00:00:00.000+05:30`).toISOString();
+  const sinceIso = istStartIso(chartFromForBound);
 
   const base = await getAdmissionsBase(
     counselorId,

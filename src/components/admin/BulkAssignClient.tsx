@@ -9,11 +9,12 @@ import {
 } from "@/app/actions/bulk-assign";
 import { cn } from "@/lib/utils";
 import { useMemo, useState, useTransition } from "react";
+import { istDateKey } from "@/lib/tz";
 
 type Counselor = { id: string; name: string; email: string };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return istDateKey();
 }
 
 export function BulkAssignClient({ counselors }: { counselors: Counselor[] }) {

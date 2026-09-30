@@ -3,6 +3,7 @@
 import { updateLeadQualification } from "@/app/actions/marketing-dashboard";
 import { DQ_REASON_LABELS, FINANCIAL_CHECKS, QUALIFICATION_INTENTS } from "@/lib/marketing/aql";
 import { useTransition } from "react";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 export function LeadQualificationPanel({
   leadId,
@@ -25,7 +26,7 @@ export function LeadQualificationPanel({
         <p className="eyebrow">AQL — Acceptance Quality Limit</p>
         <p className="text-xs text-muted">Intent + financial check must pass for AQL.</p>
         {aqlAt && (
-          <p className="mt-1 text-sm text-green-700">AQL met · {new Date(aqlAt).toLocaleDateString()}</p>
+          <p className="mt-1 text-sm text-green-700">AQL met · {new Date(aqlAt).toLocaleDateString("en-IN", { timeZone: BUSINESS_TZ })}</p>
         )}
       </div>
       <form

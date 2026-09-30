@@ -7,6 +7,7 @@ import {
 } from "@/app/actions/leads";
 import type { ScoreBreakdown, ScoreReason } from "@/lib/leads/score";
 import { useMemo, useState, useTransition } from "react";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 export const LEAD_SCORE_DETAIL_ID = "lead-conversion-detail";
 
@@ -212,7 +213,7 @@ export function LeadScoreCard({
               “{scoreOverrideReason}”
               {scoreOverrideAt ? (
                 <span className="ml-1 opacity-70">
-                  · {new Date(scoreOverrideAt).toLocaleString("en-IN")}
+                  · {new Date(scoreOverrideAt).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}
                 </span>
               ) : null}
             </p>

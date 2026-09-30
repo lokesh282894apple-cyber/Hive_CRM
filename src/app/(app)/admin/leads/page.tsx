@@ -4,6 +4,7 @@ import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import {
   LEAD_LIST_SELECT,
   applyLeadsFilters,
+  fetchStageTotals,
   leadsPrefsCookieName,
   parseLeadsSearchParams,
   withSavedLeadPrefs,
@@ -73,6 +74,12 @@ export default async function AdminLeadsPage({
     getActiveCohorts(),
   ]);
 
+  // Board is capped at BOARD_FETCH_MAX cards — give columns exact totals
+  const stageTotalsPromise =
+    filters.mode === "board" && (count ?? 0) > (leadsRaw?.length ?? 0)
+      ? fetchStageTotals(supabase, filterOpts).catch(() => undefined)
+      : Promise.resolve(undefined);
+
   const raw = (leadsRaw as unknown as LeadWithRelations[]) ?? [];
   const leadIds = raw.map((l) => l.id);
   const [leadsWithMetrics, attrMap, openTasks] = await Promise.all([
@@ -111,6 +118,7 @@ export default async function AdminLeadsPage({
 
   return (
     <LeadsWorkspace
+      stageTotals={await stageTotalsPromise}
       leads={leads}
       totalEstimate={totalEstimate}
       filters={filters}

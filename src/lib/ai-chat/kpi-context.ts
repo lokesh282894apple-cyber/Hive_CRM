@@ -1,16 +1,15 @@
 import type { createClient } from "@/lib/supabase/server";
 import { STAGE_LABELS, type Stage } from "@/lib/constants";
 import { fetchAllPages } from "@/lib/supabase/paginate";
+import { istMonthKey, istStartIso } from "@/lib/tz";
 
 type Supabase = ReturnType<typeof createClient>;
 
 /** Compact KPI snapshot for the AI system prompt — keep token use low. */
 export async function fetchAiChatKpiContext(supabase: Supabase): Promise<Record<string, unknown>> {
-  const monthStart = new Date();
-  monthStart.setUTCDate(1);
-  monthStart.setUTCHours(0, 0, 0, 0);
-  const monthStartIso = monthStart.toISOString();
-  const monthKey = monthStart.toISOString().slice(0, 7);
+  // Current IST month
+  const monthKey = istMonthKey();
+  const monthStartIso = istStartIso(`${monthKey}-01`);
 
   const [
     { count: totalLeads },

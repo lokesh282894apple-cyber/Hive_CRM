@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -18,6 +19,7 @@ export function formatDate(value: string | Date | null | undefined) {
   if (!value) return "—";
   const d = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat("en-IN", {
+    timeZone: BUSINESS_TZ,
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -28,6 +30,7 @@ export function formatDateTime(value: string | Date | null | undefined) {
   if (!value) return "—";
   const d = typeof value === "string" ? new Date(value) : value;
   return new Intl.DateTimeFormat("en-IN", {
+    timeZone: BUSINESS_TZ,
     day: "numeric",
     month: "short",
     year: "numeric",
