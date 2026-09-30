@@ -9,6 +9,7 @@ const SOURCE_LABELS: { match: RegExp; label: string }[] = [
   { match: /^website:executive/i, label: "Executive programme form" },
   { match: /^website$/i, label: "Website admissions form" },
   { match: /^website:/i, label: "Website form" },
+  { match: /^past_student$/i, label: "Past student (manual entry)" },
 ];
 
 export function labelForLeadSource(source: string | null | undefined): string {

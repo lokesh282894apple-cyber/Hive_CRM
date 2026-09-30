@@ -184,6 +184,11 @@ export default async function ProgramFeesPage({
         title="Fee & Loan"
         accent="Tracker"
         description="Post-conversion fee lines, loan status, and booked vs realized revenue. Counselors set gross/net at close; program owns collection."
+        actions={
+          <Link href="/program/past-students" className="btn-primary">
+            Add past student fees
+          </Link>
+        }
       />
 
       {usingDemo ? (

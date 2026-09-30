@@ -57,6 +57,7 @@ const adminNav: NavItem[] = [
   { href: "/admin/counselor", label: "Counselor", icon: UserCircle2 },
   { href: "/admin/payments", label: "Payments", icon: IndianRupee },
   { href: "/program/fees", label: "Fee & Loan", icon: IndianRupee },
+  { href: "/program/past-students", label: "Add Past Student Fees", icon: UserPlus },
   { href: "/admin/users", label: "Users & Roles", icon: Users },
   { href: "/admin/config", label: "System Config", icon: Cog },
   { href: "/admin/marketing/connections", label: "Ad Connections", icon: Link2 },
@@ -126,6 +127,7 @@ const interviewerNav: NavItem[] = [
 
 const programNav: NavItem[] = [
   { href: "/program/fees", label: "Fee & Loan Tracker", icon: IndianRupee },
+  { href: "/program/past-students", label: "Add Past Student Fees", icon: UserPlus },
 ];
 
 function navItemActive(pathname: string, item: NavItem): boolean {
