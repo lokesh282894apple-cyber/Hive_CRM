@@ -12,6 +12,7 @@ import { computeAqlAt } from "@/lib/marketing/aql";
 import { revalidatePath } from "next/cache";
 import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 import { fetchAllPages } from "@/lib/supabase/paginate";
+import { istDateKey, istEndIso, istMonthKey, istStartIso } from "@/lib/tz";
 
 export type DashResult =
   | { ok: true; count?: number; id?: string }
@@ -223,7 +224,7 @@ export async function updateCalendarItemStatus(
     .from("marketing_calendar_items")
     .update({
       actual_status,
-      actual_date: actual_date ?? new Date().toISOString().slice(0, 10),
+      actual_date: actual_date ?? istDateKey(),
     })
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
@@ -374,7 +375,7 @@ export async function updateActivationStatus(
   const supabase = createClient();
   const patch: Record<string, unknown> = { status };
   if (status === "done") {
-    patch.actual_date = new Date().toISOString().slice(0, 10);
+    patch.actual_date = istDateKey();
   }
   const { error } = await supabase
     .from("marketing_activations")
@@ -397,7 +398,7 @@ export async function recomputeActivationLeads(
   monthKey?: string
 ): Promise<DashResult & { updated?: number }> {
   await requireUser(["admin", "marketing"]);
-  const mk = monthKey ?? new Date().toISOString().slice(0, 7);
+  const mk = monthKey ?? istMonthKey();
   const { recomputeMonthActivationAttribution } = await import(
     "@/lib/marketing/activation-attribution"
   );
@@ -449,10 +450,10 @@ export async function syncForecastActuals(
 ): Promise<DashResult & { updated?: number; message?: string }> {
   await requireUser(["admin", "marketing"]);
   const admin = createAdminClient();
-  const mk = monthKey ?? new Date().toISOString().slice(0, 7);
-  const fromIso = `${mk}-01T00:00:00.000Z`;
+  const mk = monthKey ?? istMonthKey();
+  const fromIso = istStartIso(`${mk}-01`);
   const lastDay = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
-  const toIso = `${mk}-${String(lastDay).padStart(2, "0")}T23:59:59.999Z`;
+  const toIso = istEndIso(`${mk}-${String(lastDay).padStart(2, "0")}`);
   const fromDate = `${mk}-01`;
   const toDate = `${mk}-${String(lastDay).padStart(2, "0")}`;
 

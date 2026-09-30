@@ -159,12 +159,22 @@ async function fetchRejectionFunnelUncached(
   let avgProfile: number | null = null;
   let avgIntent: number | null = null;
   try {
-    const { data: scores, error } = await supabase
-      .from("lead_stage_scores")
-      .select("profile_score, intent_score")
-      .gte("created_at", opts.sinceIso)
-      .lt("created_at", opts.untilExclusiveIso)
-      .limit(5000);
+    const failed: { error: { message: string } | null } = { error: null };
+    const scores = await fetchAllPages<{ profile_score: number; intent_score: number }>(
+      (from, to) =>
+        supabase
+          .from("lead_stage_scores")
+          .select("profile_score, intent_score")
+          .gte("created_at", opts.sinceIso)
+          .lt("created_at", opts.untilExclusiveIso)
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      "lead_stage_scores.rejection"
+    ).catch((e: Error) => {
+      failed.error = { message: e.message };
+      return [] as { profile_score: number; intent_score: number }[];
+    });
+    const error = failed.error;
     if (error) {
       if (isMissingColumnError(error) || /does not exist/i.test(error.message)) {
         schemaPending = true;
@@ -183,13 +193,26 @@ async function fetchRejectionFunnelUncached(
 
   const noShowReasons = new Map<string, number>();
   try {
-    const { data: noShows, error } = await supabase
-      .from("interview_bookings")
-      .select("no_show_informed, no_show_reason")
-      .not("no_show_reason", "is", null)
-      .gte("submitted_at", opts.sinceIso)
-      .lt("submitted_at", opts.untilExclusiveIso)
-      .limit(2000);
+    const failed: { error: { message: string } | null } = { error: null };
+    const noShows = await fetchAllPages<{
+      no_show_informed: boolean | null;
+      no_show_reason: string | null;
+    }>(
+      (from, to) =>
+        supabase
+          .from("interview_bookings")
+          .select("no_show_informed, no_show_reason")
+          .not("no_show_reason", "is", null)
+          .gte("submitted_at", opts.sinceIso)
+          .lt("submitted_at", opts.untilExclusiveIso)
+          .order("submitted_at", { ascending: true })
+          .range(from, to),
+      "interview_bookings.noShows"
+    ).catch((e: Error) => {
+      failed.error = { message: e.message };
+      return [] as { no_show_informed: boolean | null; no_show_reason: string | null }[];
+    });
+    const error = failed.error;
     if (error) {
       if (/does not exist/i.test(error.message)) schemaPending = true;
     } else {
@@ -232,7 +255,7 @@ async function fetchRejectionFunnelUncached(
 export { emptyFunnel };
 
 const fetchRejectionFunnelCached = cachedAdmissionsQuery(
-  "fetchRejectionFunnel-v1",
+  "fetchRejectionFunnel-v2-ist",
   (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) =>
     fetchRejectionFunnelUncached(createAdminClient(), opts)

@@ -6,6 +6,7 @@ import type { Stage } from "@/lib/constants";
 import { viewAsHref } from "@/lib/impersonation";
 import { formatDate } from "@/lib/utils";
 import Link from "next/link";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 
 export default async function AttentionPage() {
   const ctx = await requireAuth(["counselor", "admin"]);
@@ -17,16 +18,21 @@ export default async function AttentionPage() {
   const [{ data: settings }, { data: leads }, { data: overdueInst }] =
     await Promise.all([
       supabase.from("app_settings").select("*"),
-      asCounselor
-        ? supabase
-            .from("leads")
-            .select("id, name, stage, last_contacted_at, created_at")
-            .eq("lead_allocated_to", user.id)
-            .limit(500)
-        : supabase
-            .from("leads")
-            .select("id, name, stage, last_contacted_at, created_at")
-            .limit(500),
+      // Every lead in scope — a 500-row cap (unordered) silently skipped most
+      // of the book for admins, so leads needing attention never showed.
+      fetchAllPages<{
+        id: string;
+        name: string;
+        stage: string;
+        last_contacted_at: string | null;
+        created_at: string;
+      }>((from, to) => {
+        let q = supabase
+          .from("leads")
+          .select("id, name, stage, last_contacted_at, created_at");
+        if (asCounselor) q = q.eq("lead_allocated_to", user.id);
+        return q.order("id", { ascending: true }).range(from, to);
+      }, "leads.attention").then((data) => ({ data })),
       supabase
         .from("installments")
         .select("fee_record_id, fee_records(lead_id)")

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { istDateKey } from "@/lib/tz";
 
 type MetaInsight = {
   date_start: string;
@@ -140,8 +141,8 @@ export async function syncMetaAdSpend(
 
   const since = new Date();
   since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString().slice(0, 10);
-  const untilStr = new Date().toISOString().slice(0, 10);
+  const sinceStr = istDateKey(since);
+  const untilStr = istDateKey();
 
   for (const adAccountId of resolved.accounts) {
     const result = await syncOneAdAccount(

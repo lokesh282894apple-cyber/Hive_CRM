@@ -3,6 +3,8 @@ import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { cohortDisplayLabel } from "@/lib/cohorts/display";
 import { LOAN_STAGE_LABELS, type LoanStage, type PaymentMode } from "@/lib/constants";
+import { istEndIso, istStartIso } from "@/lib/tz";
+import { mapInChunks } from "@/lib/supabase/paginate";
 
 export type PaymentCard = {
   leadId: string;
@@ -115,18 +117,25 @@ async function fetchPaymentsDashboardUncached(
   const allCohorts = cohorts ?? [];
 
   const feeIds = (fees ?? []).map((f) => f.id);
-  const [{ data: installments }, { data: loans }] = await Promise.all([
-    feeIds.length
-      ? supabase
-          .from("installments")
-          .select("*")
-          .in("fee_record_id", feeIds)
-          .order("installment_number")
-      : Promise.resolve({ data: [] }),
-    feeIds.length
-      ? supabase.from("loans").select("*").in("fee_record_id", feeIds)
-      : Promise.resolve({ data: [] }),
+  // Chunked: every fee id in one ?in=() URL breaks past a few hundred students
+  const [installmentRows, loanRowsAll] = await Promise.all([
+    mapInChunks(feeIds, async (chunk) => {
+      const { data, error } = await supabase
+        .from("installments")
+        .select("*")
+        .in("fee_record_id", chunk)
+        .order("installment_number");
+      if (error) throw new Error(`installments: ${error.message}`);
+      return data ?? [];
+    }),
+    mapInChunks(feeIds, async (chunk) => {
+      const { data, error } = await supabase.from("loans").select("*").in("fee_record_id", chunk);
+      if (error) throw new Error(`loans: ${error.message}`);
+      return data ?? [];
+    }),
   ]);
+  const installments = installmentRows;
+  const loans = loanRowsAll;
 
   const instByFee = new Map<string, typeof installments>();
   for (const i of installments ?? []) {
@@ -136,12 +145,9 @@ async function fetchPaymentsDashboardUncached(
   }
   const loanByFee = new Map((loans ?? []).map((l) => [l.fee_record_id, l]));
 
-  const fromMs = opts?.createdFrom
-    ? new Date(`${opts.createdFrom}T00:00:00`).getTime()
-    : null;
-  const toMs = opts?.createdTo
-    ? new Date(`${opts.createdTo}T23:59:59.999`).getTime()
-    : null;
+  // IST calendar days (server runs in UTC)
+  const fromMs = opts?.createdFrom ? Date.parse(istStartIso(opts.createdFrom)) : null;
+  const toMs = opts?.createdTo ? Date.parse(istEndIso(opts.createdTo)) : null;
 
   const cards: PaymentCard[] = [];
   for (const fee of fees ?? []) {
@@ -265,7 +271,7 @@ async function fetchPaymentsDashboardUncached(
 }
 
 const fetchPaymentsDashboardCached = cachedAdmissionsQuery(
-  "fetchPaymentsDashboard-v1",
+  "fetchPaymentsDashboard-v2-ist",
   (opts: Parameters<typeof fetchPaymentsDashboardUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchPaymentsDashboardUncached>[1]) =>
     fetchPaymentsDashboardUncached(createAdminClient(), opts)

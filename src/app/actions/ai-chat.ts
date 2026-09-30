@@ -3,6 +3,7 @@
 import { requireUser } from "@/lib/auth";
 import { fetchAiChatKpiContext } from "@/lib/ai-chat/kpi-context";
 import { createClient } from "@/lib/supabase/server";
+import { istMonthKey } from "@/lib/tz";
 
 export type AiChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -23,7 +24,7 @@ const ANTHROPIC_IN_PER_M = 0.8;
 const ANTHROPIC_OUT_PER_M = 4;
 
 function monthKeyNow() {
-  return new Date().toISOString().slice(0, 7);
+  return istMonthKey();
 }
 
 function parseCap(value: unknown): number {

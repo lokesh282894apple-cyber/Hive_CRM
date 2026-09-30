@@ -2,7 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { admissionsAggClient } from "@/lib/analytics/agg-client";
-import { fetchAllPages } from "@/lib/supabase/paginate";
+import { fetchAllPages, mapInChunks } from "@/lib/supabase/paginate";
+import { istMidnight } from "@/lib/tz";
 
 export type PanelFilters = {
   rangeDays?: number;
@@ -94,10 +95,8 @@ async function fetchPanelPerformanceUncached(
     ? "2000-01-01T00:00:00.000Z"
     : filters.sinceIso ??
       (() => {
-        const since = new Date();
-        since.setHours(0, 0, 0, 0);
-        since.setDate(since.getDate() - rangeDays);
-        return since.toISOString();
+        // IST midnight, rangeDays back
+        return new Date(istMidnight().getTime() - rangeDays * 86_400_000).toISOString();
       })();
 
   const [bookings, historyAll] = await Promise.all([
@@ -133,7 +132,14 @@ async function fetchPanelPerformanceUncached(
 
   const [{ data: leads }, { data: interviewers }] = await Promise.all([
     leadIds.length
-      ? db.from("leads").select("id, stage, course_id, cohort_id").in("id", leadIds)
+      ? mapInChunks(leadIds, async (chunk) => {
+          const { data, error } = await db
+            .from("leads")
+            .select("id, stage, course_id, cohort_id")
+            .in("id", chunk);
+          if (error) throw new Error(`leads: ${error.message}`);
+          return data ?? [];
+        }).then((data) => ({ data }))
       : Promise.resolve({
           data: [] as {
             id: string;
@@ -296,7 +302,7 @@ async function fetchPanelPerformanceUncached(
 }
 
 const fetchPanelPerformanceCached = cachedAdmissionsQuery(
-  "fetchPanelPerformance-v1",
+  "fetchPanelPerformance-v2-ist",
   (opts: Parameters<typeof fetchPanelPerformanceUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchPanelPerformanceUncached>[1]) =>
     fetchPanelPerformanceUncached(createAdminClient(), opts)

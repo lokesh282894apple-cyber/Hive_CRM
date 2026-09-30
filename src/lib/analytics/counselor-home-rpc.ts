@@ -6,12 +6,19 @@ import {
   type AdmissionsAnalytics,
 } from "@/lib/analytics/admissions";
 import { resolveAnalyticsRange } from "@/lib/analytics/date-range";
-import { OPEN_STAGES, STAGE_GROUPS, STAGE_LABELS, type Stage } from "@/lib/constants";
+import {
+  LOST_STAGES,
+  OPEN_STAGES,
+  STAGE_GROUPS,
+  STAGE_LABELS,
+  type Stage,
+} from "@/lib/constants";
 import { labelForLeadSource } from "@/lib/leads/form-origin";
 import {
   fetchCounselorAttributionGlance,
   summarizeCounselorAttribution,
 } from "@/lib/marketing/queries";
+import { istMidnight } from "@/lib/tz";
 
 type Count<K extends string> = { [P in K]: string | null } & { count: number };
 
@@ -75,17 +82,15 @@ export async function fetchCounselorHomeViaRpc(
   const { fromDate, toDate, sinceIso, untilExclusiveIso } = range;
 
   // Same windows as fetchAdmissionsAnalytics (server-local midnight, +30d base buffer)
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const weekAhead = new Date(today);
-  weekAhead.setDate(weekAhead.getDate() + 7);
+  // Midnight IST (server runs in UTC; IST has no DST so +N days is exact)
+  const today = istMidnight();
+  const tomorrow = new Date(today.getTime() + 86_400_000);
+  const weekAhead = new Date(today.getTime() + 7 * 86_400_000);
   const baseSince = new Date(sinceIso);
   baseSince.setUTCDate(baseSince.getUTCDate() - 30);
 
   const [rpcRes, coursesRes, counselorsRes] = await Promise.all([
-    db.rpc("rpc_counselor_home", {
+    db.rpc("rpc_counselor_home_v2", {
       p_counselor_id: counselorId,
       p_base_since: baseSince.toISOString(),
       p_since: sinceIso,
@@ -98,7 +103,7 @@ export async function fetchCounselorHomeViaRpc(
     db.from("courses").select("id, name").eq("active", true),
     db.from("users").select("id, name").eq("role", "counselor").eq("active", true),
   ]);
-  if (rpcRes.error) throw new Error(`rpc_counselor_home: ${rpcRes.error.message}`);
+  if (rpcRes.error) throw new Error(`rpc_counselor_home_v2: ${rpcRes.error.message}`);
   const r = rpcRes.data as RpcPayload;
 
   const courses = (coursesRes.data ?? []) as { id: string; name: string }[];
@@ -114,13 +119,13 @@ export async function fetchCounselorHomeViaRpc(
   const newLeads = countStages(["new_lead", "lead_created", "call_logged_nurturing"]);
   const attentionLeads = countStages(ATTENTION_STAGES);
   const won = stageCount.get("closed_paid") ?? 0;
-  const lost = stageCount.get("closed_deferred") ?? 0;
+  const lost = countStages(LOST_STAGES);
   const closed = won + lost;
 
   const funnelGroups = [
     ...STAGE_GROUPS.filter((g) => !["open", "all"].includes(g.id)),
     { id: "won", label: "Closed Won", stages: ["closed_paid"] as Stage[] },
-    { id: "lost", label: "Closed Lost", stages: ["closed_deferred"] as Stage[] },
+    { id: "lost", label: "Closed Lost", stages: [...LOST_STAGES] as Stage[] },
   ].map((g) => ({ name: g.label, count: countStages(g.stages) }));
 
   const stageBreakdown = byCount(
@@ -165,7 +170,7 @@ export async function fetchCounselorHomeViaRpc(
           .filter((x) => !stages || stages.includes(x.stage))
           .reduce((s, x) => s + x.count, 0);
       const cWon = n(["closed_paid"]);
-      const cLost = n(["closed_deferred"]);
+      const cLost = n(LOST_STAGES);
       return {
         id: c.id,
         name: c.name,

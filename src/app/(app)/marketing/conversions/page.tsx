@@ -5,6 +5,7 @@ import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
 import { fetchConversionsList, parseRange, type RangeKey } from "@/lib/marketing/queries";
 import Link from "next/link";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -62,7 +63,7 @@ export default async function MarketingConversionsPage({
                     {r.campaign_name ?? "Unattributed"}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-xs text-muted">
-                    {new Date(r.converted_at).toLocaleString("en-IN")}
+                    {new Date(r.converted_at).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <Link

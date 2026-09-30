@@ -40,7 +40,8 @@ export function Sparkline({
   const span = Math.max(max - min, 1);
   const pts = values
     .map((v, i) => {
-      const x = (i / (values.length - 1)) * width;
+      // One point would be 0/0 = NaN (line silently disappears) — centre it
+      const x = values.length > 1 ? (i / (values.length - 1)) * width : width / 2;
       const y = height - ((v - min) / span) * (height - 4) - 2;
       return `${x},${y}`;
     })

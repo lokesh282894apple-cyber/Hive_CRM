@@ -13,6 +13,7 @@ import {
   withTimeoutRetry,
   type PageResult,
 } from "@/lib/supabase/paginate";
+import { istMidnight } from "@/lib/tz";
 
 export type RangeKey = "7" | "30" | "90";
 
@@ -31,10 +32,8 @@ export function parseRange(raw: string | undefined | null): RangeKey {
 }
 
 export function rangeStartIso(range: RangeKey): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - Number(range));
-  return d.toISOString();
+  // IST midnight N days back — must match marketing_range_since() in SQL
+  return new Date(istMidnight().getTime() - Number(range) * 86_400_000).toISOString();
 }
 
 export type DailyPoint = { date: string; sessions: number; conversions: number };
@@ -687,10 +686,17 @@ export async function fetchAttributionForLeads(
   const map = new Map<string, AttributionSource>();
   if (!leadIds.length) return map;
 
-  const { data } = await supabase
-    .from("lead_attribution")
-    .select("lead_id, first_touch_campaign_id")
-    .in("lead_id", leadIds);
+  // Chunked: the board passes up to 250 ids (~9 KB of URL)
+  const data = await mapInChunks<{ lead_id: string; first_touch_campaign_id: string | null }>(
+    leadIds,
+    async (chunk) => {
+      const { data: rows } = await supabase
+        .from("lead_attribution")
+        .select("lead_id, first_touch_campaign_id")
+        .in("lead_id", chunk);
+      return rows ?? [];
+    }
+  );
 
   const campaignIds = Array.from(
     new Set((data ?? []).map((d) => d.first_touch_campaign_id).filter(Boolean))

@@ -20,6 +20,7 @@ import { DayWiseGrid } from "@/components/admin/funnel/DayWiseGrid";
 import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { addDays, istStartIso } from "@/lib/tz";
 
 function Section({
   id,
@@ -174,8 +175,8 @@ export default async function AdminAnalyticsPage({
       counselorId,
     }),
     fetchRejectionFunnel(supabase, {
-      sinceIso: `${fromDate}T00:00:00.000Z`,
-      untilExclusiveIso: `${toDate}T23:59:59.999Z`,
+      sinceIso: istStartIso(fromDate),
+      untilExclusiveIso: istStartIso(addDays(toDate, 1)),
     }).catch((err) => {
       console.error("[fetchRejectionFunnel]", err);
       return emptyFunnel(true);

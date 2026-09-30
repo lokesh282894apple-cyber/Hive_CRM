@@ -6,6 +6,7 @@ import {
   CalendarStatusButtons,
 } from "@/components/marketing/PlanningSocialForms";
 import { publishRate } from "@/lib/marketing/metrics";
+import { istMonthKey } from "@/lib/tz";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -18,7 +19,7 @@ export default async function MarketingCalendarPage({
 }) {
   await requireUser(["admin", "marketing"]);
   const admin = createAdminClient();
-  const month = searchParams.month ?? new Date().toISOString().slice(0, 7);
+  const month = searchParams.month ?? istMonthKey();
   const start = `${month}-01`;
   const end = `${month}-31`;
 

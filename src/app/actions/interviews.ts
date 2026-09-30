@@ -15,8 +15,8 @@ import {
   slotDateTime,
 } from "@/lib/google-calendar";
 import { createClient } from "@/lib/supabase/server";
-import { addDays, format } from "date-fns";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
+import { addDays as istAddDays, istDateKey, istTime, istWallToIso } from "@/lib/tz";
 
 export type ActionResult =
   | { ok: true; meetLink?: string | null; warning?: string }
@@ -112,6 +112,15 @@ export async function bookInterview(input: {
   await requireUser(["counselor", "admin"]);
   const supabase = createClient();
 
+  // The client sends the slot's IST wall time ("YYYY-MM-DDTHH:mm:ss", no
+  // offset). Stored as-is, Postgres (UTC) read 15:00 as 15:00 UTC = 20:30 IST.
+  let scheduledAt: string;
+  try {
+    scheduledAt = istWallToIso(input.scheduledAt);
+  } catch {
+    return { ok: false, error: "Invalid date/time" };
+  }
+
   // SC-1: admission team booking into R1
   if (input.round === "R1" && !input.rescheduleBookingId) {
     const bad = validateScorePair(
@@ -159,7 +168,7 @@ export async function bookInterview(input: {
         .update({
           interviewer_id: input.interviewerId,
           availability_slot_id: input.availabilitySlotId,
-          scheduled_at: input.scheduledAt,
+          scheduled_at: scheduledAt,
           round: input.round,
           outcome: null,
           feedback_notes: null,
@@ -179,7 +188,7 @@ export async function bookInterview(input: {
           round: input.round,
           interviewer_id: input.interviewerId,
           availability_slot_id: input.availabilitySlotId,
-          scheduled_at: input.scheduledAt,
+          scheduled_at: scheduledAt,
         })
         .select("id")
         .single();
@@ -361,17 +370,19 @@ export async function bookInterviewManual(input: {
   }
 
   const duration = Math.min(180, Math.max(15, input.durationMinutes ?? 30));
-  const start = new Date(input.startLocal);
-  if (Number.isNaN(start.getTime())) {
+  // datetime-local value is IST wall time; the server runs in UTC, so
+  // new Date(startLocal) stored 15:00 IST as 20:30 IST.
+  let start: Date;
+  try {
+    start = new Date(istWallToIso(input.startLocal));
+  } catch {
     return { ok: false, error: "Invalid date/time" };
   }
   const end = new Date(start.getTime() + duration * 60_000);
   const scheduledAt = start.toISOString();
   const date = input.startLocal.slice(0, 10);
   const startTime = input.startLocal.slice(11, 16);
-  const endTime = `${String(end.getHours()).padStart(2, "0")}:${String(
-    end.getMinutes()
-  ).padStart(2, "0")}`;
+  const endTime = istTime(end);
 
   let previousEventId: string | null = null;
   let previousPanelistEventId: string | null = null;
@@ -784,8 +795,8 @@ export async function getInterviewBookingOptions(
     .maybeSingle();
   if (!lead) return { ok: false, error: "Lead not found" };
 
-  const today = format(new Date(), "yyyy-MM-dd");
-  const endDate = format(addDays(new Date(), BOOKING_DEFAULT_DAYS), "yyyy-MM-dd");
+  const today = istDateKey();
+  const endDate = istAddDays(today, BOOKING_DEFAULT_DAYS);
 
   const [{ data: slots, error: slotsErr }, { data: bookings }, { data: panelists }] =
     await Promise.all([

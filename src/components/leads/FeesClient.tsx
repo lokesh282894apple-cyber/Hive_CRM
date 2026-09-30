@@ -30,6 +30,7 @@ import type { FeeRecord, Installment, Loan, LoanVendor } from "@/types/database"
 import { normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { istDateKey } from "@/lib/tz";
 
 const FEE_ELIGIBLE: Stage[] = ["offered", "closed_paid"];
 type FeeTab = "direct" | "one_shot" | "loan";
@@ -654,7 +655,7 @@ export function FeesClient({
                               amountHitBank: hitVal,
                               deductions: ded,
                               markPaid: true,
-                              dateHitBank: new Date().toISOString().slice(0, 10),
+                              dateHitBank: istDateKey(),
                             });
                           });
                         }}

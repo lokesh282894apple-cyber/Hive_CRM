@@ -396,6 +396,7 @@ function BoardColumn({
   canWriteApproval,
   selectedLeadId,
   onSelectLead,
+  stageTotals,
 }: {
   column: BoardColumnDef;
   leads: LeadWithCard[];
@@ -408,6 +409,7 @@ function BoardColumn({
   canWriteApproval?: boolean;
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
+  stageTotals?: Record<string, number>;
 }) {
   const catalog = useFunnelCatalog();
   const labelFor = (s: string) => {
@@ -430,9 +432,17 @@ function BoardColumn({
     if (stages.length <= 1) return [];
     return stages.map((stage) => ({
       stage,
-      count: leads.filter((l) => l.stage === stage).length,
+      count: stageTotals
+        ? stageTotals[stage] ?? 0
+        : leads.filter((l) => l.stage === stage).length,
     }));
-  }, [column.stages, leads]);
+  }, [column.stages, leads, stageTotals]);
+
+  // Exact total when the board is capped; otherwise the loaded cards are all of them
+  const columnTotal =
+    stageTotals && column.stages?.length
+      ? column.stages.reduce((n, s) => n + (stageTotals[s] ?? 0), 0)
+      : leads.length;
 
   const visible = expanded ? leads : leads.slice(0, BOARD_COLUMN_CAP);
   const hidden = Math.max(0, leads.length - BOARD_COLUMN_CAP);
@@ -462,10 +472,15 @@ function BoardColumn({
               wipWarn ? "bg-warning/20 text-warning" : "bg-navy/8 text-navy"
             )}
           >
-            {leads.length}
+            {columnTotal}
           </span>
         </div>
         <p className="mt-0.5 text-[10px] text-muted">{column.hint}</p>
+        {columnTotal > leads.length ? (
+          <p className="mt-0.5 text-[10px] font-medium text-muted">
+            {leads.length} of {columnTotal} loaded — narrow filters to see all
+          </p>
+        ) : null}
         {wipWarn ? (
           <p className="mt-1 text-[10px] font-medium text-warning">
             WIP high ({BOARD_WIP_WARN}+) — triage this lane
@@ -574,6 +589,7 @@ export function PipelineBoard({
   selectedLeadId,
   onSelectLead,
   courseId,
+  stageTotals,
 }: {
   leads: LeadWithCard[];
   isAdmin?: boolean;
@@ -586,6 +602,8 @@ export function PipelineBoard({
   onSelectLead?: (id: string) => void;
   /** Course filter — columns follow that course's funnel preset */
   courseId?: string | null;
+  /** Exact per-stage totals (board is capped); headers use these when set */
+  stageTotals?: Record<string, number>;
 }) {
   const catalog = useFunnelCatalog();
   const funnel = useFunnel(courseId);
@@ -1036,6 +1054,7 @@ export function PipelineBoard({
                   canWriteApproval={Boolean(isAdmin)}
                   selectedLeadId={selectedLeadId}
                   onSelectLead={onSelectLead}
+                  stageTotals={stageTotals}
                   onJumpStage={(stage) =>
                     setFocusStage((prev) => (prev === stage ? null : stage))
                   }

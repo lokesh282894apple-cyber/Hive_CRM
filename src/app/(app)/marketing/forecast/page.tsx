@@ -4,6 +4,7 @@ import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import { ForecastEntryPanel } from "@/components/marketing/PlanningSocialForms";
 import { ActivationsTable } from "@/components/marketing/ActivationsTable";
 import { formatInr } from "@/lib/marketing/metrics";
+import { istMonthKey } from "@/lib/tz";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -12,7 +13,7 @@ export const maxDuration = 60;
 export default async function MarketingForecastPage() {
   await requireUser(["admin", "marketing"]);
   const admin = createAdminClient();
-  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthKey = istMonthKey();
 
   const [{ data: forecasts }, { data: activations }] = await Promise.all([
     admin.from("marketing_forecasts").select("*").eq("month_key", monthKey).order("channel"),

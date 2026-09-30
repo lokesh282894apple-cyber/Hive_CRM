@@ -11,6 +11,7 @@ import {
 import { ensureAdmissionFeeLine, normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { createClient } from "@/lib/supabase/server";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
+import { istDateKey } from "@/lib/tz";
 
 export type ProgramResult = { ok: true } | { ok: false; error: string };
 
@@ -137,7 +138,7 @@ export async function updateFeeTrackerStudent(input: {
   if (mode === "one_shot" || dealStage === "one_shot") {
     const deadline =
       input.active_deadline ||
-      new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
+      istDateKey(Date.now() + 7 * 86400_000);
     await supabase
       .from("fee_records")
       .update({

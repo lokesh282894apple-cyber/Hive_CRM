@@ -56,6 +56,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Fragment } from "react";
+import { istDateKey, istLocalInput } from "@/lib/tz";
 
 const LOAN_BOARD_COLS: LoanStage[] = [...LOAN_PIPELINE_STAGES];
 const TERMINAL_LOAN: LoanStage[] = ["loan_hit_bank"];
@@ -120,13 +121,13 @@ function dealMovePayload(s: FeeTrackerStudent, next: FeeDealStage) {
           : s.fee.payment_mode) as PaymentMode,
     response_deadline:
       next === "awaiting_method" && !s.fee.response_deadline
-        ? new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10)
+        ? istDateKey(Date.now() + 3 * 86400_000)
         : s.fee.response_deadline,
     active_deadline:
       next === "one_shot"
         ? s.fee.one_shot_deadline ||
           s.fee.active_deadline ||
-          new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10)
+          istDateKey(Date.now() + 7 * 86400_000)
         : s.fee.active_deadline,
   };
 }
@@ -855,7 +856,7 @@ function loanOverdueFlags(s: FeeTrackerStudent) {
           : f.key === "complete"
             ? s.loan?.loan_completion_deadline
             : s.loan?.remaining_fee_15d_deadline;
-      return dl && String(dl).slice(0, 10) < String(s.loan!.updated_at).slice(0, 10);
+      return dl && String(dl).slice(0, 10) < istDateKey(s.loan!.updated_at);
     });
   if (stale) flags.push({ key: "stale", label: "Stale", tone: "amber" });
   return flags;
@@ -1093,7 +1094,7 @@ function LoansTab({
                             defaultValue={
                               val
                                 ? key === "doc"
-                                  ? String(val).slice(0, 16)
+                                  ? istLocalInput(String(val))
                                   : String(val).slice(0, 10)
                                 : ""
                             }
@@ -1515,7 +1516,7 @@ function StudentEditor({
   const bal = computeFeeBalance(s.fee, s.lines);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [hitBank, setHitBank] = useState("");
-  const [hitDate, setHitDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [hitDate, setHitDate] = useState(() => istDateKey());
 
   function startPay(line: FeeTrackerStudent["lines"][number]) {
     setPayingId(line.id);
@@ -1524,7 +1525,7 @@ function StudentEditor({
     setHitDate(
       line.date_hit_bank
         ? String(line.date_hit_bank).slice(0, 10)
-        : new Date().toISOString().slice(0, 10)
+        : istDateKey()
     );
   }
 

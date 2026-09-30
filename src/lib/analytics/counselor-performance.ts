@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { OPEN_STAGES } from "@/lib/constants";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 import { unstable_cache } from "next/cache";
+import { istDateKey } from "@/lib/tz";
 
 export type CounselorDashFilters = {
   sinceIso?: string | null;
@@ -137,7 +138,7 @@ function pctOf(n: number, d: number): number | null {
 }
 
 function dayKey(iso: string) {
-  return iso.slice(0, 10);
+  return istDateKey(iso);
 }
 
 function filterKey(f: CounselorDashFilters) {

@@ -4,6 +4,7 @@ import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import {
   LEAD_LIST_SELECT,
   applyLeadsFilters,
+  fetchStageTotals,
   getCounselorScopePairs,
   leadsPrefsCookieName,
   parseLeadsSearchParams,
@@ -59,7 +60,7 @@ export default async function LeadsPage({
   const countPromise = (() => {
         let countQuery = supabase
           .from("leads")
-          .select("id", { count: "estimated", head: true });
+          .select("id", { count: "exact", head: true });
         countQuery = applyLeadsFilters(countQuery, {
           ...filterOpts,
           paginate: false,
@@ -68,6 +69,11 @@ export default async function LeadsPage({
       })();
 
   const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
+  // Board is capped at BOARD_FETCH_MAX cards — give columns exact totals
+  const stageTotalsPromise =
+    filters.mode === "board" && (count ?? 0) > ((data as unknown[] | null)?.length ?? 0)
+      ? fetchStageTotals(supabase, filterOpts).catch(() => undefined)
+      : Promise.resolve(undefined);
 
   const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
   const leadIds = leadsRaw.map((l) => l.id);
@@ -109,6 +115,7 @@ export default async function LeadsPage({
 
   return (
     <LeadsWorkspace
+      stageTotals={await stageTotalsPromise}
       leads={leads}
       totalEstimate={totalEstimate}
       filters={filters}

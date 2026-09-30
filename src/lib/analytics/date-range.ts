@@ -1,9 +1,19 @@
-/** Calendar YYYY-MM-DD helpers for analytics filters (local browser/server calendar). */
+/**
+ * Calendar YYYY-MM-DD helpers for analytics filters.
+ * All calendars are India time (see lib/tz) — the server runs in UTC, so the
+ * old local-calendar version made "today" and every midnight 5h30 early.
+ */
+import {
+  addDays,
+  istDateKey,
+  istMonthKey,
+  istParts,
+  istStartIso,
+  monthLastDay,
+} from "@/lib/tz";
 
-export function todayKey(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")}`;
+export function todayKey(d: Date = new Date()): string {
+  return istDateKey(d);
 }
 
 export function parseDateKey(raw?: string | null): string | null {
@@ -14,14 +24,13 @@ export function parseDateKey(raw?: string | null): string | null {
 }
 
 export function addDaysKey(dateKey: string, delta: number): string {
-  const d = new Date(`${dateKey}T12:00:00`);
-  d.setDate(d.getDate() + delta);
-  return todayKey(d);
+  return addDays(dateKey, delta);
 }
 
 export function daysBetweenInclusive(fromDate: string, toDate: string): number {
-  const a = new Date(`${fromDate}T12:00:00`).getTime();
-  const b = new Date(`${toDate}T12:00:00`).getTime();
+  // Pure calendar difference (both keys treated as UTC dates)
+  const a = Date.parse(`${fromDate}T00:00:00.000Z`);
+  const b = Date.parse(`${toDate}T00:00:00.000Z`);
   return Math.max(1, Math.round((b - a) / 86400000) + 1);
 }
 
@@ -36,8 +45,8 @@ export function eachDateKey(fromDate: string, toDate: string): string[] {
   return out;
 }
 
-export function monthKey(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+export function monthKey(d: Date = new Date()): string {
+  return istMonthKey(d);
 }
 
 export function parseMonthKey(raw?: string | null): string | null {
@@ -49,10 +58,8 @@ export function monthBounds(month: string): { from: string; to: string } {
   const [ys, ms] = month.split("-");
   const y = Number(ys);
   const m = Number(ms);
-  const from = `${y}-${String(m).padStart(2, "0")}-01`;
-  const last = new Date(y, m, 0).getDate();
-  const to = `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
-  return { from, to };
+  const mk = `${y}-${String(m).padStart(2, "0")}`;
+  return { from: `${mk}-01`, to: monthLastDay(mk) };
 }
 
 export function yearBounds(year: number): { from: string; to: string } {
@@ -67,9 +74,8 @@ export function financialYearBounds(fyStartYear: number): { from: string; to: st
   };
 }
 
-export function currentFyStartYear(d = new Date()): number {
-  const y = d.getFullYear();
-  const m = d.getMonth() + 1;
+export function currentFyStartYear(d: Date = new Date()): number {
+  const { year: y, month: m } = istParts(d);
   return m >= 4 ? y : y - 1;
 }
 
@@ -119,9 +125,11 @@ export type DateRangeSearch = {
 };
 
 function isoWindow(fromDate: string, toDate: string) {
-  const since = new Date(`${fromDate}T00:00:00`);
-  const until = new Date(`${addDaysKey(toDate, 1)}T00:00:00`);
-  return { sinceIso: since.toISOString(), untilExclusiveIso: until.toISOString() };
+  // IST midnight of fromDate → IST midnight after toDate
+  return {
+    sinceIso: istStartIso(fromDate),
+    untilExclusiveIso: istStartIso(addDaysKey(toDate, 1)),
+  };
 }
 
 /**
@@ -145,7 +153,7 @@ export function resolveAnalyticsRange(opts?: {
       ...isoWindow(fromDate, toDate),
       overall: true,
       selectionType: "year",
-      year: new Date().getFullYear(),
+      year: istParts().year,
       rangeCohortId: null,
       month: "entire",
     };
@@ -192,7 +200,7 @@ export function resolveStructuredRange(opts: {
 
   const selectionType: "year" | "cohort" =
     search.stype === "cohort" || search.type === "cohort" ? "cohort" : "year";
-  const currentYear = new Date().getFullYear();
+  const currentYear = istParts().year;
   const currentMonth = monthKey();
 
   let year = Number(search.year);

@@ -10,6 +10,7 @@ import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import { DailyVisitsConversions } from "@/components/charts/SimpleCharts";
 import Link from "next/link";
 import { CheckCircle2, Circle, ArrowRight } from "lucide-react";
+import { BUSINESS_TZ } from "@/lib/tz";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -262,7 +263,7 @@ export default async function MarketingDashboardPage({
               {recentSessions.map((s) => (
                 <tr key={s.id} className="border-b border-border last:border-0">
                   <td className="px-4 py-2 text-xs text-muted">
-                    {new Date(s.first_seen_at).toLocaleString("en-IN")}
+                    {new Date(s.first_seen_at).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}
                   </td>
                   <td className="max-w-[140px] truncate px-4 py-2 text-navy">
                     {s.campaign_name ?? s.utm_source ?? "—"}
@@ -328,7 +329,7 @@ export default async function MarketingDashboardPage({
                     </td>
                     <td className="px-4 py-2 text-muted">{camp?.name ?? "Unattributed"}</td>
                     <td className="px-4 py-2 text-xs text-muted">
-                      {new Date(row.converted_at).toLocaleString("en-IN")}
+                      {new Date(row.converted_at).toLocaleString("en-IN", { timeZone: BUSINESS_TZ })}
                     </td>
                   </tr>
                 );

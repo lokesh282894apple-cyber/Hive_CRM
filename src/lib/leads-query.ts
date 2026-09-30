@@ -11,6 +11,7 @@ import {
 } from "@/lib/constants";
 import type { createClient } from "@/lib/supabase/server";
 import { subDays } from "date-fns";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 
 export type LeadsFilterParams = {
   ownership: OwnershipView | "all" | string; // "all" | "mine" | "unassigned" | "scope" | counselorId
@@ -345,4 +346,28 @@ export function withSavedLeadPrefs(
   } catch {
     return { params: sp, applied: false };
   }
+}
+
+/**
+ * Exact lead count per stage for the current filters. The board loads at
+ * most BOARD_FETCH_MAX cards, so column counts computed from loaded cards
+ * undercount once more leads match — use these totals in column headers.
+ */
+export async function fetchStageTotals(
+  supabase: Supabase,
+  opts: Omit<Parameters<typeof applyLeadsFilters>[1], "paginate">
+): Promise<Record<string, number>> {
+  const rows = await fetchAllPages<{ stage: string }>(
+    (from, to) =>
+      applyLeadsFilters(supabase.from("leads").select("stage"), {
+        ...opts,
+        paginate: false,
+      })
+        .order("id", { ascending: true })
+        .range(from, to),
+    "leads.stageTotals"
+  );
+  const totals: Record<string, number> = {};
+  for (const r of rows) totals[r.stage] = (totals[r.stage] ?? 0) + 1;
+  return totals;
 }

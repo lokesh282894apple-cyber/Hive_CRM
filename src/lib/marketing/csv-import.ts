@@ -1,3 +1,4 @@
+import { istDateKey } from "@/lib/tz";
 /** Parse CSV rows (simple, no quoted-comma edge cases for marketing uploads) */
 
 export function parseCsv(text: string): string[][] {
@@ -45,7 +46,7 @@ export function parseMetaAdCsv(text: string): MetaAdCsvRow[] {
     };
     const weekLabel = get("week", "week_label") || "W";
     const spend = Number(get("amount_spent_inr", "spend", "amount_spent")) || 0;
-    const weekStart = get("week_start", "date") || new Date().toISOString().slice(0, 10);
+    const weekStart = get("week_start", "date") || istDateKey();
     return {
       week_label: weekLabel,
       week_start: weekStart.slice(0, 10),
@@ -87,7 +88,7 @@ export function parseCostCsv(text: string): CostCsvRow[] {
       const i = idx(name);
       return i >= 0 ? r[i] : "";
     };
-    const date = get("date") || get("entry_date") || new Date().toISOString().slice(0, 10);
+    const date = get("date") || get("entry_date") || istDateKey();
     return {
       entry_date: date.slice(0, 10),
       category: get("category") || "non_meta",
