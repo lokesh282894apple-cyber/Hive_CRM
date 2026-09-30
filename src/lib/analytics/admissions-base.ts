@@ -180,7 +180,7 @@ export const getAdmissionsBase = cache(
                     .in("lead_id", chunk)
                     .gte("changed_at", since)
                     .order("changed_at", { ascending: false })
-                    .range(from, to),
+                    .order("id", { ascending: true }).range(from, to),
                 "stage_history"
               )
             )
@@ -191,7 +191,7 @@ export const getAdmissionsBase = cache(
                   .select("lead_id, to_stage, changed_at")
                   .gte("changed_at", since)
                   .order("changed_at", { ascending: false })
-                  .range(from, to),
+                  .order("id", { ascending: true }).range(from, to),
               "stage_history"
             ),
       leadIds.length === 0
@@ -208,7 +208,7 @@ export const getAdmissionsBase = cache(
                     .in("lead_id", chunk)
                     .gte("scheduled_at", since)
                     .order("scheduled_at", { ascending: false })
-                    .range(from, to),
+                    .order("id", { ascending: true }).range(from, to),
                 "interview_bookings"
               )
             )
@@ -221,7 +221,7 @@ export const getAdmissionsBase = cache(
                   )
                   .gte("scheduled_at", since)
                   .order("scheduled_at", { ascending: false })
-                  .range(from, to),
+                  .order("id", { ascending: true }).range(from, to),
               "interview_bookings"
             ),
       // Small sets: only rows for leads we kept. Large sets with big pages:
@@ -238,7 +238,7 @@ export const getAdmissionsBase = cache(
                     .select("lead_id, first_touch_campaign_id, last_touch_campaign_id")
                     .in("lead_id", chunk)
                     .order("lead_id", { ascending: true })
-                    .range(from, to),
+                    .order("id", { ascending: true }).range(from, to),
                 "lead_attribution"
               )
             )

@@ -188,7 +188,7 @@ export async function fetchAdmissionsAnalytics(
         .gte("logged_at", sinceIso)
         .lt("logged_at", untilExclusiveIso);
       if (counselorId) q = q.eq("counselor_id", counselorId);
-      return q.order("logged_at", { ascending: false }).range(from, to);
+      return q.order("logged_at", { ascending: false }).order("id", { ascending: true }).range(from, to);
     }, "call_logs"),
     (async () => {
       const inWeek = base.bookings.filter((b) => {
@@ -631,7 +631,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
           .gte("updated_at", fromIso)
           .lte("updated_at", toIso)
           .order("updated_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "monthly_fees"
     ),
     fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
@@ -643,7 +643,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
           .gte("changed_at", fromIso)
           .lte("changed_at", toIso)
           .order("changed_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "monthly_history"
     ),
   ]);

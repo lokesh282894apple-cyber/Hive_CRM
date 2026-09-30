@@ -352,7 +352,7 @@ export async function fetchMarketingOverview(
           )
           .gte("first_seen_at", since)
           .order("first_seen_at", { ascending: false })
-          .range(from, to)
+          .order("id", { ascending: true }).range(from, to)
       ),
       db
         .from("page_events")
@@ -366,7 +366,7 @@ export async function fetchMarketingOverview(
           )
           .gte("converted_at", since)
           .order("converted_at", { ascending: false })
-          .range(from, to)
+          .order("id", { ascending: true }).range(from, to)
       ),
     ]);
   const campaignMap = new Map((campaigns ?? []).map((c) => [c.id, c]));
@@ -650,7 +650,7 @@ export async function fetchCampaignMetrics(
         .gte("first_seen_at", since)
         .not("matched_campaign_id", "is", null)
         .order("first_seen_at", { ascending: false })
-        .range(from, to)
+        .order("id", { ascending: true }).range(from, to)
     ),
     fetchAllPages((from, to) =>
       db
@@ -659,7 +659,7 @@ export async function fetchCampaignMetrics(
         .gte("converted_at", since)
         .not("first_touch_campaign_id", "is", null)
         .order("converted_at", { ascending: false })
-        .range(from, to)
+        .order("id", { ascending: true }).range(from, to)
     ),
   ]);
 
