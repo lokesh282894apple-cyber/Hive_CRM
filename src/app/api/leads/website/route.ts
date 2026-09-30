@@ -281,19 +281,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      await admin.from("lead_touchpoints").insert({
-        lead_id: leadId,
-        source: "website_form",
-        channel: source,
-        campaign_name: utm_campaign,
-        payload: {
-          utm_source,
-          utm_medium,
-          utm_campaign,
-          utm_content,
-          session_id: sessionId,
-        },
-      });
     } else {
       const insertRow: Record<string, unknown> = {
         ...sharedFields,
@@ -345,6 +332,24 @@ export async function POST(request: NextRequest) {
         created = true;
       }
     }
+
+    // Record every form submission — new leads included (previously only
+    // repeat submissions on an existing lead were logged, so a lead's first
+    // form never appeared in its history).
+    await admin.from("lead_touchpoints").insert({
+      lead_id: leadId!,
+      source: "website_form",
+      channel: source,
+      campaign_name: utm_campaign,
+      payload: {
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        utm_content,
+        session_id: sessionId,
+        first_submission: created,
+      },
+    });
 
     const attributionLinked = await linkAttribution(admin, leadId!, sessionId);
 
