@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/Primitives";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,6 +26,11 @@ export default async function PastStudentsPage() {
         title="Add past"
         accent="student fees"
         description="Record fees, payments already received and loans for students who enrolled before fees were tracked in the CRM."
+        actions={
+          <Link href="/program/fees" className="btn-ghost">
+            ← Back to Fee &amp; Loan
+          </Link>
+        }
       />
       <PastStudentFeesClient
         courses={courseList.map((c) => ({ id: c.id, name: c.name }))}

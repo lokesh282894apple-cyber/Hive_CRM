@@ -140,14 +140,12 @@ export function FeeLoanTrackerClient({
   revenue,
   monthKey,
   filters,
-  demo = false,
 }: {
   students: FeeTrackerStudent[];
   revenue: FeeRevenueMonth;
   monthKey: string;
   courses?: { id: string; name: string }[];
   cohorts?: { id: string; name: string; course_id: string }[];
-  demo?: boolean;
   filters: {
     tab: string;
     courseId: string;
@@ -163,7 +161,6 @@ export function FeeLoanTrackerClient({
     year?: string;
     month?: string;
     overall?: string;
-    demo?: string;
   };
 }) {
   const router = useRouter();
@@ -231,7 +228,6 @@ export function FeeLoanTrackerClient({
                       : k;
       sp.set(key, v);
     }
-    if (demo && !sp.has("demo")) sp.set("demo", "1");
     router.push(`/program/fees?${sp.toString()}`);
   }
 
@@ -509,10 +505,6 @@ export function FeeLoanTrackerClient({
                               pending={pending}
                               onSave={(fn) => {
                                 setMsg(null);
-                                if (demo) {
-                                  setMsg("Demo data is read-only — edits are not saved.");
-                                  return;
-                                }
                                 startTransition(async () => {
                                   const res = await fn();
                                   if (!res.ok) setMsg(res.error);
@@ -543,10 +535,6 @@ export function FeeLoanTrackerClient({
           pending={pending}
           onMove={(feeRecordId, stage, extra) => {
             setMsg(null);
-            if (demo) {
-              setMsg("Demo data is read-only — edits are not saved.");
-              return;
-            }
             startTransition(async () => {
               const res = await updateLoanStatus({
                 feeRecordId,
@@ -566,10 +554,6 @@ export function FeeLoanTrackerClient({
           pending={pending}
           onSave={(fn) => {
             setMsg(null);
-            if (demo) {
-              setMsg("Demo data is read-only — edits are not saved.");
-              return;
-            }
             startTransition(async () => {
               const res = await fn();
               if (!res.ok) setMsg(res.error);
@@ -586,10 +570,6 @@ export function FeeLoanTrackerClient({
           onClose={() => setQuickSheetId(null)}
           onSave={(fn) => {
             setMsg(null);
-            if (demo) {
-              setMsg("Demo data is read-only — edits are not saved.");
-              return;
-            }
             startTransition(async () => {
               const res = await fn();
               if (!res.ok) setMsg(res.error);

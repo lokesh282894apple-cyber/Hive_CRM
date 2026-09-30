@@ -9,10 +9,6 @@ import {
   computeFeeRevenueMonth,
   fetchFeeTrackerStudents,
 } from "@/lib/program/fee-tracker";
-import {
-  buildDemoFeeTrackerStudents,
-  filterDemoStudents,
-} from "@/lib/program/fee-tracker-demo";
 import { FeeLoanTrackerClient } from "@/components/program/FeeLoanTrackerClient";
 import { PageHeader } from "@/components/ui/Primitives";
 import {
@@ -94,7 +90,6 @@ export default async function ProgramFeesPage({
     if (searchParams.onboard) q.set("onboard", searchParams.onboard);
     if (searchParams.deal) q.set("deal", searchParams.deal);
     if (searchParams.loan) q.set("loan", searchParams.loan);
-    if (searchParams.demo) q.set("demo", searchParams.demo);
     redirect(`/program/fees?${q.toString()}`);
   }
 
@@ -113,14 +108,13 @@ export default async function ProgramFeesPage({
       : null;
   const dealStage = searchParams.deal || "";
   const loanStage = searchParams.loan || "";
-  const forceDemo = searchParams.demo === "1";
 
   const monthKey =
     dateRange.month && dateRange.month !== "entire"
       ? dateRange.month
       : toDate.slice(0, 7);
 
-  let students = await fetchFeeTrackerStudents(supabase, {
+  const students = await fetchFeeTrackerStudents(supabase, {
     courseId: courseId || null,
     cohortId: cohortId || null,
     paymentMode: paymentMode || null,
@@ -131,26 +125,6 @@ export default async function ProgramFeesPage({
     fromDate: dateRange.overall ? null : fromDate,
     toDate: dateRange.overall ? null : toDate,
   });
-
-  let usingDemo = false;
-  if (forceDemo || students.length === 0) {
-    usingDemo = true;
-    const demo = buildDemoFeeTrackerStudents(
-      courses.map((c) => ({ id: c.id, name: c.name })),
-      cohorts.map((c) => ({ id: c.id, name: c.name, course_id: c.course_id }))
-    );
-    students = filterDemoStudents(demo, {
-      courseId: courseId || null,
-      cohortId: cohortId || null,
-      paymentMode: paymentMode || null,
-      dropEmail,
-      onboarding,
-      dealStage: dealStage || null,
-      loanStage: loanStage || null,
-      fromDate: null,
-      toDate: null,
-    });
-  }
 
   const revenue = computeFeeRevenueMonth(students, monthKey);
   const years = uniqueCohortYears(cohorts);
@@ -174,7 +148,6 @@ export default async function ProgramFeesPage({
     onboard: searchParams.onboard || "",
     deal: dealStage,
     loan: loanStage,
-    demo: forceDemo ? "1" : "",
   };
 
   return (
@@ -190,54 +163,6 @@ export default async function ProgramFeesPage({
           </Link>
         }
       />
-
-      {usingDemo ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <p>
-            <span className="font-semibold">Demo data</span> — sample students so you can
-            review Fee Tracker, Loan board, and Deal Stage. Not written to the database.
-          </p>
-          <div className="flex gap-2">
-            {!forceDemo ? (
-              <Link
-                href={`/program/fees?${new URLSearchParams({
-                  ...Object.fromEntries(
-                    Object.entries({
-                      stype: dateRange.selectionType,
-                      year: String(dateRange.year),
-                      from: fromDate,
-                      to: toDate,
-                      course: courseId ?? "",
-                      cohort: cohortId ?? "",
-                      tab,
-                      mode: paymentMode,
-                      drop: searchParams.drop || "",
-                      onboard: searchParams.onboard || "",
-                      deal: dealStage,
-                      loan: loanStage,
-                      demo: "1",
-                    }).filter(([, v]) => v)
-                  ),
-                }).toString()}`}
-                className="text-xs font-semibold text-amber-900 underline"
-              >
-                Pin demo=1
-              </Link>
-            ) : (
-              <Link href="/program/fees" className="text-xs font-semibold text-amber-900 underline">
-                Exit demo
-              </Link>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="text-xs text-muted">
-          <Link href="/program/fees?demo=1" className="font-semibold text-periwinkle hover:underline">
-            Load demo data
-          </Link>{" "}
-          to preview boards with sample students.
-        </div>
-      )}
 
       <DateRangeBar
         range={dateRange}
@@ -282,7 +207,6 @@ export default async function ProgramFeesPage({
         {baseHidden.tab !== "fees" ? (
           <input type="hidden" name="tab" value={baseHidden.tab} />
         ) : null}
-        {baseHidden.demo ? <input type="hidden" name="demo" value="1" /> : null}
 
         <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
           Payment mode
@@ -369,7 +293,6 @@ export default async function ProgramFeesPage({
           name: c.name,
           course_id: c.course_id,
         }))}
-        demo={usingDemo}
         filters={{
           tab,
           courseId: courseId ?? "",
@@ -388,7 +311,6 @@ export default async function ProgramFeesPage({
               ? "entire"
               : dateRange.month ?? "",
           overall: dateRange.overall ? "1" : "",
-          demo: forceDemo ? "1" : usingDemo && students.length ? "" : "",
         }}
       />
     </div>

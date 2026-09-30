@@ -10,11 +10,6 @@ import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilter
 import { PAYMENT_MODE_LABELS } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { HubspotImportClient } from "@/components/admin/HubspotImportClient";
-import {
-  buildDemoFeeTrackerStudents,
-  demoPaymentsDashboard,
-  filterDemoStudents,
-} from "@/lib/program/fee-tracker-demo";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -59,7 +54,6 @@ export default async function AdminPaymentsPage({
     : null;
   const courseId = searchParams.course || cohortRow?.course_id || null;
   const paymentMode = searchParams.mode || "";
-  const forceDemo = searchParams.demo === "1";
 
   const needsCohortParam = !searchParams.cohort && Boolean(dateRange.rangeCohortId);
   const needsCourseParam = !searchParams.course && Boolean(courseId);
@@ -80,7 +74,6 @@ export default async function AdminPaymentsPage({
     q.set("from", fromDate);
     q.set("to", toDate);
     if (paymentMode) q.set("mode", paymentMode);
-    if (forceDemo) q.set("demo", "1");
     redirect(`/admin/payments?${q.toString()}`);
   }
 
@@ -99,23 +92,6 @@ export default async function AdminPaymentsPage({
       cards,
       loans: data.loans.filter((l) => leadIds.has(l.leadId)),
     };
-  }
-
-  let usingDemo = false;
-  if (forceDemo || data.cards.length === 0) {
-    usingDemo = true;
-    const demoStudents = filterDemoStudents(
-      buildDemoFeeTrackerStudents(
-        courses.map((c) => ({ id: c.id, name: c.name })),
-        cohorts.map((c) => ({ id: c.id, name: c.name, course_id: c.course_id }))
-      ),
-      {
-        courseId,
-        cohortId,
-        paymentMode: paymentMode || null,
-      }
-    );
-    data = demoPaymentsDashboard(demoStudents);
   }
 
   const years = uniqueCohortYears(cohorts);
@@ -139,11 +115,6 @@ export default async function AdminPaymentsPage({
         title="Payments"
         accent="Fees"
         description="Fee and loan tracking per student. Fees unlock on Offered / Closed – paid."
-        actions={
-          <Link href="/program/past-students" className="btn-primary">
-            Add past student fees
-          </Link>
-        }
       />
 
       <p className="rounded-xl border border-border bg-navy/5 px-4 py-2.5 text-xs text-muted">
@@ -159,23 +130,6 @@ export default async function AdminPaymentsPage({
       </p>
 
       <HubspotImportClient defaultTarget="fees" />
-
-      {usingDemo ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          <span className="font-semibold">Demo data</span> — sample payers for layout preview.
-          Not written to the database.{" "}
-          <Link href="/admin/payments" className="font-semibold underline">
-            Exit demo
-          </Link>
-        </div>
-      ) : (
-        <p className="text-xs text-muted">
-          <Link href="/admin/payments?demo=1" className="font-semibold text-periwinkle hover:underline">
-            Load demo data
-          </Link>{" "}
-          to preview this page with sample students.
-        </p>
-      )}
 
       <DateRangeBar
         range={dateRange}
@@ -217,7 +171,6 @@ export default async function AdminPaymentsPage({
         <input type="hidden" name="from" value={fromDate} />
         <input type="hidden" name="to" value={toDate} />
         {dateRange.overall ? <input type="hidden" name="overall" value="1" /> : null}
-        {forceDemo ? <input type="hidden" name="demo" value="1" /> : null}
         <label className="min-w-[140px] flex-1 text-xs font-semibold text-muted">
           Payment mode
           <select
