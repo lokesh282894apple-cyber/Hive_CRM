@@ -139,6 +139,11 @@ export default async function AdminPaymentsPage({
         title="Payments"
         accent="Fees"
         description="Fee and loan tracking per student. Fees unlock on Offered / Closed – paid."
+        actions={
+          <Link href="/program/past-students" className="btn-primary">
+            Add past student fees
+          </Link>
+        }
       />
 
       <p className="rounded-xl border border-border bg-navy/5 px-4 py-2.5 text-xs text-muted">
