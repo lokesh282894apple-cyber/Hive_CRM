@@ -239,7 +239,9 @@ export function applyLeadsFilters(
   }
 
   if (paginate) {
-    query = query.order("created_at", { ascending: false });
+    // id tiebreaker: imports create many leads with the same created_at, and
+    // without it list pages could repeat or skip those leads
+    query = query.order("created_at", { ascending: false }).order("id", { ascending: true });
     if (filters.mode === "list") {
       const from = (filters.page - 1) * LIST_PAGE_SIZE;
       const to = from + LIST_PAGE_SIZE - 1;

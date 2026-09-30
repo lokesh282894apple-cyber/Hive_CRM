@@ -250,7 +250,7 @@ export async function fetchFounderCommand(
               "id, deadline, amount_to_realise, amount_realised, status, fee_record_id, fee_records(lead_id, leads(id, name))"
             )
             .order("deadline", { ascending: true })
-            .range(from, to) as unknown as PromiseLike<{
+            .order("id", { ascending: true }).range(from, to) as unknown as PromiseLike<{
             data: InstNested[] | null;
             error: { message: string } | null;
           }>,

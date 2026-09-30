@@ -473,7 +473,7 @@ export async function syncForecastActuals(
           .gte("created_at", fromIso)
           .lte("created_at", toIso)
           .order("created_at", { ascending: true })
-          .range(rangeFrom, rangeTo),
+          .order("id", { ascending: true }).range(rangeFrom, rangeTo),
       "leads.forecastSync"
     ),
     fetchAllPages<{ spend: number; date: string }>(
@@ -484,7 +484,7 @@ export async function syncForecastActuals(
           .gte("date", fromDate)
           .lte("date", toDate)
           .order("date", { ascending: true })
-          .range(rangeFrom, rangeTo),
+          .order("id", { ascending: true }).range(rangeFrom, rangeTo),
       "ad_spend_daily.forecastSync"
     ),
   ]);

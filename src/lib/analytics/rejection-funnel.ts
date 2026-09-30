@@ -94,7 +94,7 @@ async function fetchRejectionFunnelUncached(
         .gte("updated_at", opts.sinceIso)
         .lt("updated_at", opts.untilExclusiveIso)
         .order("updated_at", { ascending: true })
-        .range(from, to)
+        .order("id", { ascending: true }).range(from, to)
     , "reject-leads");
   } catch (err) {
     if (!isMissingColumnError(err)) throw err;
@@ -107,7 +107,7 @@ async function fetchRejectionFunnelUncached(
         .gte("updated_at", opts.sinceIso)
         .lt("updated_at", opts.untilExclusiveIso)
         .order("updated_at", { ascending: true })
-        .range(from, to)
+        .order("id", { ascending: true }).range(from, to)
     , "reject-leads-fallback");
   }
 
@@ -168,7 +168,7 @@ async function fetchRejectionFunnelUncached(
           .gte("created_at", opts.sinceIso)
           .lt("created_at", opts.untilExclusiveIso)
           .order("created_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "lead_stage_scores.rejection"
     ).catch((e: Error) => {
       failed.error = { message: e.message };
@@ -206,7 +206,7 @@ async function fetchRejectionFunnelUncached(
           .gte("submitted_at", opts.sinceIso)
           .lt("submitted_at", opts.untilExclusiveIso)
           .order("submitted_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "interview_bookings.noShows"
     ).catch((e: Error) => {
       failed.error = { message: e.message };

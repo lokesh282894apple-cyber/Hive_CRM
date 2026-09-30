@@ -205,7 +205,7 @@ async function fetchCounselorDashboardUncached(
         .order("logged_at", { ascending: true })
         .order("lead_id", { ascending: true });
       if (filters.counselorId) q = q.eq("counselor_id", filters.counselorId);
-      const res = await q.range(from, to);
+      const res = await q.order("id", { ascending: true }).range(from, to);
       if (
         res.error &&
         /column .*direction.* does not exist/i.test(res.error.message)
@@ -218,7 +218,7 @@ async function fetchCounselorDashboardUncached(
           .order("logged_at", { ascending: true })
           .order("lead_id", { ascending: true });
         if (filters.counselorId) q2 = q2.eq("counselor_id", filters.counselorId);
-        const res2 = await q2.range(from, to);
+        const res2 = await q2.order("id", { ascending: true }).range(from, to);
         return {
           data: (res2.data ?? []).map((r) => ({ ...r, direction: "outbound" as const })),
           error: res2.error,
@@ -238,7 +238,7 @@ async function fetchCounselorDashboardUncached(
         .lt("changed_at", until)
         .order("changed_at", { ascending: true })
         .order("lead_id", { ascending: true })
-        .range(from, to),
+        .order("id", { ascending: true }).range(from, to),
       "counselor-history"
     ),
     supabase
@@ -553,7 +553,7 @@ async function fetchCounselorDashboardUncached(
         .gte("created_at", since)
         .lt("created_at", until)
         .order("created_at", { ascending: true });
-      return q.range(from, to);
+      return q.order("id", { ascending: true }).range(from, to);
     }, "counselor-scores").catch(() => [] as { scored_by: string; profile_score: number; intent_score: number }[]);
 
     const byScorer = new Map<string, { p: number[]; i: number[] }>();

@@ -169,7 +169,7 @@ export async function fetchRevenueReport(
           )
           .gt("total_fee", 0)
           .order("created_at", { ascending: false })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "fee_records"
     ).catch(async (err: Error) => {
       if (!/fee_set_at/i.test(err.message)) throw err;
@@ -182,7 +182,7 @@ export async function fetchRevenueReport(
             )
             .gt("total_fee", 0)
             .order("created_at", { ascending: false })
-            .range(from, to),
+            .order("id", { ascending: true }).range(from, to),
         "fee_records"
       );
     }),

@@ -106,6 +106,7 @@ export async function previewBulkAssign(
       .gte("created_at", fromIso)
       .lt("created_at", toIso)
       .order("created_at", { ascending: true })
+      .order("id", { ascending: true }) // stable pages — ties would skip/repeat leads
       .range(fromIdx, fromIdx + pageSize - 1);
 
     if (filters.scope === "unassigned") {

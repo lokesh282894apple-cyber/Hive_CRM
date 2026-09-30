@@ -205,7 +205,7 @@ export async function sessionsPerDay(
         .gte("first_seen_at", fromIso)
         .lte("first_seen_at", toIso)
         .order("first_seen_at", { ascending: true })
-        .range(from, to),
+        .order("id", { ascending: true }).range(from, to),
     "visitor_sessions.funnel"
   );
   const byDay = new Map<string, number>();
@@ -255,7 +255,7 @@ export async function sessionsBySource(
         .gte("first_seen_at", fromIso)
         .lte("first_seen_at", toIso)
         .order("first_seen_at", { ascending: true })
-        .range(from, to),
+        .order("id", { ascending: true }).range(from, to),
     "visitor_sessions.channel"
   );
   const groups = new Map<string, SessionSourceGroup>();
@@ -318,7 +318,7 @@ export async function fetchLeadFunnelUncached(
             .gte("created_at", fromIso)
             .lte("created_at", toIso)
             .order("created_at", { ascending: true })
-            .range(from, to),
+            .order("id", { ascending: true }).range(from, to),
         "leads.funnel"
       ),
       fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
@@ -329,7 +329,7 @@ export async function fetchLeadFunnelUncached(
             .gte("changed_at", fromIso)
             .lte("changed_at", toIso)
             .order("changed_at", { ascending: true })
-            .range(from, to),
+            .order("id", { ascending: true }).range(from, to),
         "stage_history.funnel"
       ),
       fetchAllPages<{ date: string; spend: number }>(
@@ -340,7 +340,7 @@ export async function fetchLeadFunnelUncached(
             .gte("date", filters.fromDate)
             .lte("date", filters.toDate)
             .order("date", { ascending: true })
-            .range(from, to),
+            .order("id", { ascending: true }).range(from, to),
         "ad_spend_daily.funnel"
       ),
       fetchAllPages<{ entry_date: string; amount_inr: number; is_organic: boolean }>(
@@ -351,7 +351,7 @@ export async function fetchLeadFunnelUncached(
             .gte("entry_date", filters.fromDate)
             .lte("entry_date", filters.toDate)
             .order("entry_date", { ascending: true })
-            .range(from, to),
+            .order("id", { ascending: true }).range(from, to),
         "marketing_cost_entries.funnel"
       ),
       admin.from("campaigns").select("id, source_type"),
@@ -1596,7 +1596,7 @@ export async function fetchChannelFunnelUncached(
           .gte("created_at", fromIso)
           .lte("created_at", toIso)
           .order("created_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "leads.channel"
     ),
     admin.from("campaigns").select("id, source_type, channel_id, channels(name)"),
@@ -1608,7 +1608,7 @@ export async function fetchChannelFunnelUncached(
           .gte("date", filters.fromDate)
           .lte("date", filters.toDate)
           .order("date", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "ad_spend_daily.channel"
     ),
     fetchAllPages<{
@@ -1624,7 +1624,7 @@ export async function fetchChannelFunnelUncached(
           .gte("entry_date", filters.fromDate)
           .lte("entry_date", filters.toDate)
           .order("entry_date", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "marketing_cost_entries.channel"
     ),
   ]);
@@ -1873,7 +1873,7 @@ export async function fetchMonthPnlUncached(
           .gte("updated_at", fromIso)
           .lte("updated_at", toIso)
           .order("updated_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "fee_records.monthPnl"
     ),
   ]);
@@ -1888,7 +1888,7 @@ export async function fetchMonthPnlUncached(
               .gte("created_at", fromIso)
               .lte("created_at", toIso)
               .order("created_at", { ascending: true })
-              .range(from, to);
+              .order("id", { ascending: true }).range(from, to);
             if (extra.cohortId) q = q.eq("cohort_id", extra.cohortId);
             if (extra.programme) q = q.eq("programme", extra.programme);
             return q;

@@ -108,7 +108,7 @@ async function fetchPanelPerformanceUncached(
         )
         .gte("scheduled_at", sinceIso)
         .order("scheduled_at", { ascending: false })
-        .range(from, to);
+        .order("id", { ascending: true }).range(from, to);
       if (roundFilter !== "all") q = q.eq("round", roundFilter);
       if (panelistId) q = q.eq("interviewer_id", panelistId);
       return q;
@@ -120,7 +120,7 @@ async function fetchPanelPerformanceUncached(
           .select("lead_id, to_stage, changed_at")
           .in("to_stage", ["offered", "closed_paid"])
           .order("changed_at", { ascending: true })
-          .range(from, to),
+          .order("id", { ascending: true }).range(from, to),
       "panel_history"
     ),
   ]);
