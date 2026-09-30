@@ -30,7 +30,7 @@ export async function GET() {
   const probeWindow = { p_from: new Date().toISOString(), p_to: new Date().toISOString() };
   const [p1, p2] = await Promise.all([
     db.rpc("rpc_sessions_per_day_ist", probeWindow),
-    db.rpc("rpc_sessions_by_source", probeWindow),
+    db.rpc("rpc_sessions_by_source_v2", probeWindow),
   ]);
   if (p1.error || p2.error) {
     return NextResponse.json({
