@@ -103,6 +103,11 @@ function dayKey(iso: string) {
   return iso.slice(0, 10);
 }
 
+/** India month (YYYY-MM) of a timestamp — IST is UTC+5:30 with no DST. */
+function istMonth(iso: string): string {
+  return new Date(Date.parse(iso) + 330 * 60 * 1000).toISOString().slice(0, 7);
+}
+
 export function emptyDailyBetween(fromDate: string, toDate: string): DailyCount[] {
   return eachDateKey(fromDate, toDate).map((date) => ({
     date,
@@ -577,8 +582,9 @@ async function fetchAdmissionsMonthlyRollupUncached(
   const oldest = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
   const fromDate = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, "0")}-01`;
   const toDate = now.toISOString().slice(0, 10);
-  const fromIso = `${fromDate}T00:00:00.000Z`;
-  const toIso = `${toDate}T23:59:59.999Z`;
+  // Months are India months (IST) — same calendar as the leads list filter
+  const fromIso = new Date(`${fromDate}T00:00:00.000+05:30`).toISOString();
+  const toIso = new Date(`${toDate}T23:59:59.999+05:30`).toISOString();
 
   const monthKeys: string[] = [];
   for (let i = monthsBack; i >= 0; i--) {
@@ -644,7 +650,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
 
   const openSet = new Set(OPEN_STAGES as readonly string[]);
   for (const l of leads) {
-    const mk = String(l.created_at).slice(0, 7);
+    const mk = istMonth(l.created_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     t.leads += 1;
@@ -653,7 +659,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
 
   const r1Seen = new Set<string>();
   for (const h of history) {
-    const mk = String(h.changed_at).slice(0, 7);
+    const mk = istMonth(h.changed_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     if (
@@ -666,7 +672,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
   }
 
   for (const l of leads ?? []) {
-    const mk = String(l.created_at).slice(0, 7);
+    const mk = istMonth(l.created_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     if (l.stage === "closed_paid") t.converts += 1;
@@ -674,7 +680,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
   }
 
   for (const f of fees) {
-    const mk = String(f.updated_at).slice(0, 7);
+    const mk = istMonth(f.updated_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     const booked = Number(f.total_fee) || 0;
@@ -697,7 +703,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
 }
 
 const fetchAdmissionsMonthlyRollupCached = cachedAdmissionsQuery(
-  "fetchAdmissionsMonthlyRollup-v1",
+  "fetchAdmissionsMonthlyRollup-v2-ist",
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) =>
     fetchAdmissionsMonthlyRollupUncached(createAdminClient(), opts)

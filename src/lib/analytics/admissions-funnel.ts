@@ -4,6 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 
+/** Business days are India (IST, UTC+5:30, no DST) — same as the leads list filter. */
+const IST_OFFSET_MS = 330 * 60 * 1000;
+function istDay(iso: string): string {
+  return new Date(Date.parse(iso) + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 export type FunnelAttribution = "all" | "organic" | "inorganic";
 export type FunnelMode = "period" | "snapshot";
 export type RoundKey = "R1" | "R2" | "R3";
@@ -349,7 +355,7 @@ function buildLeadFacts(
     const f = map.get(h.lead_id);
     if (!f) continue;
     f.stagesEver.add(h.to_stage);
-    const day = h.changed_at.slice(0, 10);
+    const day = istDay(h.changed_at);
     if (day >= periodStart && day < periodEndExclusive) {
       f.stagesInPeriod.add(h.to_stage);
       let set = f.stagesByDay.get(day);
@@ -365,7 +371,7 @@ function buildLeadFacts(
     const f = map.get(b.lead_id);
     if (!f) continue;
     f.bookings.push(b);
-    const day = b.scheduled_at.slice(0, 10);
+    const day = istDay(b.scheduled_at);
     if (day >= periodStart && day < periodEndExclusive) {
       if (b.round === "R1") f.stagesInPeriod.add("r1_booked");
       if (b.round === "R2") f.stagesInPeriod.add("r2_booked");
@@ -548,7 +554,7 @@ function createdBetween(
   endExclusive: string
 ): LeadFacts[] {
   return facts.filter((f) => {
-    const day = f.lead.created_at.slice(0, 10);
+    const day = istDay(f.lead.created_at);
     return day >= start && day < endExclusive;
   });
 }
@@ -585,7 +591,7 @@ function dayCountsFor(
     const bookedToday =
       hasAny(dayStages, booked) ||
       f.bookings.some(
-        (b) => b.round === round && b.scheduled_at.slice(0, 10) === date
+        (b) => b.round === round && istDay(b.scheduled_at) === date
       );
     if (!bookedToday && !hasAny(dayStages, allRound)) continue;
     if (!bookedToday) continue;
@@ -596,7 +602,7 @@ function dayCountsFor(
       f.bookings.some(
         (b) =>
           b.round === round &&
-          b.scheduled_at.slice(0, 10) === date &&
+          istDay(b.scheduled_at) === date &&
           b.outcome != null
       );
     const wasNoShow = hasAny(dayStages, noShow);
@@ -606,7 +612,7 @@ function dayCountsFor(
       f.bookings.some(
         (b) =>
           b.round === round &&
-          b.scheduled_at.slice(0, 10) === date &&
+          istDay(b.scheduled_at) === date &&
           b.outcome === "reject"
       );
     // moved: stage to next round on same day or ever after this booking day
@@ -815,7 +821,8 @@ async function fetchAdmissionsFunnelUncached(
     opts?.chartFromDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.chartFromDate)
       ? opts.chartFromDate
       : periodStart;
-  const sinceIso = `${chartFromForBound}T00:00:00.000Z`;
+  // Day buckets are India dates, so the window starts at IST midnight
+  const sinceIso = new Date(`${chartFromForBound}T00:00:00.000+05:30`).toISOString();
 
   const base = await getAdmissionsBase(
     counselorId,
@@ -986,7 +993,7 @@ async function fetchAdmissionsFunnelUncached(
 }
 
 const fetchAdmissionsFunnelCached = cachedAdmissionsQuery(
-  "fetchAdmissionsFunnel-v1",
+  "fetchAdmissionsFunnel-v2-ist",
   (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) =>
     fetchAdmissionsFunnelUncached(createAdminClient(), opts)
