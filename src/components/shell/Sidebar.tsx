@@ -29,10 +29,13 @@ import {
   ChevronDown,
   Wallet,
   Trophy,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/ui-prefs";
 
 type NavItem = {
   href: string;
@@ -169,6 +172,7 @@ const adminGroups: NavGroup[] = [
 
 const NAV_OPEN_KEY = "hive-nav-open-v1";
 
+
 const interviewerNav: NavItem[] = [
   { href: "/interviewer/interviews", label: "Interviews", icon: GraduationCap },
   { href: "/interviewer/availability", label: "Availability", icon: Calendar },
@@ -217,27 +221,54 @@ function NavLink({
   href,
   active,
   compact,
+  railOnly,
 }: {
   item: NavItem;
   href: string;
   active: boolean;
   compact?: boolean;
+  /** Collapsed sidebar: icon only, name on hover */
+  railOnly?: boolean;
 }) {
   const Icon = item.icon;
   return (
     <Link
       href={href}
       prefetch={true}
+      title={railOnly ? item.label : undefined}
+      aria-label={railOnly ? item.label : undefined}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-3 text-sm font-medium transition active:scale-[0.98]",
-        compact ? "py-1.5" : "py-2.5",
+        "flex items-center rounded-lg text-sm font-medium transition active:scale-[0.98]",
+        railOnly ? "justify-center px-0 py-2" : "gap-2.5 px-3",
+        !railOnly && (compact ? "py-1.5" : "py-2.5"),
         active ? "bg-gold/15 text-gold" : "text-white/75 hover:bg-white/5 hover:text-white"
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate">{item.label}</span>
+      {railOnly ? null : <span className="truncate">{item.label}</span>}
     </Link>
+  );
+}
+
+/** Collapsed admin nav: every page as an icon, groups separated by a rule. */
+function AdminRail({ pathname }: { pathname: string }) {
+  return (
+    <div className="space-y-1">
+      {adminGroups.map((g, gi) => (
+        <div key={g.id} className={cn("space-y-0.5", gi > 0 && "border-t border-white/10 pt-2")}>
+          {g.items.map((item) => (
+            <NavLink
+              key={item.href}
+              item={{ ...item, label: `${g.label} · ${item.label}` }}
+              href={item.href}
+              active={navItemActive(pathname, item)}
+              railOnly
+            />
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -325,11 +356,22 @@ function AdminNav({ pathname }: { pathname: string }) {
 export function Sidebar({
   role,
   userName,
+  initialCollapsed = false,
 }: {
   role: Role;
   userName: string;
+  /** From the cookie, so the first render already matches the user's choice */
+  initialCollapsed?: boolean;
 }) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  function toggleCollapsed() {
+    setCollapsed((c) => {
+      const next = !c;
+      document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
+      return next;
+    });
+  }
   const { href: withViewAs, targetUserId } = useImpersonation();
   const effectivePath = targetUserId
     ? pathname.replace(new RegExp(`^/view/${targetUserId}`), "") || "/"
@@ -339,25 +381,63 @@ export function Sidebar({
   const items = grouped ? [] : navForRole(role);
 
   return (
-    <aside className="sticky top-0 flex h-dvh w-60 shrink-0 flex-col bg-navy text-white">
-      <div className="border-b border-white/10 px-5 py-5">
-        <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-periwinkle">
-          HiveSchool
-        </p>
-        <p className="mt-1 text-lg font-semibold tracking-tight">
-          {role === "marketing"
-            ? "Marketing"
-            : role === "program"
-              ? "Program"
-              : targetUserId
-                ? "View as"
-                : "Admissions"}
-        </p>
+    <aside
+      className={cn(
+        "sticky top-0 flex h-dvh shrink-0 flex-col bg-navy text-white transition-[width] duration-200",
+        collapsed ? "w-16" : "w-60"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-start border-b border-white/10",
+          collapsed ? "flex-col items-center gap-3 px-2 py-4" : "justify-between gap-2 px-5 py-5"
+        )}
+      >
+        {collapsed ? (
+          <p className="text-sm font-bold text-periwinkle" title="HiveSchool">
+            H
+          </p>
+        ) : (
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-eyebrow text-periwinkle">
+              HiveSchool
+            </p>
+            <p className="mt-1 text-lg font-semibold tracking-tight">
+              {role === "marketing"
+                ? "Marketing"
+                : role === "program"
+                  ? "Program"
+                  : targetUserId
+                    ? "View as"
+                    : "Admissions"}
+            </p>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+          className="rounded-lg p-1.5 text-white/60 transition hover:bg-white/10 hover:text-white"
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+      <nav
+        className={cn(
+          "flex-1 space-y-1 overflow-y-auto py-4",
+          // Icon rail: still scrollable, but no scrollbar squeezing 64px
+          collapsed ? "px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "px-3"
+        )}
+      >
         {grouped ? (
-          <AdminNav pathname={effectivePath} />
+          collapsed ? (
+            <AdminRail pathname={effectivePath} />
+          ) : (
+            <AdminNav pathname={effectivePath} />
+          )
         ) : (
           items.map((item) => (
             <NavLink
@@ -365,18 +445,24 @@ export function Sidebar({
               item={item}
               href={withViewAs(item.href)}
               active={navItemActive(effectivePath, item)}
+              railOnly={collapsed}
             />
           ))
         )}
       </nav>
 
-      <div className="border-t border-white/10 px-4 py-4">
-        <div className="flex items-center gap-2">
-          <Settings2 className="h-4 w-4 text-periwinkle" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{userName}</p>
-            <p className="text-[11px] uppercase tracking-eyebrow text-white/50">{role}</p>
-          </div>
+      <div className={cn("border-t border-white/10 py-4", collapsed ? "px-2" : "px-4")}>
+        <div
+          className={cn("flex items-center gap-2", collapsed && "justify-center")}
+          title={collapsed ? `${userName} · ${role}` : undefined}
+        >
+          <Settings2 className="h-4 w-4 shrink-0 text-periwinkle" />
+          {collapsed ? null : (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{userName}</p>
+              <p className="text-[11px] uppercase tracking-eyebrow text-white/50">{role}</p>
+            </div>
+          )}
         </div>
       </div>
     </aside>
