@@ -69,8 +69,8 @@ export type PnlMonth = {
   partial: boolean;
   values: Record<PnlLineKey, number | null>;
   counts: Record<PnlCountKey, number | null>;
-  /** Archive extras — the sheet splits spend Meta / non-Meta, not organic / inorganic */
-  archive?: { metaSpend: number | null; nonMetaSpend: number | null; activations: string | null; note: string | null };
+  /** Archive extras (sheet notes) */
+  archive?: { activations: string | null; note: string | null };
 };
 
 const div = (a: number | null, b: number | null) => (a != null && b != null && b > 0 ? a / b : null);
@@ -216,7 +216,7 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
         month,
         source: "archive",
         partial: a.is_partial,
-        archive: { metaSpend: meta, nonMetaSpend: nonMeta, activations: a.activations, note: a.import_note },
+        archive: { activations: a.activations, note: a.import_note },
         ...derive({
           sessions: numOrNull(a.active_users_total),
           leads: numOrNull(a.leads_total),
@@ -231,9 +231,9 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
             offer: numOrNull(a.offered),
             convert: numOrNull(a.converts_total),
           },
-          // The sheet splits spend Meta / non-Meta, which doesn't map onto organic / inorganic
-          organicSpend: null,
-          inorganicSpend: null,
+          // Sheet spend: Meta = inorganic, non-Meta = organic (team decision)
+          organicSpend: nonMeta,
+          inorganicSpend: meta,
           totalSpend: total,
           revenueBooked: null,
           gstBooked: null,

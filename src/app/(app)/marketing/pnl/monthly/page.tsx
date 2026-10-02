@@ -127,26 +127,6 @@ export default async function MarketingPnlMonthlyPage({
                 ))}
               </tr>
             ))}
-            {hasArchive ? (
-              <>
-                <tr className="border-b border-border bg-amber-50/40">
-                  <td className="sticky left-0 z-10 bg-amber-50 px-3 py-1.5 text-xs">Meta spend (sheet)</td>
-                  {months.map((m) => (
-                    <td key={m.month} className="px-3 py-1.5 text-right text-xs tabular-nums">
-                      {m.archive ? fmt("inr", m.archive.metaSpend) : ""}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="border-b border-border bg-amber-50/40">
-                  <td className="sticky left-0 z-10 bg-amber-50 px-3 py-1.5 text-xs">Non-Meta spend (sheet)</td>
-                  {months.map((m) => (
-                    <td key={m.month} className="px-3 py-1.5 text-right text-xs tabular-nums">
-                      {m.archive ? fmt("inr", m.archive.nonMetaSpend) : ""}
-                    </td>
-                  ))}
-                </tr>
-              </>
-            ) : null}
           </tbody>
         </table>
       </section>
@@ -180,8 +160,8 @@ export default async function MarketingPnlMonthlyPage({
           Realised = money that hit the bank that month. ARPU = Realised ÷ converts.
         </p>
         <p>
-          Sheet months: sessions = &quot;active users&quot;; spend is only split Meta / non-Meta there, so organic /
-          inorganic show &quot;—&quot;; the sheet has one R1 / R2 / R3 number (booked vs completed unknown) and no revenue.
+          Sheet months: sessions = &quot;active users&quot;; Meta spend = inorganic, non-Meta spend = organic; the sheet
+          has one R1 / R2 / R3 number (booked vs completed unknown) and no revenue.
           &quot;—&quot; always means the data does not exist, not zero.
         </p>
       </section>
