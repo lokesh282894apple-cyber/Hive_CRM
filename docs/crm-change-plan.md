@@ -117,3 +117,40 @@ the past; website sessions before 2 Jul 2026 (sheet only).
 | D9 | ARPJU = ARPU. |
 | D10 | Exact leads unknown — find why 2 R3 Booked leads are invisible and fix. |
 | — | Old rejections keep only their latest reason — fine for now. |
+
+---
+
+## F. Phase 3 — built (branch `feat/crm-metrics-phase3`)
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| 1 | R3 Booked invisible | **Fixed** | Board loaded only the newest 250 cards while headers counted every lead; older R2/R3/offer leads now load per column. R3 rejects were also never counted in Admission Analytics. |
+| 2 | Counselor dashboard | **Fixed** | One time window; shared funnel definitions; credit = current owner (leads of counselors with no cohort scope were dropped); avg calls/lead = calls ÷ leads called. |
+| 3–5 | Meta: leads, ad names, hook rate | **Fixed** | New `meta_ad_insights_daily` (ad × day). Re-sync history after the migration: `/api/cron/ad-spend-sync?days=400` (cron auth) or Sync now (14 days). |
+| 6 | R1 Done cohort view | **Built** | Toggle on Leads funnel: date it happened / lead created date. |
+| 7 | Cost per R2 / R3 / Offer / Convert | **Built** | 4th table, Blended / Org / InOrg. |
+| 8 | Sessions Paid / Organic | **Built** | `rpc_sessions_paid_split_ist`; shows "—" until migration runs. Data from 2 Jul 2026. |
+| 9 | Marketing P&L | **Built** | `/marketing/pnl/monthly`; sheet archive for months before Jul 2026. Old single-month P&L redirects here. |
+| 10–11 | Lead scoring | **Built** | Intent + Comms + Profile after every conversation call (pre-R1 / R1 Booked); panel scores side by side; per-round panel profile/intent on the lead page. |
+| 12–13 | Counselor analytics | **Built** | Calls → outcome table (% of dials, furthest stage), R1 split, % of R1 Booked to R2/R3/offer/convert. |
+| 14 | Rejection % | **Built** | Reason × stage %, dated by rejection; reasons now saved on stage history going forward. |
+| 16 | Call Tracking | **Not touched** | Findings in the audit §5. |
+
+**Migrations (run in order, before deploying):**
+`20261002100000_meta_ad_insights_daily` · `20261002110000_sessions_paid_split` ·
+`20261002120000_lead_quality_scoring` · `20261002130000_stage_history_reasons` ·
+`20261002140000_marketing_monthly_archive`
+
+**Could not backfill:** Comms scores before launch (Lead Quality fills in from the next call);
+reasons on old stage-history rows (old rejections keep the lead's latest reason); Meta ad-level
+history older than what Meta returns on re-sync (37 months); sessions before 2 Jul 2026
+(sheet "active users" only); revenue for sheet months (not in the sheet).
+
+**Judgment calls to confirm:**
+- Score is required only when the call outcome is a conversation (connected, callback requested,
+  other); no-answer / DNP calls can't be judged, so the score is optional there.
+- Past-student entries (`source = past_student`, back-dated) are excluded from marketing funnel,
+  P&L revenue and converts.
+- Sheet months: sessions = "active users"; spend shown as Meta / non-Meta (organic / inorganic "—");
+  sheet R1/R2/R3 treated as "booked" (completed unknown).
+- Loans count as realised on their last-updated date (no hit-bank date is stored for loans).
