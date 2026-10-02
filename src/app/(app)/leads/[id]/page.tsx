@@ -153,8 +153,6 @@ export default async function LeadDetailPage({
       counselors={counselors ?? []}
       allocatedToId={lead.lead_allocated_to}
       interviewBookings={interviewBookings}
-      scoreBreakdown={null}
-      loadScoreOnDemand
       messageLogs={(messageLogs as never) ?? []}
       touchpoints={(touchpoints as never) ?? []}
       marketing={marketingStub}

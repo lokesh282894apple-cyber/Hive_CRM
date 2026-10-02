@@ -1,4 +1,5 @@
 "use client";
+import { LeadQualityBadge } from "@/components/leads/LeadQuality";
 
 import { updateLeadCardFields, updateLeadStage } from "@/app/actions/leads";
 import { AdmissionRejectDialog } from "@/components/leads/AdmissionRejectDialog";
@@ -49,7 +50,7 @@ import {
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { differenceInDays } from "date-fns";
-import { Layers, LayoutGrid, Phone, Sparkles } from "lucide-react";
+import { Layers, LayoutGrid, Phone } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 function isStale(lead: LeadWithRelations) {
@@ -166,11 +167,6 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
             </p>
           ) : null}
         </>
-      ) : null}
-      {lead.avg_student_intent != null ? (
-        <p className="font-medium text-navy">
-          Intent {Number(lead.avg_student_intent).toFixed(1)}/5
-        </p>
       ) : null}
       {m?.gradeAvg != null ? (
         <p className="font-medium text-navy">
@@ -332,12 +328,7 @@ function LeadCard({
                   <Phone className="h-3 w-3" />
                   {lead.phone}
                 </span>
-                {lead.intent_score != null ? (
-                  <span className="inline-flex items-center gap-1 text-periwinkle" title="Conversion likelihood">
-                    <Sparkles className="h-3 w-3" />
-                    {lead.intent_score}%
-                  </span>
-                ) : null}
+                <LeadQualityBadge lead={lead} compact />
                 {stale ? (
                   <span className="rounded-pill bg-warning/15 px-1.5 py-0.5 font-semibold uppercase tracking-eyebrow text-warning">
                     Stale {STALE_LEAD_DAYS}d+

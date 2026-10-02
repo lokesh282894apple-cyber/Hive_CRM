@@ -10,6 +10,13 @@ import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
 import { formatRelativeAgo } from "@/lib/utils";
 
+// Full-history funnel loads can take several seconds on a small DB
+export const maxDuration = 60;
+
+function pctLabel(n: number, of: number) {
+  return of > 0 ? `${((n / of) * 100).toFixed(1)}%` : "—";
+}
+
 function formatSecs(sec: number | null) {
   if (sec == null) return "—";
   const m = Math.floor(sec / 60);
@@ -149,7 +156,11 @@ export default async function AdminCounselorPage({
         />
         <StatCard label="Total calls" value={t.calling.totalCalls} />
         <StatCard label="Unique leads called" value={t.calling.uniqueCalls} />
-        <StatCard label="Avg calls / lead" value={t.calling.avgCallsPerLead} />
+        <StatCard
+          label="Avg calls / lead"
+          value={t.calling.avgCallsPerLead}
+          hint="Calls ÷ unique leads called in the range"
+        />
         <StatCard label="Avg calls / day" value={t.calling.avgCallsPerDay} />
         <StatCard
           label="Pickup rate"
@@ -174,7 +185,7 @@ export default async function AdminCounselorPage({
       </div>
 
       <p className="mb-2 text-xs font-semibold uppercase tracking-eyebrow text-muted">
-        Pipeline (entered stage in date range — not current Kanban columns)
+        Pipeline — first time each lead reached the stage, inside the date range (credited to current owner)
       </p>
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <StatCard
@@ -241,6 +252,94 @@ export default async function AdminCounselorPage({
           </div>
         </section>
       ) : null}
+
+      <section className="mb-6 panel overflow-hidden">
+        <div className="border-b border-border px-5 py-3">
+          <p className="eyebrow">Calls → outcome, per counselor</p>
+          <p className="mt-1 text-xs text-muted">
+            Leads called in the date range, credited to the lead&apos;s current owner. Each lead is counted once, at
+            the furthest stage it has reached so far. % = share of total dials. R2 / R3 / Offer / Convert % = share
+            of that counselor&apos;s R1 Booked.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1200px] text-left text-sm">
+            <thead className="border-b border-border bg-[#F7F8FC]">
+              <tr>
+                <th className="eyebrow px-4 py-3">Counselor</th>
+                <th className="eyebrow px-4 py-3">Dials</th>
+                <th className="eyebrow px-4 py-3">Leads called</th>
+                <th className="eyebrow px-4 py-3">R1 Booked</th>
+                <th className="eyebrow px-4 py-3">Rejected</th>
+                <th className="eyebrow px-4 py-3">Closed Lost</th>
+                <th className="eyebrow px-4 py-3">DNP</th>
+                <th className="eyebrow px-4 py-3">Nurturing</th>
+                <th className="eyebrow px-4 py-3">Other</th>
+                <th className="eyebrow border-l border-border px-4 py-3">R1 done</th>
+                <th className="eyebrow px-4 py-3">R1 no-show</th>
+                <th className="eyebrow px-4 py-3">R1 reject</th>
+                <th className="eyebrow px-4 py-3">R1 pending</th>
+                <th className="eyebrow border-l border-border px-4 py-3">→ R2</th>
+                <th className="eyebrow px-4 py-3">→ R3</th>
+                <th className="eyebrow px-4 py-3">→ Offer</th>
+                <th className="eyebrow px-4 py-3">→ Convert</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...dash.outcomes, dash.outcomeTotals].map((o) => {
+                const ofDials = (n: number) => (
+                  <>
+                    {n}
+                    <span className="ml-1 text-[11px] text-muted">{pctLabel(n, o.dials)}</span>
+                  </>
+                );
+                const ofR1 = (n: number) => (
+                  <>
+                    {n}
+                    <span className="ml-1 text-[11px] text-muted">{pctLabel(n, o.r1.booked)}</span>
+                  </>
+                );
+                const isTotal = o === dash.outcomeTotals;
+                return (
+                  <tr
+                    key={o.counselorId}
+                    className={
+                      isTotal
+                        ? "border-t-2 border-border bg-[#F7F8FC] font-semibold"
+                        : "border-b border-border last:border-0"
+                    }
+                  >
+                    <td className="px-4 py-3 font-medium text-navy">{o.name}</td>
+                    <td className="px-4 py-3">{o.dials}</td>
+                    <td className="px-4 py-3">{o.leadsCalled}</td>
+                    <td className="px-4 py-3">{ofDials(o.outcome.r1Booked)}</td>
+                    <td className="px-4 py-3">{ofDials(o.outcome.rejected)}</td>
+                    <td className="px-4 py-3">{ofDials(o.outcome.closedLost)}</td>
+                    <td className="px-4 py-3">{ofDials(o.outcome.dnp)}</td>
+                    <td className="px-4 py-3">{ofDials(o.outcome.nurturing)}</td>
+                    <td className="px-4 py-3">{ofDials(o.outcome.other)}</td>
+                    <td className="border-l border-border px-4 py-3">{ofR1(o.r1.completed)}</td>
+                    <td className="px-4 py-3">{ofR1(o.r1.noShow)}</td>
+                    <td className="px-4 py-3">{ofR1(o.r1.rejected)}</td>
+                    <td className="px-4 py-3">{ofR1(o.r1.pending)}</td>
+                    <td className="border-l border-border px-4 py-3">{ofR1(o.fromR1.r2)}</td>
+                    <td className="px-4 py-3">{ofR1(o.fromR1.r3)}</td>
+                    <td className="px-4 py-3">{ofR1(o.fromR1.offer)}</td>
+                    <td className="px-4 py-3">{ofR1(o.fromR1.convert)}</td>
+                  </tr>
+                );
+              })}
+              {dash.outcomes.length === 0 ? (
+                <tr>
+                  <td colSpan={17} className="px-4 py-6 text-muted">
+                    No calls logged in this date range.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section className="panel overflow-hidden">
         <div className="border-b border-border px-5 py-3">

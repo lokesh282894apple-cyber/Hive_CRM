@@ -22,6 +22,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { addDays, istStartIso } from "@/lib/tz";
 
+// Full-history funnel loads can take several seconds on a small DB
+export const maxDuration = 60;
+
 function Section({
   id,
   title,

@@ -1,4 +1,5 @@
 "use client";
+import { LeadQualityBadge } from "@/components/leads/LeadQuality";
 
 import { claimLead, reassignLead } from "@/app/actions/leads";
 import { bulkUpdateLeadStages } from "@/app/actions/bulk-stage";
@@ -513,7 +514,7 @@ export function LeadsWorkspace({
   const showClaim = optimisticFilters.ownership === "unassigned" && !isAdmin;
 
   function exportCsv() {
-    const header = ["name", "email", "phone", "stage", "course", "cohort", "counselor", "intent"];
+    const header = ["name", "email", "phone", "stage", "course", "cohort", "counselor", "lead_quality", "intent", "comms", "profile"];
     const rows = displayList.map((l) =>
       [
         l.name,
@@ -523,7 +524,10 @@ export function LeadsWorkspace({
         l.course?.name ?? "",
         l.cohort ? cohortNums.get(l.cohort.id) ?? l.cohort.name : "",
         l.allocated?.name ?? "",
-        l.intent_score ?? "",
+        l.lead_quality ?? "",
+        l.counselor_intent ?? "",
+        l.counselor_comms ?? "",
+        l.counselor_profile ?? "",
       ]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(",")
@@ -1161,7 +1165,7 @@ export function LeadsWorkspace({
                     <th className="eyebrow px-4 py-3">Course</th>
                     <th className="eyebrow px-4 py-3">Stage</th>
                     <th className="eyebrow px-4 py-3">Next task</th>
-                    <th className="eyebrow px-4 py-3">Convert %</th>
+                    <th className="eyebrow px-4 py-3">Lead quality</th>
                     <th className="eyebrow px-4 py-3">Work</th>
                     <th className="eyebrow px-4 py-3">Interview / deadline</th>
                     <th className="eyebrow px-4 py-3">Grade</th>
@@ -1316,11 +1320,7 @@ export function LeadsWorkspace({
                             )}
                           </td>
                           <td className="px-4 py-3 text-muted">
-                            {l.avg_student_intent != null
-                              ? `${Number(l.avg_student_intent).toFixed(1)}/5`
-                              : l.intent_score != null
-                                ? `${l.intent_score}%`
-                                : "—"}
+                            <LeadQualityBadge lead={l} />
                           </td>
                           <td className="px-4 py-3 text-[11px] text-muted">
                             {!l.cardMetrics?.lastCallAt &&

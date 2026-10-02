@@ -82,7 +82,7 @@ const marketingNav: NavItem[] = [
     matchPaths: ["/marketing/ads", "/marketing/performance"],
   },
   {
-    href: "/marketing/pnl",
+    href: "/marketing/pnl/monthly",
     label: "P&L",
     icon: LineChart,
     matchPaths: ["/marketing/pnl", "/marketing/monthly"],

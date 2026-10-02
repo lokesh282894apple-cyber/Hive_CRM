@@ -1,5 +1,7 @@
 "use client";
 import { createCallLog } from "@/app/actions/leads";
+import { CallScoreFields } from "@/components/leads/CallScoreFields";
+import { LeadQualityBadge } from "@/components/leads/LeadQuality";
 
 import {
   completeLeadTask,
@@ -279,13 +281,10 @@ export function LeadInspectorPanel({
             <Row label="Source">{lead.source}</Row>
             <Row label="Course">{lead.course?.name}</Row>
             <Row label="Cohort">{lead.cohort?.name}</Row>
-            <Row label="Convert">
-              {lead.intent_score != null ? `${lead.intent_score}%` : null}
-            </Row>
-            <Row label="Student intent">
-              {lead.avg_student_intent != null
-                ? `${Number(lead.avg_student_intent).toFixed(1)}/5`
-                : null}
+            <Row label="Lead quality">
+              {lead.counselor_intent != null || lead.panel_intent != null ? (
+                <LeadQualityBadge lead={lead} />
+              ) : null}
             </Row>
             <Row label="Probability">
               {lead.convert_probability
@@ -419,6 +418,7 @@ export function LeadInspectorPanel({
                 <input name="duration" type="number" className="input-field mt-1 text-xs" />
               </div>
             </div>
+            <CallScoreFields stage={lead.stage} />
             <div>
               <label className="text-[10px] font-semibold uppercase text-muted">Notes</label>
               <textarea name="notes" className="input-field mt-1 min-h-[50px] text-xs" />

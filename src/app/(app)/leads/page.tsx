@@ -2,9 +2,10 @@ import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { LeadsWorkspace } from "@/components/leads/LeadsWorkspace";
 import {
-  LEAD_LIST_SELECT,
+  selectLeadsList,
   applyLeadsFilters,
   fetchStageTotals,
+  topUpBoardStages,
   getCounselorScopePairs,
   leadsPrefsCookieName,
   parseLeadsSearchParams,
@@ -54,8 +55,7 @@ export default async function LeadsPage({
     scopes,
   };
 
-  let dataQuery = supabase.from("leads").select(LEAD_LIST_SELECT);
-  dataQuery = applyLeadsFilters(dataQuery, filterOpts);
+  const dataQuery = selectLeadsList(supabase, filterOpts);
 
   const countPromise = (() => {
         let countQuery = supabase
@@ -68,14 +68,21 @@ export default async function LeadsPage({
         return countQuery;
       })();
 
-  const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
+  const [listRes, { count }] = await Promise.all([dataQuery, countPromise]);
+  const data = listRes.data;
   // Board is capped at BOARD_FETCH_MAX cards — give columns exact totals
-  const stageTotalsPromise =
+  const stageTotals =
     filters.mode === "board" && (count ?? 0) > ((data as unknown[] | null)?.length ?? 0)
-      ? fetchStageTotals(supabase, filterOpts).catch(() => undefined)
-      : Promise.resolve(undefined);
+      ? await fetchStageTotals(supabase, filterOpts).catch(() => undefined)
+      : undefined;
 
-  const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
+  let leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
+  if (stageTotals) {
+    // Older leads (R2/R3/offer) sit outside the newest-cards window — load them per column
+    leadsRaw = await topUpBoardStages(supabase, filterOpts, listRes.select, leadsRaw, stageTotals).catch(
+      () => leadsRaw
+    );
+  }
   const leadIds = leadsRaw.map((l) => l.id);
   const [leadsWithMetrics, attrMap, openTasks] = await Promise.all([
     loadLeadCardMetrics(supabase, leadsRaw),
@@ -115,7 +122,7 @@ export default async function LeadsPage({
 
   return (
     <LeadsWorkspace
-      stageTotals={await stageTotalsPromise}
+      stageTotals={stageTotals}
       leads={leads}
       totalEstimate={totalEstimate}
       filters={filters}

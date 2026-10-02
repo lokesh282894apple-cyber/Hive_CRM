@@ -1,4 +1,5 @@
 import {
+  BOARD_COLUMN_CAP,
   BOARD_FETCH_MAX,
   LIST_PAGE_SIZE,
   OPEN_STAGES,
@@ -49,7 +50,28 @@ export type ScopePair = { course_id: string; cohort_id: string };
 type Supabase = ReturnType<typeof createClient>;
 
 export const LEAD_LIST_SELECT =
+  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, counselor_intent, counselor_comms, counselor_profile, lead_quality, panel_intent, panel_profile, panel_round, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+/** Same list without the Lead Quality columns (before migration 20261002120000). */
+const LEAD_LIST_SELECT_BASE =
   "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+
+/**
+ * Board / list rows. Falls back to the columns that existed before the Lead
+ * Quality migration so the board never comes up empty if the code ships first.
+ */
+export async function selectLeadsList(
+  supabase: Supabase,
+  opts: Parameters<typeof applyLeadsFilters>[1]
+): Promise<{ data: unknown[] | null; select: string }> {
+  const run = (select: string) => applyLeadsFilters(supabase.from("leads").select(select), opts);
+  const first = await run(LEAD_LIST_SELECT);
+  if (!first.error) return { data: first.data, select: LEAD_LIST_SELECT };
+  if (!/column .* does not exist|lead_quality|counselor_intent|panel_intent/i.test(first.error.message)) {
+    return { data: first.data, select: LEAD_LIST_SELECT };
+  }
+  const fallback = await run(LEAD_LIST_SELECT_BASE);
+  return { data: fallback.data, select: LEAD_LIST_SELECT_BASE };
+}
 
 export function parseLeadsSearchParams(
   sp: Record<string, string | string[] | undefined>,
@@ -372,4 +394,52 @@ export async function fetchStageTotals(
   const totals: Record<string, number> = {};
   for (const r of rows) totals[r.stage] = (totals[r.stage] ?? 0) + 1;
   return totals;
+}
+
+/**
+ * The board loads the newest BOARD_FETCH_MAX leads, but column headers use
+ * exact stage totals. Older leads (R2/R3/offer) fall outside that window, so
+ * a column could say "2" and show no cards. Load up to BOARD_COLUMN_CAP newest
+ * leads for every stage that is short of cards and merge them in.
+ */
+export async function topUpBoardStages<T extends { id: string; stage: string; offer_call_status?: string | null }>(
+  supabase: Supabase,
+  opts: Omit<Parameters<typeof applyLeadsFilters>[1], "paginate">,
+  select: string,
+  loaded: T[],
+  stageTotals: Record<string, number>
+): Promise<T[]> {
+  const have = new Map<string, number>();
+  for (const l of loaded) have.set(l.stage, (have.get(l.stage) ?? 0) + 1);
+
+  const base = () =>
+    applyLeadsFilters(supabase.from("leads").select(select), { ...opts, paginate: false });
+  const newest = (q: ReturnType<typeof base>) =>
+    q.order("created_at", { ascending: false }).order("id", { ascending: true }).limit(BOARD_COLUMN_CAP);
+
+  const queries: PromiseLike<{ data: unknown }>[] = [];
+  for (const [stage, total] of Object.entries(stageTotals)) {
+    if ((have.get(stage) ?? 0) >= Math.min(total, BOARD_COLUMN_CAP)) continue;
+    if (stage === "offered") {
+      // Offered is split into three columns by offer call status
+      queries.push(newest(base().eq("stage", stage).or("offer_call_status.is.null,offer_call_status.eq.not_booked")));
+      queries.push(newest(base().eq("stage", stage).eq("offer_call_status", "booked")));
+      queries.push(newest(base().eq("stage", stage).eq("offer_call_status", "done")));
+    } else {
+      queries.push(newest(base().eq("stage", stage)));
+    }
+  }
+  if (!queries.length) return loaded;
+
+  const results = await Promise.all(queries);
+  const seen = new Set(loaded.map((l) => l.id));
+  const merged = [...loaded];
+  for (const r of results) {
+    for (const row of ((r.data as T[] | null) ?? [])) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      merged.push(row);
+    }
+  }
+  return merged;
 }

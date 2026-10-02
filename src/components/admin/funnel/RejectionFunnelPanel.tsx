@@ -1,6 +1,75 @@
 "use client";
 
-import type { RejectionFunnel } from "@/lib/analytics/rejection-funnel";
+import type { ReasonShare, RejectionFunnel } from "@/lib/analytics/rejection-funnel";
+
+const STAGE_COLS = [
+  { key: "nurturing", label: "Pre-R1" },
+  { key: "r1", label: "R1" },
+  { key: "r2", label: "R2" },
+  { key: "r3", label: "R3" },
+  { key: "offered", label: "Offer" },
+] as const;
+
+function pct(n: number, of: number) {
+  return of > 0 ? `${((n / of) * 100).toFixed(1)}%` : "—";
+}
+
+function ReasonShareTable({
+  title,
+  rows,
+  total,
+  stageTotals,
+}: {
+  title: string;
+  rows: ReasonShare[];
+  total: number;
+  stageTotals: Record<string, number>;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <p className="text-xs font-semibold text-navy">{title}</p>
+      <p className="mt-0.5 text-[11px] text-muted">
+        % of all {total} in the date range · stage columns = % of that stage&apos;s rejects
+      </p>
+      <table className="mt-2 w-full min-w-[640px] text-left text-sm">
+        <thead>
+          <tr className="border-b border-border text-xs uppercase text-muted">
+            <th className="py-1 pr-3">Reason</th>
+            <th className="py-1 pr-3">Count</th>
+            <th className="py-1 pr-3">% of all</th>
+            {STAGE_COLS.map((c) => (
+              <th key={c.key} className="py-1 pr-3">
+                {c.label}
+                <span className="ml-1 font-normal normal-case">({stageTotals[c.key] ?? 0})</span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.reason} className="border-b border-border/50">
+              <td className="py-1.5 pr-3">{r.reason}</td>
+              <td className="py-1.5 pr-3 tabular-nums">{r.count}</td>
+              <td className="py-1.5 pr-3 font-semibold tabular-nums">{pct(r.count, total)}</td>
+              {STAGE_COLS.map((c) => (
+                <td key={c.key} className="py-1.5 pr-3 tabular-nums text-muted">
+                  {r.byStage[c.key] ? pct(r.byStage[c.key], stageTotals[c.key] ?? 0) : "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {!rows.length ? (
+            <tr>
+              <td colSpan={3 + STAGE_COLS.length} className="py-2 text-muted">
+                No rejections in this date range.
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function RejectionFunnelPanel({ data }: { data: RejectionFunnel }) {
   const rejectTotal = data.hiveTotal + data.studentTotal;
@@ -9,8 +78,8 @@ export function RejectionFunnelPanel({ data }: { data: RejectionFunnel }) {
       <div>
         <p className="eyebrow">Rejection funnel</p>
         <p className="mt-1 text-sm text-muted">
-          Where leads exit — Hive reject vs Student reject. Separate from the
-          round activity matrix.
+          Where leads exit — Hive reject vs Student reject, dated by when the
+          rejection happened. Separate from the round activity matrix.
         </p>
         {data.schemaPending ? (
           <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -61,6 +130,33 @@ export function RejectionFunnelPanel({ data }: { data: RejectionFunnel }) {
           </p>
         </div>
       </div>
+
+      <ReasonShareTable
+        title="Hive reject reasons"
+        rows={data.hiveReasonShares}
+        total={data.hiveTotal}
+        stageTotals={Object.fromEntries(data.byStage.map((b) => [b.stage, b.hive]))}
+      />
+      {data.hiveCustomReasons.length ? (
+        <details>
+          <summary className="cursor-pointer text-xs font-semibold text-navy">
+            Custom reasons typed by the team ({data.hiveCustomReasons.reduce((n, r) => n + r.count, 0)})
+          </summary>
+          <ul className="mt-2 space-y-1 text-sm text-muted">
+            {data.hiveCustomReasons.map((r) => (
+              <li key={r.reason}>
+                {r.reason} · {r.count}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      <ReasonShareTable
+        title="Student reject reasons"
+        rows={data.studentReasonShares}
+        total={data.studentTotal}
+        stageTotals={Object.fromEntries(data.byStage.map((b) => [b.stage, b.student]))}
+      />
 
       <div>
         <p className="text-xs font-semibold text-navy">By stage</p>

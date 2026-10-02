@@ -206,12 +206,14 @@ const R2_PLUS = new Set([
 ]);
 
 const R3_BOOKED = new Set(["r3_booked"]);
-const R3_CONDUCTED = new Set(["r3_tbb"]);
+const R3_CONDUCTED = new Set(["r3_tbb", "r3_reject"]);
 const R3_NO_SHOW = new Set(["r3_no_show"]);
 const R3_RESCH = new Set(["r3_reschedule"]);
+const R3_REJECT = new Set(["r3_reject"]);
 const R3_ALL = new Set([
   "r3_booked",
   "r3_tbb",
+  "r3_reject",
   "r3_no_show",
   "r3_reschedule",
 ]);
@@ -385,7 +387,7 @@ function buildLeadFacts(
           f.stagesInPeriod.add(b.outcome === "reject" ? "r2_reject" : "r2_tbb");
         }
         if (b.round === "R3") {
-          f.stagesInPeriod.add("r3_tbb");
+          f.stagesInPeriod.add(b.outcome === "reject" ? "r3_reject" : "r3_tbb");
         }
       }
       let set = f.stagesByDay.get(day);
@@ -419,7 +421,7 @@ function computeRound(
   const resch =
     round === "R1" ? R1_RESCH : round === "R2" ? R2_RESCH : R3_RESCH;
   const reject =
-    round === "R1" ? R1_REJECT : round === "R2" ? R2_REJECT : new Set<string>();
+    round === "R1" ? R1_REJECT : round === "R2" ? R2_REJECT : R3_REJECT;
   const moved =
     round === "R1" ? R2_PLUS : round === "R2" ? R3_PLUS : OFFER_PLUS;
 
@@ -582,7 +584,7 @@ function dayCountsFor(
   const resch =
     round === "R1" ? R1_RESCH : round === "R2" ? R2_RESCH : R3_RESCH;
   const reject =
-    round === "R1" ? R1_REJECT : round === "R2" ? R2_REJECT : new Set<string>();
+    round === "R1" ? R1_REJECT : round === "R2" ? R2_REJECT : R3_REJECT;
   const moved =
     round === "R1" ? R2_PLUS : round === "R2" ? R3_PLUS : OFFER_PLUS;
 

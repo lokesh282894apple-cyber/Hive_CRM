@@ -37,7 +37,7 @@ export const marketingSections: Record<
   pnl: {
     label: "P&L",
     tabs: [
-      { href: "/marketing/pnl", label: "Month P&L" },
+      { href: "/marketing/pnl/monthly", label: "Marketing P&L" },
       { href: "/marketing/pnl?section=channels", label: "Channel P&L" },
       { href: "/marketing/monthly", label: "All months" },
     ],

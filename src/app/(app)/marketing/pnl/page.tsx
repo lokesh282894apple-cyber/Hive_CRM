@@ -12,6 +12,9 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { cohortDisplayLabel } from "@/lib/cohorts/display";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+
+const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -34,6 +37,12 @@ export default async function MarketingPnlPage({
 }) {
   await requireUser(["admin", "marketing"]);
   const section = (searchParams.section ?? "total") as PnlView;
+  // The single-month view dated offers, converts and revenue by each lead's
+  // last edit. The monthly Marketing P&L replaces it; Channel P&L stays here.
+  if (searchParams.section !== "channels") {
+    const from = MONTH_KEY_RE.test(searchParams.month ?? "") ? searchParams.month : null;
+    redirect(from ? `/marketing/pnl/monthly?from=${from}&to=${from}` : "/marketing/pnl/monthly");
+  }
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const monthKey = searchParams.month ?? defaultMonth;
