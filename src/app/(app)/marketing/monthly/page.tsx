@@ -44,7 +44,7 @@ export default async function MarketingMonthlyPage() {
       <section className="panel overflow-x-auto">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <p className="eyebrow">All months</p>
-          <Link href="/marketing/pnl" className="text-xs font-semibold text-periwinkle">
+          <Link href="/marketing/pnl/monthly" className="text-xs font-semibold text-periwinkle">
             Month P&L →
           </Link>
         </div>
@@ -74,7 +74,7 @@ export default async function MarketingMonthlyPage() {
               >
                 <td className="px-3 py-2 font-medium">
                   <Link
-                    href={`/marketing/pnl?month=${r.monthKey}`}
+                    href={`/marketing/pnl/monthly?from=${r.monthKey}&to=${r.monthKey}`}
                     className="text-periwinkle hover:underline"
                   >
                     {r.monthKey}

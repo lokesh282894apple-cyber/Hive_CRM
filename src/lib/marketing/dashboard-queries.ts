@@ -27,6 +27,7 @@ import {
 import { meetsAqlCriteria } from "@/lib/marketing/aql";
 import { isClosedStage } from "@/lib/constants";
 import { istDateKey, istEndIso, istMonthKey, istStartIso } from "@/lib/tz";
+import { bookedRevenueByConvertMonth, realisedRevenueByMonth } from "@/lib/analytics/revenue-events";
 import {
   bucketFunnel,
   emptyFunnelCounts,
@@ -1295,25 +1296,12 @@ export async function fetchMonthlyMarketingDataUncached(
   });
   const byMonth = new Map(monthKeys.map((k) => [k, emptyTotals()]));
 
-  const [funnel, offeredLeads, wonLeads, fees, cohortLeads] = await Promise.all([
+  // Offers / converts / revenue dated by when they happened (shared engine +
+  // revenue-events) — they used to follow the lead's / fee's last edit
+  const [funnel, booked, realised, cohortLeads] = await Promise.all([
     fetchLeadFunnel({ fromDate, toDate }),
-    admin
-      .from("leads")
-      .select("updated_at")
-      .eq("stage", "offered")
-      .gte("updated_at", fromIso)
-      .lte("updated_at", toIso),
-    admin
-      .from("leads")
-      .select("updated_at")
-      .eq("stage", "closed_paid")
-      .gte("updated_at", fromIso)
-      .lte("updated_at", toIso),
-    admin
-      .from("fee_records")
-      .select("total_fee, remaining_fee, revenue_amount, updated_at")
-      .gte("updated_at", fromIso)
-      .lte("updated_at", toIso),
+    bookedRevenueByConvertMonth(admin, fromIso, toIso),
+    realisedRevenueByMonth(admin, fromDate, toDate),
     admin
       .from("leads")
       .select("created_at, stage")
@@ -1336,29 +1324,16 @@ export async function fetchMonthlyMarketingDataUncached(
     t.nonMetaSpend += r.nonMetaSpend;
     t.organicSpend += r.organicSpend;
     t.inorganicSpend += r.inorganicSpend;
+    t.offers += r.funnel.offer.total;
+    t.converts += r.funnel.convert.total;
   }
-
-  for (const l of offeredLeads.data ?? []) {
-    const mk = istMonthKey(l.updated_at);
+  for (const [mk, b] of Array.from(booked.entries())) {
     const t = byMonth.get(mk);
-    if (t) t.offers += 1;
+    if (t) t.revenueBooked += b.exGst;
   }
-  for (const l of wonLeads.data ?? []) {
-    const mk = istMonthKey(l.updated_at);
+  for (const [mk, amt] of Array.from(realised.entries())) {
     const t = byMonth.get(mk);
-    if (t) t.converts += 1;
-  }
-  for (const f of fees.data ?? []) {
-    const mk = istMonthKey(f.updated_at);
-    const t = byMonth.get(mk);
-    if (!t) continue;
-    const booked = Number(f.total_fee) || 0;
-    const realized =
-      f.revenue_amount != null
-        ? Number(f.revenue_amount) || 0
-        : booked - (Number(f.remaining_fee) || 0);
-    t.revenueBooked += booked;
-    t.revenueRealized += realized;
+    if (t) t.revenueRealized += amt;
   }
 
   for (const l of cohortLeads.data ?? []) {
@@ -1411,7 +1386,7 @@ export async function fetchMonthlyMarketingDataUncached(
 
 export const fetchMonthlyMarketingData = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-monthly-ist",
+    keyPrefix: "marketing-monthly-v2-events",
     tags: [MARKETING_CACHE_TAGS.monthly, MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (monthsBack = 12) => String(monthsBack),
   },
