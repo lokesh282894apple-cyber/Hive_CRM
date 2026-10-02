@@ -4,12 +4,16 @@ import { istDateKey } from "@/lib/tz";
 type MetaInsight = {
   date_start: string;
   date_stop: string;
+  campaign_id?: string;
   campaign_name?: string;
+  adset_id?: string;
   adset_name?: string;
+  ad_id?: string;
   ad_name?: string;
   spend?: string;
   impressions?: string;
   clicks?: string;
+  inline_link_clicks?: string;
   reach?: string;
   actions?: { action_type: string; value: string }[];
   video_thruplay_watched_actions?: { action_type: string; value: string }[];
@@ -118,19 +122,20 @@ async function graphGet<T>(
 }
 
 /**
- * Pull daily ad-level spend + insight rows from Meta Marketing API.
+ * Pull daily ad-level insights from the Meta Marketing API.
+ * Writes one row per ad per day to meta_ad_insights_daily, and the per-campaign
+ * daily total (sum of its ads) to ad_spend_daily.
  * Auto-discovers ad accounts when possible — no CSV required.
  */
 export async function syncMetaAdSpend(
   admin: SupabaseClient,
   accessToken: string,
   accountId: string,
-  opts?: { days?: number; level?: "ad" | "campaign"; maxPages?: number }
+  opts?: { days?: number; maxPages?: number }
 ): Promise<{ synced: number; errors: string[]; accounts: string[] }> {
   const errors: string[] = [];
   let synced = 0;
   const days = opts?.days ?? 30;
-  const level = opts?.level ?? "ad";
   const maxPages = opts?.maxPages ?? 20;
 
   const resolved = await resolveMetaAdAccountIds(accessToken, accountId);
@@ -151,7 +156,6 @@ export async function syncMetaAdSpend(
       adAccountId,
       sinceStr,
       untilStr,
-      level,
       maxPages
     );
     synced += result.synced;
@@ -161,34 +165,51 @@ export async function syncMetaAdSpend(
   return { synced, errors, accounts: resolved.accounts };
 }
 
+type Action = { action_type: string; value: string };
+
+function actionValue(actions: Action[] | undefined, type: string): number {
+  return Number(actions?.find((a) => a.action_type === type)?.value) || 0;
+}
+
+/** Meta's "lead" action already totals form + pixel leads; fall back to the parts. */
+export function metaLeadCount(actions: Action[] | undefined): number {
+  const total = actionValue(actions, "lead");
+  if (total) return total;
+  return (
+    actionValue(actions, "onsite_conversion.lead_grouped") +
+    actionValue(actions, "offsite_conversion.fb_pixel_lead")
+  );
+}
+
+const UPSERT_BATCH = 500;
+
 async function syncOneAdAccount(
   admin: SupabaseClient,
   accessToken: string,
   adAccountId: string,
   since: string,
   until: string,
-  level: "ad" | "campaign",
   maxPages: number
 ): Promise<{ synced: number; errors: string[] }> {
   const errors: string[] = [];
   let synced = 0;
 
-  const fields =
-    level === "campaign"
-      ? "campaign_name,spend,impressions,clicks,reach,actions"
-      : "campaign_name,adset_name,ad_name,spend,impressions,clicks,reach,actions,video_thruplay_watched_actions";
-
   const params = new URLSearchParams({
-    fields,
+    fields:
+      "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,reach,clicks,inline_link_clicks,actions,video_thruplay_watched_actions",
     time_range: JSON.stringify({ since, until }),
     time_increment: "1",
-    level,
+    level: "ad",
     limit: "500",
   });
 
   let nextUrl: string | null =
     `https://graph.facebook.com/v21.0/act_${adAccountId}/insights?${params}`;
   let pages = 0;
+
+  const adRows: Record<string, unknown>[] = [];
+  // campaign name → date → summed totals of its ads
+  const campaignDays = new Map<string, Map<string, { spend: number; impressions: number; clicks: number }>>();
 
   while (nextUrl && pages < maxPages) {
     pages += 1;
@@ -214,63 +235,86 @@ async function syncOneAdAccount(
 
     for (const row of body.data ?? []) {
       const date = row.date_start?.slice(0, 10);
-      if (!date || !row.campaign_name) continue;
+      if (!date || !row.campaign_name || !row.ad_id) continue;
       const spend = Number(row.spend) || 0;
       const impressions = Number(row.impressions) || 0;
       const clicks = Number(row.clicks) || 0;
-      const leads =
-        Number(
-          row.actions?.find(
-            (a) =>
-              a.action_type === "lead" ||
-              a.action_type === "onsite_conversion.lead_grouped"
-          )?.value
-        ) || 0;
 
-      const camp = await ensureCampaign(admin, row.campaign_name);
-      if (camp) {
-        const { error } = await admin.from("ad_spend_daily").upsert(
-          {
-            campaign_id: camp.id,
-            date,
-            spend,
-            impressions,
-            clicks,
-            ctr: impressions ? clicks / impressions : null,
-            cpc: clicks ? spend / clicks : null,
-          },
-          { onConflict: "campaign_id,date" }
-        );
-        if (!error) synced += 1;
+      adRows.push({
+        ad_account_id: adAccountId,
+        ad_id: row.ad_id,
+        date,
+        campaign_meta_id: row.campaign_id ?? null,
+        campaign_name: row.campaign_name,
+        adset_id: row.adset_id ?? null,
+        adset_name: row.adset_name ?? null,
+        ad_name: row.ad_name ?? row.ad_id,
+        spend,
+        impressions,
+        reach: Number(row.reach) || 0,
+        clicks,
+        link_clicks: Number(row.inline_link_clicks) || 0,
+        landing_page_views: actionValue(row.actions, "landing_page_view"),
+        meta_leads: metaLeadCount(row.actions),
+        video_plays_3s: actionValue(row.actions, "video_view"),
+        thru_plays: Number(row.video_thruplay_watched_actions?.[0]?.value) || 0,
+        synced_at: new Date().toISOString(),
+      });
+
+      let byDay = campaignDays.get(row.campaign_name);
+      if (!byDay) {
+        byDay = new Map();
+        campaignDays.set(row.campaign_name, byDay);
       }
-
-      const thru = Number(row.video_thruplay_watched_actions?.[0]?.value) || 0;
-      const adName =
-        level === "campaign"
-          ? "(campaign total)"
-          : row.ad_name ?? row.campaign_name;
-
-      await admin.from("ad_insights_weekly").upsert(
-        {
-          week_label: `W${getWeekNum(new Date(date))}`,
-          week_start: mondayOf(date),
-          campaign_name: row.campaign_name,
-          ad_set_name: row.adset_name ?? null,
-          ad_name: adName,
-          spend,
-          results: leads,
-          reach: Number(row.reach) || 0,
-          impressions,
-          link_clicks: clicks,
-          thru_plays: thru,
-          source: "api",
-          campaign_id: camp?.id ?? null,
-        },
-        { onConflict: "week_start,campaign_name,ad_set_name,ad_name" }
-      );
+      const t = byDay.get(date) ?? { spend: 0, impressions: 0, clicks: 0 };
+      t.spend += spend;
+      t.impressions += impressions;
+      t.clicks += clicks;
+      byDay.set(date, t);
     }
 
     nextUrl = body.paging?.next ?? null;
+  }
+  if (nextUrl) {
+    errors.push(`act_${adAccountId}: stopped after ${maxPages} pages — sync a shorter range`);
+  }
+
+  // Campaign ids once per campaign name, not once per row
+  const campaignIds = new Map<string, string | null>();
+  for (const name of Array.from(campaignDays.keys())) {
+    campaignIds.set(name, (await ensureCampaign(admin, name))?.id ?? null);
+  }
+  for (const r of adRows) r.campaign_id = campaignIds.get(r.campaign_name as string) ?? null;
+
+  for (let i = 0; i < adRows.length; i += UPSERT_BATCH) {
+    const { error } = await admin
+      .from("meta_ad_insights_daily")
+      .upsert(adRows.slice(i, i + UPSERT_BATCH), { onConflict: "ad_account_id,ad_id,date" });
+    if (error) errors.push(`meta_ad_insights_daily: ${error.message}`);
+    else synced += Math.min(UPSERT_BATCH, adRows.length - i);
+  }
+
+  const spendRows: Record<string, unknown>[] = [];
+  for (const [name, byDay] of Array.from(campaignDays.entries())) {
+    const campaignId = campaignIds.get(name);
+    if (!campaignId) continue;
+    for (const [date, t] of Array.from(byDay.entries())) {
+      spendRows.push({
+        campaign_id: campaignId,
+        date,
+        spend: Math.round(t.spend * 100) / 100,
+        impressions: t.impressions,
+        clicks: t.clicks,
+        ctr: t.impressions ? t.clicks / t.impressions : null,
+        cpc: t.clicks ? t.spend / t.clicks : null,
+      });
+    }
+  }
+  for (let i = 0; i < spendRows.length; i += UPSERT_BATCH) {
+    const { error } = await admin
+      .from("ad_spend_daily")
+      .upsert(spendRows.slice(i, i + UPSERT_BATCH), { onConflict: "campaign_id,date" });
+    if (error) errors.push(`ad_spend_daily: ${error.message}`);
   }
 
   return { synced, errors };
@@ -306,19 +350,4 @@ async function ensureCampaign(
     .select("id")
     .single();
   return created;
-}
-
-function mondayOf(isoDate: string): string {
-  const d = new Date(`${isoDate}T00:00:00Z`);
-  const day = d.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setUTCDate(d.getUTCDate() + diff);
-  return d.toISOString().slice(0, 10);
-}
-
-function getWeekNum(d: Date): number {
-  const onejan = new Date(d.getFullYear(), 0, 1);
-  return Math.ceil(
-    ((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7
-  );
 }

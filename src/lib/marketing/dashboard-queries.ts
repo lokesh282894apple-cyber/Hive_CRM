@@ -971,6 +971,9 @@ export async function fetchAdInsights(filters: MarketingFilters): Promise<AdInsi
   const { data } = await admin
     .from("ad_insights_weekly")
     .select("*")
+    // API rows in this table were overwritten day-by-day by the old sync — the
+    // API now writes meta_ad_insights_daily; only CSV/manual uploads are kept here
+    .neq("source", "api")
     .gte("week_start", filters.fromDate)
     .lte("week_start", filters.toDate)
     .order("spend", { ascending: false });
@@ -1010,6 +1013,216 @@ export async function fetchAdInsights(filters: MarketingFilters): Promise<AdInsi
       (r.ctr != null && r.ctr < 1) ||
       (median != null && r.costPerResult != null && r.costPerResult > median * 1.3),
   }));
+}
+
+export type MetaAdGroupBy = "ad" | "adset" | "campaign";
+
+export type MetaAdPerfRow = {
+  key: string;
+  campaignName: string;
+  adSetName: string | null;
+  adName: string | null;
+  days: number;
+  spend: number;
+  impressions: number;
+  reach: number;
+  linkClicks: number;
+  metaLeads: number;
+  /** CRM leads created in range whose ad / campaign tag matches this row */
+  crmLeads: number;
+  costPerLead: number | null;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  /** 3-second video plays ÷ impressions; null for non-video ads */
+  hookRate: number | null;
+  /** ThruPlays ÷ 3-second plays */
+  holdRate: number | null;
+};
+
+export type MetaAdPerformance = {
+  rows: MetaAdPerfRow[];
+  totals: Omit<MetaAdPerfRow, "key" | "campaignName" | "adSetName" | "adName" | "days">;
+  lastSyncedAt: string | null;
+};
+
+type MetaDailyRow = {
+  ad_id: string;
+  date: string;
+  campaign_name: string;
+  adset_name: string | null;
+  ad_name: string;
+  spend: number | string;
+  impressions: number | string;
+  reach: number | string;
+  link_clicks: number;
+  meta_leads: number;
+  video_plays_3s: number;
+  thru_plays: number;
+  synced_at: string;
+};
+
+const norm = (v: string | null | undefined) => (v ?? "").trim().toLowerCase();
+
+/**
+ * Meta dashboard from meta_ad_insights_daily — days in the range summed per
+ * ad / ad set / campaign. CRM leads are matched on the ad id or name stored on
+ * the lead (Meta lead forms store the ad id; website forms carry utm_content),
+ * and at campaign level on meta_campaign_name / utm_campaign.
+ */
+export async function fetchMetaAdPerformance(
+  filters: MarketingFilters,
+  groupBy: MetaAdGroupBy
+): Promise<MetaAdPerformance> {
+  const admin = db();
+  const [daily, leads] = await Promise.all([
+    fetchAllPages<MetaDailyRow>(
+      (from, to) =>
+        admin
+          .from("meta_ad_insights_daily")
+          .select(
+            "ad_id, date, campaign_name, adset_name, ad_name, spend, impressions, reach, link_clicks, meta_leads, video_plays_3s, thru_plays, synced_at"
+          )
+          .gte("date", filters.fromDate)
+          .lte("date", filters.toDate)
+          .order("date", { ascending: true })
+          .order("ad_id", { ascending: true })
+          .range(from, to),
+      "meta_ad_insights_daily"
+    ),
+    fetchAllPages<{
+      id: string;
+      meta_ad_name: string | null;
+      utm_content: string | null;
+      meta_campaign_name: string | null;
+      utm_campaign: string | null;
+    }>(
+      (from, to) =>
+        admin
+          .from("leads")
+          .select("id, meta_ad_name, utm_content, meta_campaign_name, utm_campaign")
+          .gte("created_at", istStartIso(filters.fromDate))
+          .lte("created_at", istEndIso(filters.toDate))
+          .order("id", { ascending: true })
+          .range(from, to),
+      "leads.metaMatch"
+    ),
+  ]);
+
+  const leadsByAdTag = new Map<string, number>();
+  const leadsByCampaign = new Map<string, number>();
+  for (const l of leads) {
+    const tags = new Set([norm(l.meta_ad_name), norm(l.utm_content)].filter(Boolean));
+    for (const t of Array.from(tags)) leadsByAdTag.set(t, (leadsByAdTag.get(t) ?? 0) + 1);
+    const camps = new Set([norm(l.meta_campaign_name), norm(l.utm_campaign)].filter(Boolean));
+    for (const c of Array.from(camps)) leadsByCampaign.set(c, (leadsByCampaign.get(c) ?? 0) + 1);
+  }
+
+  type Acc = {
+    campaignName: string;
+    adSetName: string | null;
+    adName: string | null;
+    adIds: Set<string>;
+    adNames: Set<string>;
+    days: Set<string>;
+    spend: number;
+    impressions: number;
+    reach: number;
+    linkClicks: number;
+    metaLeads: number;
+    v3: number;
+    thru: number;
+  };
+  const groups = new Map<string, Acc>();
+  let lastSyncedAt: string | null = null;
+  for (const r of daily) {
+    if (!lastSyncedAt || r.synced_at > lastSyncedAt) lastSyncedAt = r.synced_at;
+    const key =
+      groupBy === "ad"
+        ? r.ad_id
+        : groupBy === "adset"
+          ? `${r.campaign_name}\u0000${r.adset_name ?? ""}`
+          : r.campaign_name;
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        campaignName: r.campaign_name,
+        adSetName: groupBy === "campaign" ? null : r.adset_name,
+        adName: groupBy === "ad" ? r.ad_name : null,
+        adIds: new Set(),
+        adNames: new Set(),
+        days: new Set(),
+        spend: 0,
+        impressions: 0,
+        reach: 0,
+        linkClicks: 0,
+        metaLeads: 0,
+        v3: 0,
+        thru: 0,
+      };
+      groups.set(key, g);
+    }
+    g.adIds.add(norm(r.ad_id));
+    g.adNames.add(norm(r.ad_name));
+    g.days.add(r.date);
+    g.spend += Number(r.spend) || 0;
+    g.impressions += Number(r.impressions) || 0;
+    // Reach is not additive across days — the sum is an upper bound
+    g.reach += Number(r.reach) || 0;
+    g.linkClicks += r.link_clicks || 0;
+    g.metaLeads += r.meta_leads || 0;
+    g.v3 += r.video_plays_3s || 0;
+    g.thru += r.thru_plays || 0;
+  }
+
+  const finish = (
+    a: Pick<Acc, "spend" | "impressions" | "reach" | "linkClicks" | "metaLeads" | "v3" | "thru">,
+    crmLeads: number
+  ) => ({
+    spend: a.spend,
+    impressions: a.impressions,
+    reach: a.reach,
+    linkClicks: a.linkClicks,
+    metaLeads: a.metaLeads,
+    crmLeads,
+    costPerLead: crmLeads ? a.spend / crmLeads : null,
+    ctr: ctr(a.linkClicks, a.impressions),
+    cpc: cpc(a.spend, a.linkClicks),
+    cpm: cpm(a.spend, a.impressions),
+    hookRate: a.v3 > 0 ? hookRate(a.v3, a.impressions) : null,
+    holdRate: a.v3 > 0 ? (a.thru / a.v3) * 100 : null,
+  });
+
+  const rows: MetaAdPerfRow[] = [];
+  const tot = { spend: 0, impressions: 0, reach: 0, linkClicks: 0, metaLeads: 0, v3: 0, thru: 0 };
+  for (const [key, g] of Array.from(groups.entries())) {
+    let crm = 0;
+    if (groupBy === "campaign") {
+      crm = leadsByCampaign.get(norm(g.campaignName)) ?? 0;
+    } else {
+      const tags = new Set([...Array.from(g.adIds), ...Array.from(g.adNames)]);
+      for (const t of Array.from(tags)) crm += leadsByAdTag.get(t) ?? 0;
+    }
+    rows.push({
+      key,
+      campaignName: g.campaignName,
+      adSetName: g.adSetName,
+      adName: g.adName,
+      days: g.days.size,
+      ...finish(g, crm),
+    });
+    tot.spend += g.spend;
+    tot.impressions += g.impressions;
+    tot.reach += g.reach;
+    tot.linkClicks += g.linkClicks;
+    tot.metaLeads += g.metaLeads;
+    tot.v3 += g.v3;
+    tot.thru += g.thru;
+  }
+  rows.sort((a, b) => b.spend - a.spend);
+  const crmTotal = rows.reduce((n, r) => n + r.crmLeads, 0);
+
+  return { rows, totals: finish(tot, crmTotal), lastSyncedAt };
 }
 
 export type MonthlyMktRow = {

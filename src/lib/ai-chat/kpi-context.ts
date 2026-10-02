@@ -32,7 +32,7 @@ export async function fetchAiChatKpiContext(supabase: Supabase): Promise<Record<
       .from("leads")
       .select("*", { count: "exact", head: true })
       .gte("created_at", monthStartIso),
-    supabase.from("ad_insights_weekly").select("spend").gte("week_start", `${monthKey}-01`),
+    supabase.from("meta_ad_insights_daily").select("spend").gte("date", `${monthKey}-01`),
     supabase
       .from("marketing_daily_notes")
       .select("organic_spend_inr, inorganic_spend_inr")

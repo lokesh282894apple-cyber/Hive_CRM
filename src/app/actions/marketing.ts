@@ -183,7 +183,6 @@ export async function syncMetaSpendNow(): Promise<
     if (!conn.access_token || !conn.account_id) continue;
     const result = await syncMetaAdSpend(admin, conn.access_token, conn.account_id, {
       days: 14,
-      level: "campaign",
       maxPages: 8,
     });
     synced += result.synced;
