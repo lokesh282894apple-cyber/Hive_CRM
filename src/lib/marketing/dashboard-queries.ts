@@ -130,7 +130,10 @@ export type FunnelDayRow = {
   funnel: FunnelCounts;
   metaSpend: number;
   nonMetaSpend: number;
-  /** Prefer marketing_daily_notes.organic_spend_inr when set */
+  /** Manual spend overrides typed for the day (null = none) — editors save these back */
+  noteOrganicSpend: number | null;
+  noteInorganicSpend: number | null;
+  /** Always 0 — every paid rupee is inorganic (team rule) */
   organicSpend: number;
   /** Prefer marketing_daily_notes.inorganic_spend_inr when set */
   inorganicSpend: number;
@@ -431,6 +434,8 @@ export async function fetchLeadFunnelUncached(
         sessionsPaid: null,
         sessionsOrganic: null,
         funnel: emptyFunnelCounts(),
+        noteOrganicSpend: null,
+        noteInorganicSpend: null,
         metaSpend: 0,
         nonMetaSpend: 0,
         organicSpend: 0,
@@ -588,15 +593,19 @@ export async function fetchLeadFunnelUncached(
   const rows = Array.from(dayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
   for (const row of rows) {
     const note = notesByDate.get(row.date);
-    row.organicSpend =
-      note?.organic_spend_inr != null
-        ? Number(note.organic_spend_inr) || 0
-        : row.nonMetaSpend;
-    row.inorganicSpend =
-      note?.inorganic_spend_inr != null
-        ? Number(note.inorganic_spend_inr) || 0
-        : row.metaSpend;
-    row.totalSpend = row.organicSpend + row.inorganicSpend;
+    // Total = the day's overrides when entered, else Meta + every cost entry
+    const enteredOrganic =
+      note?.organic_spend_inr != null ? Number(note.organic_spend_inr) || 0 : row.nonMetaSpend;
+    const enteredInorganic =
+      note?.inorganic_spend_inr != null ? Number(note.inorganic_spend_inr) || 0 : row.metaSpend;
+    row.totalSpend = enteredOrganic + enteredInorganic;
+    // Team rule: anything paid for is inorganic; organic = reach that cost
+    // nothing. Every rupee spent is therefore inorganic and organic spend is 0
+    // (the "organic" tick on a cost entry no longer moves money to organic).
+    row.inorganicSpend = row.totalSpend;
+    row.organicSpend = 0;
+    row.noteOrganicSpend = note?.organic_spend_inr != null ? Number(note.organic_spend_inr) || 0 : null;
+    row.noteInorganicSpend = note?.inorganic_spend_inr != null ? Number(note.inorganic_spend_inr) || 0 : null;
     row.sessionsToLeadsPct = pct(row.leads, row.sessions);
     row.r1ToLeadPct = pct(row.r1Booked, row.leads);
     row.r1ToLeadOrganicPct = pct(row.r1BookedOrganic, row.organicLeads);
@@ -614,7 +623,7 @@ export async function fetchLeadFunnelUncached(
 /** Cached funnel — same numbers; request dedupe + 90s TTL (CRM dashboard pattern). */
 export const fetchLeadFunnel = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-lead-funnel-v2",
+    keyPrefix: "marketing-lead-funnel-v3-paid",
     tags: [MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (filters: MarketingFilters) => marketingFilterCacheKey(filters),
   },

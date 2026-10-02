@@ -148,8 +148,8 @@ export default async function MarketingFunnelPage({
                         date={r.date}
                         activityLog={r.activityLog}
                         notes={r.notes}
-                        organicSpend={r.organicSpend || null}
-                        inorganicSpend={r.inorganicSpend || null}
+                        organicSpend={r.noteOrganicSpend}
+                        inorganicSpend={r.noteInorganicSpend}
                         items={r.activityItems}
                       />
                     ) : (
@@ -175,8 +175,8 @@ export default async function MarketingFunnelPage({
                       <DailyNotesEditor
                         date={r.date}
                         notes={r.notes}
-                        organicSpend={r.organicSpend || null}
-                        inorganicSpend={r.inorganicSpend || null}
+                        organicSpend={r.noteOrganicSpend}
+                        inorganicSpend={r.noteInorganicSpend}
                       />
                     ) : (
                       <span className="text-xs text-muted">{r.notes || "—"}</span>
@@ -356,7 +356,7 @@ export default async function MarketingFunnelPage({
           Cost metrics — cost per R2, R3, offer &amp; convert
         </summary>
         <p className="px-4 pt-3 text-xs text-muted">
-          Blended = total spend ÷ all · Org = organic spend ÷ organic leads&apos; count · InOrg = inorganic spend ÷
+          Blended = total spend ÷ all · Org = organic spend (always ₹0 — every paid rupee is inorganic) ÷ organic leads&apos; count · InOrg = inorganic spend ÷
           paid leads&apos; count. R2 / R3 = booked. &quot;—&quot; means nothing reached that stage.
         </p>
         <div className="overflow-x-auto">
@@ -460,6 +460,8 @@ function emptyRow(date: string): FunnelDayRow {
     sessionsPaid: null,
     sessionsOrganic: null,
     funnel: emptyFunnelCounts(),
+    noteOrganicSpend: null,
+    noteInorganicSpend: null,
     metaSpend: 0,
     nonMetaSpend: 0,
     organicSpend: 0,

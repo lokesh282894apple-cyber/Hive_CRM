@@ -154,3 +154,7 @@ history older than what Meta returns on re-sync (37 months); sessions before 2 J
 - Sheet months: sessions = "active users"; all sheet spend (Meta + non-Meta) is paid → inorganic, organic spend ₹0;
   sheet R1/R2/R3 treated as "booked" (completed unknown).
 - Loans count as realised on their last-updated date (no hit-bank date is stored for loans).
+
+**Spend rule (updated 2 Oct 2026):** anything paid for is inorganic; organic = reach that cost
+nothing. All spend — Meta, manual cost entries, daily overrides, and the sheet's Meta + non-Meta —
+counts as inorganic; organic spend is ₹0. Org cost metrics therefore show ₹0.

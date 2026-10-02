@@ -271,7 +271,7 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
 
 export const fetchMarketingPnl = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-pnl-monthly-v1",
+    keyPrefix: "marketing-pnl-monthly-v2-paid",
     tags: [MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (fromMonth: string, toMonth: string) => `${fromMonth}|${toMonth}`,
   },

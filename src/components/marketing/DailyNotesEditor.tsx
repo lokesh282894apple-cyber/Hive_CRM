@@ -64,7 +64,7 @@ export function DailyNotesEditor({
           />
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[10px] text-muted">
-              Organic spend
+              Other spend override (₹)
               <input
                 name="organic_spend_inr"
                 type="number"
@@ -74,7 +74,7 @@ export function DailyNotesEditor({
               />
             </label>
             <label className="text-[10px] text-muted">
-              Inorganic spend
+              Ad spend override (₹)
               <input
                 name="inorganic_spend_inr"
                 type="number"
