@@ -71,6 +71,8 @@ export type FunnelLead = {
   courseId: string | null;
   /** ISO timestamp per milestone reached */
   at: Partial<Record<Milestone, string>>;
+  /** Every stage the lead has ever entered */
+  stagesEver: string[];
 };
 
 type HistoryRow = { lead_id: string; to_stage: string; changed_at: string };
@@ -127,6 +129,11 @@ export function milestonesFor(history: HistoryRow[], bookings: BookingRow[]): Pa
   if (offer) at.offer = offer;
   const convert = firstEntry.get("closed_paid");
   if (convert) at.convert = convert;
+  // Normalise to UTC "…Z" so callers can compare with range bounds as strings
+  for (const m of MILESTONES) {
+    const v = at[m];
+    if (v) at[m] = new Date(v).toISOString();
+  }
   return at;
 }
 
@@ -269,7 +276,7 @@ export async function loadFunnelLeadsById(admin: SupabaseClient, ids: string[]):
     const camp = attrBy.get(l.id);
     return {
       id: l.id,
-      createdAt: l.created_at,
+      createdAt: new Date(l.created_at).toISOString(),
       stage: l.stage,
       ownerId: l.lead_allocated_to,
       inorganic: isInorganicLead({
@@ -281,6 +288,7 @@ export async function loadFunnelLeadsById(admin: SupabaseClient, ids: string[]):
       cohortId: l.cohort_id,
       courseId: l.course_id,
       at: milestonesFor(histBy.get(l.id) ?? [], bookBy.get(l.id) ?? []),
+      stagesEver: Array.from(new Set([...(histBy.get(l.id) ?? []).map((h) => h.to_stage), l.stage])),
     };
   });
 }

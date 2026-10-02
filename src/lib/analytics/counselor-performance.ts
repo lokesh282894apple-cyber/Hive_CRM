@@ -1,8 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { OPEN_STAGES } from "@/lib/constants";
+import { LOST_STAGES, OPEN_STAGES } from "@/lib/constants";
+
+const LOST_SET = new Set<string>(LOST_STAGES);
 import { fetchAllPages } from "@/lib/supabase/paginate";
 import { unstable_cache } from "next/cache";
 import { istDateKey } from "@/lib/tz";
+import { loadFunnelLeadsById } from "@/lib/analytics/funnel-engine";
 
 export type CounselorDashFilters = {
   sinceIso?: string | null;
@@ -55,7 +58,7 @@ export type CounselorPipelineStats = {
   offer: number;
   studentReject: number;
   hiveReject: number;
-  /** Offered in period who reached closed_paid / offered_accepted */
+  /** Offered in period who reached closed_paid */
   convertedAfterOffer: number;
   /** Offered in period who did not convert */
   notConvertedAfterOffer: number;
@@ -81,8 +84,35 @@ export type CounselorRow = {
   avgIntentScore: number | null;
 };
 
+/**
+ * Per counselor (credit = current owner of the lead): leads called in the
+ * range, each counted once at the furthest stage it has reached so far.
+ * Percentages use total dials as the base (team decision).
+ */
+export type CounselorOutcomeRow = {
+  counselorId: string;
+  name: string;
+  dials: number;
+  leadsCalled: number;
+  /** Furthest stage reached — exactly one bucket per lead */
+  outcome: {
+    r1Booked: number;
+    rejected: number;
+    closedLost: number;
+    dnp: number;
+    nurturing: number;
+    other: number;
+  };
+  /** R1 split for leads that reached R1 Booked */
+  r1: { booked: number; completed: number; rejected: number; noShow: number; pending: number };
+  /** Of the R1 Booked leads, how many reached each later stage */
+  fromR1: { r2: number; r3: number; offer: number; convert: number };
+};
+
 export type CounselorDashboard = {
   rows: CounselorRow[];
+  outcomes: CounselorOutcomeRow[];
+  outcomeTotals: CounselorOutcomeRow;
   totals: { calling: CounselorCallingStats; pipeline: CounselorPipelineStats };
   /** Present when a single counselor filter is applied — % of allocated */
   funnelOfAllocated: CounselorFunnelPct | null;
@@ -296,7 +326,6 @@ async function fetchCounselorDashboardUncached(
 
   for (const l of leads) {
     if (!l.lead_allocated_to) continue;
-    if (!leadVisibleToCounselor(l, l.lead_allocated_to)) continue;
 
     // Created-in-range allocated (any stage) — comparable to Analytics “Total leads”
     const createdAt = l.created_at || "";
@@ -310,8 +339,9 @@ async function fetchCounselorDashboardUncached(
       );
     }
 
-    // Align with Kanban default group=open (exclude closed_*)
+    // Open stock mirrors the counselor's Kanban: open stages inside their scope
     if (!openStageSet.has(l.stage)) continue;
+    if (!leadVisibleToCounselor(l, l.lead_allocated_to)) continue;
     const arr = leadsByCounselor.get(l.lead_allocated_to) ?? [];
     arr.push(l);
     leadsByCounselor.set(l.lead_allocated_to, arr);
@@ -355,35 +385,48 @@ async function fetchCounselorDashboardUncached(
     row.pipeline.createdInRangeAllocated = n;
   }
 
+  // R1 / R2 / R3 / offer / convert: first time reached, inside the range —
+  // same definitions as the marketing funnel (shared engine)
+  const inRangeIso = (iso: string | undefined) => !!iso && iso >= since && iso < until;
+  const funnelIds = Array.from(
+    new Set([
+      ...scopedHistory.map((h) => h.lead_id),
+      ...leads.filter((l) => inRangeIso(l.created_at)).map((l) => l.id),
+      ...scopedCalls.map((c) => c.lead_id),
+    ])
+  );
+  const funnelLeads = await loadFunnelLeadsById(supabase, funnelIds);
   const r1Booked = new Set<string>();
   const r1Conducted = new Set<string>();
-  const r1Reject = new Set<string>();
   const r2Booked = new Set<string>();
   const r3Booked = new Set<string>();
   const offered = new Set<string>();
   const converted = new Set<string>();
+  for (const f of funnelLeads) {
+    if (inRangeIso(f.at.r1Booked)) r1Booked.add(f.id);
+    if (inRangeIso(f.at.r1Completed)) r1Conducted.add(f.id);
+    if (inRangeIso(f.at.r2Booked)) r2Booked.add(f.id);
+    if (inRangeIso(f.at.r3Booked)) r3Booked.add(f.id);
+    if (inRangeIso(f.at.offer)) offered.add(f.id);
+    if (f.at.convert) converted.add(f.id);
+  }
+
+  // Entered the stage inside the range (no all-time current-stage top-up —
+  // that mixed "ever" with "this period" and inflated these columns)
+  const r1Reject = new Set<string>();
   const studentReject = new Set<string>();
   const hiveReject = new Set<string>();
   const nurturing = new Set<string>();
   for (const h of scopedHistory) {
-    if (h.to_stage === "r1_booked") r1Booked.add(h.lead_id);
-    if (
-      h.to_stage === "r1_confirmed" ||
-      h.to_stage === "r2_booked" ||
-      h.to_stage === "r2_tbb"
-    ) {
-      r1Conducted.add(h.lead_id);
-    }
     if (h.to_stage === "r1_reject") r1Reject.add(h.lead_id);
-    if (h.to_stage === "r2_booked") r2Booked.add(h.lead_id);
-    if (h.to_stage === "r3_booked") r3Booked.add(h.lead_id);
-    if (h.to_stage === "offered" || h.to_stage === "yet_to_offer") {
-      offered.add(h.lead_id);
+    if (
+      h.to_stage === "student_reject" ||
+      h.to_stage === "r1_student_reject" ||
+      h.to_stage === "r2_student_reject" ||
+      h.to_stage === "r3_student_reject"
+    ) {
+      studentReject.add(h.lead_id);
     }
-    if (h.to_stage === "closed_paid" || h.to_stage === "offered_accepted") {
-      converted.add(h.lead_id);
-    }
-    if (h.to_stage === "student_reject") studentReject.add(h.lead_id);
     if (
       h.to_stage === "admission_team_rejected" ||
       h.to_stage === "r1_reject" ||
@@ -393,18 +436,6 @@ async function fetchCounselorDashboardUncached(
       hiveReject.add(h.lead_id);
     }
     if (h.to_stage === "call_logged_nurturing") nurturing.add(h.lead_id);
-  }
-  for (const l of leads) {
-    if (l.stage === "call_logged_nurturing") nurturing.add(l.id);
-    if (l.stage === "student_reject") studentReject.add(l.id);
-    if (
-      l.stage === "admission_team_rejected" ||
-      l.stage === "r1_reject" ||
-      l.stage === "r2_reject" ||
-      l.stage === "r3_reject"
-    ) {
-      hiveReject.add(l.id);
-    }
   }
 
   const leadOwner = new Map(leads.map((l) => [l.id, l.lead_allocated_to]));
@@ -520,9 +551,7 @@ async function fetchCounselorDashboardUncached(
         : null;
     row.calling.outboundCalls = mine.length - inbound.length;
     row.calling.avgCallsPerLead =
-      row.calling.allocatedLeads > 0
-        ? Number((mine.length / row.calling.allocatedLeads).toFixed(2))
-        : 0;
+      uniqueLeads.size > 0 ? Number((mine.length / uniqueLeads.size).toFixed(2)) : 0;
     row.calling.avgCallsPerDay = Number((mine.length / rangeDays).toFixed(2));
     row.calling.avgCallsPerMonth = Number(
       (mine.length / rangeMonths).toFixed(2)
@@ -575,6 +604,76 @@ async function fetchCounselorDashboardUncached(
     }
   }
 
+  const funnelById = new Map(funnelLeads.map((f) => [f.id, f]));
+  const outcomeBy = new Map<string, CounselorOutcomeRow>();
+  const emptyOutcome = (counselorId: string, name: string): CounselorOutcomeRow => ({
+    counselorId,
+    name,
+    dials: 0,
+    leadsCalled: 0,
+    outcome: { r1Booked: 0, rejected: 0, closedLost: 0, dnp: 0, nurturing: 0, other: 0 },
+    r1: { booked: 0, completed: 0, rejected: 0, noShow: 0, pending: 0 },
+    fromR1: { r2: 0, r3: 0, offer: 0, convert: 0 },
+  });
+  const calledByOwner = new Map<string, Set<string>>();
+  for (const c of scopedCalls) {
+    const owner = leadOwner.get(c.lead_id);
+    if (!owner) continue;
+    let o = outcomeBy.get(owner);
+    if (!o) {
+      o = emptyOutcome(owner, byCounselor.get(owner)?.name ?? "Unknown");
+      outcomeBy.set(owner, o);
+    }
+    o.dials += 1;
+    const set = calledByOwner.get(owner) ?? new Set<string>();
+    set.add(c.lead_id);
+    calledByOwner.set(owner, set);
+  }
+  for (const [owner, ids] of Array.from(calledByOwner.entries())) {
+    const o = outcomeBy.get(owner)!;
+    for (const id of Array.from(ids)) {
+      const f = funnelById.get(id);
+      if (!f) continue;
+      o.leadsCalled += 1;
+      const ever = new Set(f.stagesEver);
+      if (f.at.r1Booked) {
+        o.outcome.r1Booked += 1;
+        o.r1.booked += 1;
+        if (ever.has("r1_reject")) o.r1.rejected += 1;
+        if (f.at.r1Completed) o.r1.completed += 1;
+        else if (ever.has("r1_no_show")) o.r1.noShow += 1;
+        else o.r1.pending += 1;
+        if (f.at.r2Booked) o.fromR1.r2 += 1;
+        if (f.at.r3Booked) o.fromR1.r3 += 1;
+        if (f.at.offer) o.fromR1.offer += 1;
+        if (f.at.convert) o.fromR1.convert += 1;
+      } else if (f.stage === "admission_team_rejected") {
+        o.outcome.rejected += 1;
+      } else if (LOST_SET.has(f.stage)) {
+        o.outcome.closedLost += 1;
+      } else if (f.stage === "dnp" || f.stage === "no_show" || f.stage === "reschedule") {
+        o.outcome.dnp += 1;
+      } else if (f.stage === "call_logged_nurturing") {
+        o.outcome.nurturing += 1;
+      } else {
+        o.outcome.other += 1;
+      }
+    }
+  }
+  const outcomes = Array.from(outcomeBy.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const outcomeTotals = emptyOutcome("all", "All counselors");
+  for (const o of outcomes) {
+    outcomeTotals.dials += o.dials;
+    outcomeTotals.leadsCalled += o.leadsCalled;
+    for (const k of Object.keys(o.outcome) as (keyof CounselorOutcomeRow["outcome"])[]) {
+      outcomeTotals.outcome[k] += o.outcome[k];
+    }
+    for (const k of Object.keys(o.r1) as (keyof CounselorOutcomeRow["r1"])[]) outcomeTotals.r1[k] += o.r1[k];
+    for (const k of Object.keys(o.fromR1) as (keyof CounselorOutcomeRow["fromR1"])[]) {
+      outcomeTotals.fromR1[k] += o.fromR1[k];
+    }
+  }
+
   const rows = Array.from(byCounselor.values()).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
@@ -614,10 +713,8 @@ async function fetchCounselorDashboardUncached(
     totals.pipeline.offer
   );
   totals.calling.avgCallsPerLead =
-    totals.calling.allocatedLeads > 0
-      ? Number(
-          (totals.calling.totalCalls / totals.calling.allocatedLeads).toFixed(2)
-        )
+    totals.calling.uniqueCalls > 0
+      ? Number((totals.calling.totalCalls / totals.calling.uniqueCalls).toFixed(2))
       : 0;
   totals.calling.avgCallsPerDay = Number(
     (totals.calling.totalCalls / rangeDays).toFixed(2)
@@ -666,7 +763,7 @@ async function fetchCounselorDashboardUncached(
       })()
     : null;
 
-  return { rows, totals, funnelOfAllocated };
+  return { rows, totals, funnelOfAllocated, outcomes, outcomeTotals };
 }
 
 export async function fetchCounselorDashboard(
@@ -676,7 +773,7 @@ export async function fetchCounselorDashboard(
   const key = filterKey(filters);
   return unstable_cache(
     () => fetchCounselorDashboardUncached(filters),
-    ["counselor-dashboard-v3-created-range", key],
+    ["counselor-dashboard-v4-engine", key],
     { revalidate: 60, tags: ["counselor-dashboard"] }
   )();
 }
