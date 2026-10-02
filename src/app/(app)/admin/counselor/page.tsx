@@ -10,6 +10,9 @@ import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
 import { formatRelativeAgo } from "@/lib/utils";
 
+// Full-history funnel loads can take several seconds on a small DB
+export const maxDuration = 60;
+
 function pctLabel(n: number, of: number) {
   return of > 0 ? `${((n / of) * 100).toFixed(1)}%` : "—";
 }

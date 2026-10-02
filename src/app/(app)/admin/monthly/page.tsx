@@ -19,6 +19,9 @@ import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
+// Full-history funnel loads can take several seconds on a small DB
+export const maxDuration = 60;
+
 export default async function AdminMonthlyPage({
   searchParams,
 }: {
