@@ -1,4 +1,5 @@
 import {
+  BOARD_COLUMN_CAP,
   BOARD_FETCH_MAX,
   LIST_PAGE_SIZE,
   OPEN_STAGES,
@@ -372,4 +373,52 @@ export async function fetchStageTotals(
   const totals: Record<string, number> = {};
   for (const r of rows) totals[r.stage] = (totals[r.stage] ?? 0) + 1;
   return totals;
+}
+
+/**
+ * The board loads the newest BOARD_FETCH_MAX leads, but column headers use
+ * exact stage totals. Older leads (R2/R3/offer) fall outside that window, so
+ * a column could say "2" and show no cards. Load up to BOARD_COLUMN_CAP newest
+ * leads for every stage that is short of cards and merge them in.
+ */
+export async function topUpBoardStages<T extends { id: string; stage: string; offer_call_status?: string | null }>(
+  supabase: Supabase,
+  opts: Omit<Parameters<typeof applyLeadsFilters>[1], "paginate">,
+  select: string,
+  loaded: T[],
+  stageTotals: Record<string, number>
+): Promise<T[]> {
+  const have = new Map<string, number>();
+  for (const l of loaded) have.set(l.stage, (have.get(l.stage) ?? 0) + 1);
+
+  const base = () =>
+    applyLeadsFilters(supabase.from("leads").select(select), { ...opts, paginate: false });
+  const newest = (q: ReturnType<typeof base>) =>
+    q.order("created_at", { ascending: false }).order("id", { ascending: true }).limit(BOARD_COLUMN_CAP);
+
+  const queries: PromiseLike<{ data: unknown }>[] = [];
+  for (const [stage, total] of Object.entries(stageTotals)) {
+    if ((have.get(stage) ?? 0) >= Math.min(total, BOARD_COLUMN_CAP)) continue;
+    if (stage === "offered") {
+      // Offered is split into three columns by offer call status
+      queries.push(newest(base().eq("stage", stage).or("offer_call_status.is.null,offer_call_status.eq.not_booked")));
+      queries.push(newest(base().eq("stage", stage).eq("offer_call_status", "booked")));
+      queries.push(newest(base().eq("stage", stage).eq("offer_call_status", "done")));
+    } else {
+      queries.push(newest(base().eq("stage", stage)));
+    }
+  }
+  if (!queries.length) return loaded;
+
+  const results = await Promise.all(queries);
+  const seen = new Set(loaded.map((l) => l.id));
+  const merged = [...loaded];
+  for (const r of results) {
+    for (const row of ((r.data as T[] | null) ?? [])) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      merged.push(row);
+    }
+  }
+  return merged;
 }

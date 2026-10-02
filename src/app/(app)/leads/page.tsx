@@ -5,6 +5,7 @@ import {
   LEAD_LIST_SELECT,
   applyLeadsFilters,
   fetchStageTotals,
+  topUpBoardStages,
   getCounselorScopePairs,
   leadsPrefsCookieName,
   parseLeadsSearchParams,
@@ -70,12 +71,18 @@ export default async function LeadsPage({
 
   const [{ data }, { count }] = await Promise.all([dataQuery, countPromise]);
   // Board is capped at BOARD_FETCH_MAX cards — give columns exact totals
-  const stageTotalsPromise =
+  const stageTotals =
     filters.mode === "board" && (count ?? 0) > ((data as unknown[] | null)?.length ?? 0)
-      ? fetchStageTotals(supabase, filterOpts).catch(() => undefined)
-      : Promise.resolve(undefined);
+      ? await fetchStageTotals(supabase, filterOpts).catch(() => undefined)
+      : undefined;
 
-  const leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
+  let leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
+  if (stageTotals) {
+    // Older leads (R2/R3/offer) sit outside the newest-cards window — load them per column
+    leadsRaw = await topUpBoardStages(supabase, filterOpts, LEAD_LIST_SELECT, leadsRaw, stageTotals).catch(
+      () => leadsRaw
+    );
+  }
   const leadIds = leadsRaw.map((l) => l.id);
   const [leadsWithMetrics, attrMap, openTasks] = await Promise.all([
     loadLeadCardMetrics(supabase, leadsRaw),
@@ -115,7 +122,7 @@ export default async function LeadsPage({
 
   return (
     <LeadsWorkspace
-      stageTotals={await stageTotalsPromise}
+      stageTotals={stageTotals}
       leads={leads}
       totalEstimate={totalEstimate}
       filters={filters}
