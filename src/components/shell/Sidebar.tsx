@@ -127,8 +127,8 @@ const adminGroups: NavGroup[] = [
     items: [
       { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
       { href: "/admin/monthly", label: "All months", icon: CalendarDays },
-      { href: "/admin/leads", label: "All Leads", icon: ClipboardList },
-      { href: "/leads", label: "Leads board", icon: ClipboardList },
+      // Lead pages (/leads/…) open from the board — keep "All Leads" lit there
+      { href: "/admin/leads", label: "All Leads", icon: ClipboardList, matchPaths: ["/admin/leads", "/leads"] },
       { href: "/attention", label: "Attention", icon: AlertTriangle },
       { href: "/admin/assign", label: "Bulk Assign", icon: UserPlus },
     ],
