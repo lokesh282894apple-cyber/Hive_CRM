@@ -1,9 +1,28 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fetchAllPages } from "@/lib/supabase/paginate";
+import { fetchAllPages, mapInChunks } from "@/lib/supabase/paginate";
+import {
+  ADMISSION_REJECTION_REASONS,
+  ADMISSION_REJECTION_REASONS_HIDDEN,
+  STUDENT_REJECTION_REASONS,
+} from "@/lib/constants";
+
+export type ReasonShare = {
+  reason: string;
+  count: number;
+  /** % of all rejects of this kind in the range */
+  pct: number | null;
+  /** count per stage bucket (nurturing / r1 / r2 / r3 / offered) */
+  byStage: Record<string, number>;
+};
 
 export type RejectionFunnel = {
+  /** Reason × stage, % of all Hive rejects — the team's rejection dashboard */
+  hiveReasonShares: ReasonShare[];
+  studentReasonShares: ReasonShare[];
+  /** Free-text "Custom" reasons, most common first */
+  hiveCustomReasons: { reason: string; count: number }[];
   hiveTotal: number;
   studentTotal: number;
   byStage: { stage: string; hive: number; student: number }[];
@@ -21,8 +40,43 @@ export type RejectionFunnel = {
 
 const STAGES = ["nurturing", "r1", "r2", "r3", "offered"] as const;
 
+const EVENT_STAGES = [
+  "admission_team_rejected",
+  "r1_reject",
+  "r2_reject",
+  "r3_reject",
+  "student_reject",
+  "r1_student_reject",
+  "r2_student_reject",
+  "r3_student_reject",
+  "offered",
+];
+
+const OTHER_CUSTOM = "Other (custom reason)";
+const NO_REASON = "No reason recorded";
+
+/** Preset Hive reasons as-is (case-insensitive); free text → "Other (custom reason)". */
+function hiveReasonGroup(raw: string): string {
+  if (!raw) return NO_REASON;
+  const lower = raw.toLowerCase();
+  const preset = [...ADMISSION_REJECTION_REASONS, ...ADMISSION_REJECTION_REASONS_HIDDEN].find(
+    (r) => r.toLowerCase() === lower
+  );
+  return preset ?? OTHER_CUSTOM;
+}
+
+function studentReasonGroup(raw: string): string {
+  if (!raw) return NO_REASON;
+  if (raw.startsWith("Joined elsewhere")) return "Joined elsewhere";
+  const preset = STUDENT_REJECTION_REASONS.find((r) => r !== "Custom" && r.toLowerCase() === raw.toLowerCase());
+  return preset ?? "Other (custom reason)";
+}
+
 function emptyFunnel(schemaPending = false): RejectionFunnel {
   return {
+    hiveReasonShares: [],
+    studentReasonShares: [],
+    hiveCustomReasons: [],
     hiveTotal: 0,
     studentTotal: 0,
     byStage: STAGES.map((stage) => ({ stage, hive: 0, student: 0 })),
@@ -48,7 +102,14 @@ function isMissingColumnError(err: unknown): boolean {
 }
 
 function inferRejectKind(stage: string): "hive" | "student" | null {
-  if (stage === "student_reject") return "student";
+  if (
+    stage === "student_reject" ||
+    stage === "r1_student_reject" ||
+    stage === "r2_student_reject" ||
+    stage === "r3_student_reject"
+  ) {
+    return "student";
+  }
   if (
     stage === "admission_team_rejected" ||
     stage === "r1_reject" ||
@@ -64,7 +125,7 @@ function inferRejectAtStage(stage: string): string {
   if (stage.startsWith("r1")) return "r1";
   if (stage.startsWith("r2")) return "r2";
   if (stage.startsWith("r3")) return "r3";
-  if (stage.includes("offer")) return "offered";
+  if (stage.includes("offer") || stage === "student_reject") return "offered";
   return "nurturing";
 }
 
@@ -82,34 +143,60 @@ async function fetchRejectionFunnelUncached(
   opts: { sinceIso: string; untilExclusiveIso: string }
 ): Promise<RejectionFunnel> {
   let schemaPending = false;
-  let leads: LeadRejectRow[] = [];
 
-  try {
-    leads = await fetchAllPages<LeadRejectRow>((from, to) =>
+  // Rejections and offers are dated by when they happened (stage history),
+  // not by the lead's last edit — editing a lead used to move its rejection
+  // into another month.
+  const events = await fetchAllPages<{ lead_id: string; to_stage: string; reason?: string | null }>(
+    (from, to) =>
       supabase
+        .from("stage_history")
+        .select("lead_id, to_stage")
+        .in("to_stage", EVENT_STAGES)
+        .gte("changed_at", opts.sinceIso)
+        .lt("changed_at", opts.untilExclusiveIso)
+        .order("changed_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    "reject-events"
+  );
+  const rejectedIds = Array.from(
+    new Set(events.filter((e) => inferRejectKind(e.to_stage)).map((e) => e.lead_id))
+  );
+  const offeredIds = Array.from(
+    new Set(events.filter((e) => e.to_stage === "offered").map((e) => e.lead_id))
+  );
+  const leadIds = Array.from(new Set([...rejectedIds, ...offeredIds]));
+
+  let leadRows: LeadRejectRow[] = [];
+  try {
+    leadRows = await mapInChunks(leadIds, async (chunk) => {
+      const { data, error } = await supabase
         .from("leads")
-        .select(
-          "id, stage, reject_kind, reject_at_stage, stage_reason, reject_reason_category"
-        )
-        .gte("updated_at", opts.sinceIso)
-        .lt("updated_at", opts.untilExclusiveIso)
-        .order("updated_at", { ascending: true })
-        .order("id", { ascending: true }).range(from, to)
-    , "reject-leads");
+        .select("id, stage, reject_kind, reject_at_stage, stage_reason, reject_reason_category")
+        .in("id", chunk);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as LeadRejectRow[];
+    });
   } catch (err) {
     if (!isMissingColumnError(err)) throw err;
     schemaPending = true;
-    // Fallback until migration 20260922120000_meeting_followups.sql is applied
-    leads = await fetchAllPages<LeadRejectRow>((from, to) =>
-      supabase
-        .from("leads")
-        .select("id, stage, stage_reason")
-        .gte("updated_at", opts.sinceIso)
-        .lt("updated_at", opts.untilExclusiveIso)
-        .order("updated_at", { ascending: true })
-        .order("id", { ascending: true }).range(from, to)
-    , "reject-leads-fallback");
+    leadRows = await mapInChunks(leadIds, async (chunk) => {
+      const { data } = await supabase.from("leads").select("id, stage, stage_reason").in("id", chunk);
+      return (data ?? []) as LeadRejectRow[];
+    });
   }
+  const leadById = new Map(leadRows.map((l) => [l.id, l]));
+  // The rejection event (stage entered in range) decides kind and stage;
+  // the reason comes from the lead row (history rows carry it from 2 Oct 2026)
+  const rejectEvents = new Map<string, string>();
+  for (const e of events) if (inferRejectKind(e.to_stage)) rejectEvents.set(e.lead_id, e.to_stage);
+  const leads: LeadRejectRow[] = rejectedIds
+    .map((id) => {
+      const l = leadById.get(id);
+      return l ? { ...l, stage: rejectEvents.get(id) ?? l.stage } : null;
+    })
+    .filter((l): l is LeadRejectRow => !!l);
 
   const byStage = STAGES.map((stage) => ({
     stage,
@@ -127,15 +214,23 @@ async function fetchRejectionFunnelUncached(
   let offeredStudentReject = 0;
   let offeredPending = 0;
 
-  for (const l of leads) {
-    if (l.stage === "offered_accepted" || l.stage === "closed_paid") {
-      offeredAccepted += 1;
-    }
-    if (l.stage === "student_reject") offeredStudentReject += 1;
-    if (l.stage === "offered" || l.stage === "yet_to_offer") {
-      offeredPending += 1;
-    }
+  for (const id of offeredIds) {
+    const stageNow = leadById.get(id)?.stage;
+    if (stageNow === "offered_accepted" || stageNow === "closed_paid") offeredAccepted += 1;
+    else if (stageNow === "student_reject") offeredStudentReject += 1;
+    else if (stageNow === "offered") offeredPending += 1;
+  }
 
+  const hiveMatrix = new Map<string, Record<string, number>>();
+  const studentMatrix = new Map<string, Record<string, number>>();
+  const hiveCustom = new Map<string, number>();
+  const addMatrix = (m: Map<string, Record<string, number>>, reason: string, stage: string) => {
+    const row = m.get(reason) ?? {};
+    row[stage] = (row[stage] ?? 0) + 1;
+    m.set(reason, row);
+  };
+
+  for (const l of leads) {
     const kind = (l.reject_kind as "hive" | "student" | null) || inferRejectKind(l.stage);
     if (!kind) continue;
     const bucket =
@@ -143,16 +238,21 @@ async function fetchRejectionFunnelUncached(
         ? l.reject_at_stage
         : inferRejectAtStage(l.stage)) || "nurturing";
     const idx = stageIndex[bucket] ?? 0;
+    const raw = (l.reject_reason_category || l.stage_reason || "").trim();
     if (kind === "hive") {
       hiveTotal += 1;
       byStage[idx].hive += 1;
-      const r = (l.reject_reason_category || l.stage_reason || "Unknown").slice(0, 80);
+      const r = (raw || "Unknown").slice(0, 80);
       hiveReasons.set(r, (hiveReasons.get(r) ?? 0) + 1);
+      const group = hiveReasonGroup(raw);
+      addMatrix(hiveMatrix, group, bucket);
+      if (group === OTHER_CUSTOM) hiveCustom.set(raw.slice(0, 80), (hiveCustom.get(raw.slice(0, 80)) ?? 0) + 1);
     } else {
       studentTotal += 1;
       byStage[idx].student += 1;
-      const r = (l.reject_reason_category || l.stage_reason || "Unknown").slice(0, 80);
+      const r = (raw || "Unknown").slice(0, 80);
       studentReasons.set(r, (studentReasons.get(r) ?? 0) + 1);
+      addMatrix(studentMatrix, studentReasonGroup(raw), bucket);
     }
   }
 
@@ -227,7 +327,21 @@ async function fetchRejectionFunnelUncached(
     schemaPending = true;
   }
 
+  const shares = (m: Map<string, Record<string, number>>, total: number): ReasonShare[] =>
+    Array.from(m.entries())
+      .map(([reason, byStage]) => {
+        const count = Object.values(byStage).reduce((a, b) => a + b, 0);
+        return { reason, count, pct: total ? (count / total) * 100 : null, byStage };
+      })
+      .sort((a, b) => b.count - a.count);
+
   return {
+    hiveReasonShares: shares(hiveMatrix, hiveTotal),
+    studentReasonShares: shares(studentMatrix, studentTotal),
+    hiveCustomReasons: Array.from(hiveCustom.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20),
     hiveTotal,
     studentTotal,
     byStage,
@@ -255,7 +369,7 @@ async function fetchRejectionFunnelUncached(
 export { emptyFunnel };
 
 const fetchRejectionFunnelCached = cachedAdmissionsQuery(
-  "fetchRejectionFunnel-v2-ist",
+  "fetchRejectionFunnel-v3-events",
   (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) =>
     fetchRejectionFunnelUncached(createAdminClient(), opts)
