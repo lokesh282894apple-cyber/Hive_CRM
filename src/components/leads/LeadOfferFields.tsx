@@ -1,7 +1,7 @@
 "use client";
 
 import { updateLeadCardFields } from "@/app/actions/leads";
-import { recordStudentIntentScore } from "@/app/actions/scores";
+import { LeadQualityBadge, type LeadQualityFields } from "@/components/leads/LeadQuality";
 import {
   CONVERT_PROBABILITIES,
   CONVERT_PROBABILITY_LABELS,
@@ -10,13 +10,11 @@ import {
   type ConvertProbability,
   type OfferCallStatus,
 } from "@/lib/constants";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 
-type OfferLead = {
+type OfferLead = LeadQualityFields & {
   id: string;
   stage: string;
-  avg_student_intent?: number | null;
   convert_probability?: ConvertProbability | null;
   offer_call_status?: OfferCallStatus | null;
   offer_accept_deadline?: string | null;
@@ -29,9 +27,7 @@ export function LeadOfferFields({
   lead: OfferLead;
   compact?: boolean;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [intentPick, setIntentPick] = useState<number | "">("");
   const isOffer =
     lead.stage === "offered" ||
     lead.stage === "yet_to_offer" ||
@@ -43,10 +39,8 @@ export function LeadOfferFields({
     });
   }
 
-  const avg =
-    lead.avg_student_intent != null
-      ? Number(lead.avg_student_intent).toFixed(1)
-      : null;
+  // Board cards show Lead Quality in the card header; only offer fields here
+  if (compact && !isOffer) return null;
 
   return (
     <div
@@ -58,47 +52,14 @@ export function LeadOfferFields({
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <div
-        className={
-          compact ? "text-[11px] text-muted" : "text-xs font-semibold text-muted"
-        }
-      >
-        Avg student intent
-        <p className="mt-1 text-sm font-semibold text-navy">
-          {avg != null ? `${avg}/5` : "—"}
-        </p>
-        <label className="mt-1 block text-[10px] font-normal text-muted">
-          Add score
-          <select
-            className="input-field mt-0.5 py-1 text-xs"
-            value={intentPick === "" ? "" : String(intentPick)}
-            disabled={pending}
-            onChange={(e) => {
-              const v = e.target.value ? Number(e.target.value) : "";
-              setIntentPick(v);
-              if (v === "") return;
-              startTransition(async () => {
-                const res = await recordStudentIntentScore({
-                  leadId: lead.id,
-                  intentScore: v,
-                  context: "manual_intent",
-                });
-                if (res.ok) {
-                  setIntentPick("");
-                  router.refresh();
-                }
-              });
-            }}
-          >
-            <option value="">1–5</option>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {!compact ? (
+        <div className="text-xs font-semibold text-muted">
+          Lead quality
+          <div className="mt-1">
+            <LeadQualityBadge lead={lead} />
+          </div>
+        </div>
+      ) : null}
       {isOffer ? (
         <>
           <label

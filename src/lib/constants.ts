@@ -922,9 +922,9 @@ export function needsCallScore(stage: string, outcome: string): boolean {
 }
 
 export const LEAD_QUALITY_PARTS = [
-  { key: "intent", label: "Intent", hint: "How keen the student is to join" },
-  { key: "comms", label: "Comms", hint: "How well they communicate" },
-  { key: "profile", label: "Profile", hint: "Background, education, fit" },
+  { key: "intent", label: "Intent", hint: "keen to join" },
+  { key: "comms", label: "Comms", hint: "clarity, English" },
+  { key: "profile", label: "Profile", hint: "background & fit" },
 ] as const;
 
 export const INTERVIEW_ROUNDS = ["R1", "R2", "R3"] as const;

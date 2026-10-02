@@ -3,10 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import { COUNSELOR_SCORING_STAGES, LEAD_QUALITY_PARTS, needsCallScore } from "@/lib/constants";
 
+const SCALE: Record<number, string> = {
+  1: "Very poor",
+  2: "Poor",
+  3: "Okay",
+  4: "Good",
+  5: "Excellent",
+};
+
+function totalTone(total: number | null) {
+  if (total == null) return "bg-navy/5 text-muted";
+  if (total >= 12) return "bg-emerald-100 text-emerald-800";
+  if (total >= 8) return "bg-amber-100 text-amber-800";
+  return "bg-red-100 text-red-700";
+}
+
 /**
  * Intent / Comms / Profile (1–5) inside a "Log a call" form. Shown while the
  * lead is pre-R1 or R1 Booked; required when the call outcome means the
  * counselor actually spoke to the student. Reads the form's `outcome` select.
+ * One row per score so it fits the narrow lead preview as well as the lead page.
  */
 export function CallScoreFields({ stage }: { stage: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -30,49 +46,68 @@ export function CallScoreFields({ stage }: { stage: string }) {
 
   if (!(COUNSELOR_SCORING_STAGES as readonly string[]).includes(stage)) return <div ref={ref} hidden />;
   const required = needsCallScore(stage, outcome);
-  const total = LEAD_QUALITY_PARTS.every((p) => values[p.key])
+  const filled = LEAD_QUALITY_PARTS.filter((p) => values[p.key]).length;
+  const total = filled === LEAD_QUALITY_PARTS.length
     ? LEAD_QUALITY_PARTS.reduce((n, p) => n + values[p.key], 0)
     : null;
 
   return (
-    <div ref={ref} className="rounded-xl border border-border bg-[#F7F8FC] px-3 py-2.5">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-          Lead quality {required ? "· required" : "· optional (no conversation)"}
-        </p>
-        <p className="text-sm font-semibold text-navy">{total != null ? `${total}/15` : "—/15"}</p>
+    <div ref={ref} className="rounded-xl border border-border bg-[#F7F8FC] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-navy">Lead quality</p>
+          <p className="text-[11px] text-muted">
+            {required
+              ? `Required for this call · ${filled}/3 scored`
+              : "Optional — no conversation on this call"}
+          </p>
+        </div>
+        <span className={`rounded-full px-2.5 py-1 text-sm font-semibold tabular-nums ${totalTone(total)}`}>
+          {total != null ? total : "–"}/15
+        </span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        {LEAD_QUALITY_PARTS.map((p) => (
-          <fieldset key={p.key}>
-            <legend className="mb-1 text-xs font-medium text-navy" title={p.hint}>
-              {p.label}
-            </legend>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <label
-                  key={n}
-                  className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border text-sm ${
-                    values[p.key] === n
-                      ? "border-navy bg-navy text-white"
-                      : "border-border bg-white text-navy hover:border-navy/40"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name={`score_${p.key}`}
-                    value={n}
-                    required={required}
-                    checked={values[p.key] === n}
-                    onChange={() => setValues((v) => ({ ...v, [p.key]: n }))}
-                    className="sr-only"
-                  />
-                  {n}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        ))}
+
+      <div className="mt-3 space-y-2.5">
+        {LEAD_QUALITY_PARTS.map((p) => {
+          const v = values[p.key];
+          return (
+            <fieldset key={p.key}>
+              <div className="mb-1 flex items-baseline justify-between gap-2">
+                <legend className="text-xs font-medium text-navy">
+                  {p.label}
+                  <span className="ml-1 font-normal text-muted">· {p.hint}</span>
+                </legend>
+                <span className="shrink-0 text-[11px] text-muted">{v ? SCALE[v] : ""}</span>
+              </div>
+              <div className="grid grid-cols-5 gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <label
+                    key={n}
+                    title={SCALE[n]}
+                    className={`flex h-8 cursor-pointer items-center justify-center rounded-lg border text-sm font-medium transition focus-within:ring-2 focus-within:ring-periwinkle/50 ${
+                      v === n
+                        ? "border-navy bg-navy text-white"
+                        : v && n < v
+                          ? "border-navy/20 bg-navy/10 text-navy"
+                          : "border-border bg-white text-navy hover:border-navy/40"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`score_${p.key}`}
+                      value={n}
+                      required={required}
+                      checked={v === n}
+                      onChange={() => setValues((cur) => ({ ...cur, [p.key]: n }))}
+                      className="sr-only"
+                    />
+                    {n}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          );
+        })}
       </div>
     </div>
   );
