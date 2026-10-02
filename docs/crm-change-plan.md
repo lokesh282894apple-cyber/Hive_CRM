@@ -151,6 +151,6 @@ history older than what Meta returns on re-sync (37 months); sessions before 2 J
   other); no-answer / DNP calls can't be judged, so the score is optional there.
 - Past-student entries (`source = past_student`, back-dated) are excluded from marketing funnel,
   P&L revenue and converts.
-- Sheet months: sessions = "active users"; Meta spend = inorganic, non-Meta spend = organic;
+- Sheet months: sessions = "active users"; all sheet spend (Meta + non-Meta) is paid → inorganic, organic spend ₹0;
   sheet R1/R2/R3 treated as "booked" (completed unknown).
 - Loans count as realised on their last-updated date (no hit-bank date is stored for loans).

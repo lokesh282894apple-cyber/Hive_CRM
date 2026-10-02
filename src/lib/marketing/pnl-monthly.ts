@@ -231,9 +231,11 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
             offer: numOrNull(a.offered),
             convert: numOrNull(a.converts_total),
           },
-          // Sheet spend: Meta = inorganic, non-Meta = organic (team decision)
-          organicSpend: nonMeta,
-          inorganicSpend: meta,
+          // Every rupee in the sheet bought reach (Meta ads, LinkedIn campaigns,
+          // influencers, events) → inorganic. Organic activations in the sheet
+          // (Shark Tank, posts, challenges) cost nothing → organic spend 0.
+          organicSpend: total == null ? null : 0,
+          inorganicSpend: total,
           totalSpend: total,
           revenueBooked: null,
           gstBooked: null,

@@ -160,7 +160,8 @@ export default async function MarketingPnlMonthlyPage({
           Realised = money that hit the bank that month. ARPU = Realised ÷ converts.
         </p>
         <p>
-          Sheet months: sessions = &quot;active users&quot;; Meta spend = inorganic, non-Meta spend = organic; the sheet
+          Sheet months: sessions = &quot;active users&quot;; all spend (Meta + non-Meta: ads, LinkedIn, influencers, events) is
+          paid, so it counts as inorganic and organic spend is ₹0 (organic activations cost nothing); the sheet
           has one R1 / R2 / R3 number (booked vs completed unknown) and no revenue.
           &quot;—&quot; always means the data does not exist, not zero.
         </p>
