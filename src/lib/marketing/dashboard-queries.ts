@@ -27,6 +27,14 @@ import {
 import { meetsAqlCriteria } from "@/lib/marketing/aql";
 import { isClosedStage } from "@/lib/constants";
 import { istDateKey, istEndIso, istMonthKey, istStartIso } from "@/lib/tz";
+import {
+  bucketFunnel,
+  emptyFunnelCounts,
+  loadFunnelLeads,
+  PAST_STUDENT_SOURCE,
+  type FunnelBasis,
+  type FunnelCounts,
+} from "@/lib/analytics/funnel-engine";
 
 function db(): SupabaseClient {
   return createAdminClient();
@@ -71,6 +79,8 @@ export type MarketingFilters = {
   channel?: string | null;
   organicOnly?: boolean;
   inorganicOnly?: boolean;
+  /** Funnel counts by event date (default) or by lead created date (cohort) */
+  basis?: FunnelBasis;
 };
 
 export function parseMarketingFilters(sp: Record<string, string | undefined>): MarketingFilters {
@@ -87,6 +97,7 @@ export function parseMarketingFilters(sp: Record<string, string | undefined>): M
     channel: sp.channel || null,
     organicOnly: sp.organic === "1",
     inorganicOnly: sp.inorganic === "1",
+    basis: sp.basis === "cohort" ? "cohort" : "event",
   };
 }
 
@@ -111,6 +122,11 @@ const R1_DONE_STAGES = new Set([
 export type FunnelDayRow = {
   date: string;
   sessions: number;
+  /** null when the paid/organic split function is not installed */
+  sessionsPaid: number | null;
+  sessionsOrganic: number | null;
+  /** Every milestone, split organic / inorganic — from the shared funnel engine */
+  funnel: FunnelCounts;
   metaSpend: number;
   nonMetaSpend: number;
   /** Prefer marketing_daily_notes.organic_spend_inr when set */
@@ -276,6 +292,27 @@ export async function sessionsBySource(
   return Array.from(groups.values());
 }
 
+/**
+ * Sessions per IST day split Paid / Organic (same rule as leads). Returns null
+ * when the function isn't installed yet — the page shows "—", not a guess.
+ */
+export async function sessionsPaidSplit(
+  admin: SupabaseClient,
+  fromIso: string,
+  toIso: string
+): Promise<{ day: string; paid: number; organic: number }[] | null> {
+  const { data, error } = await admin.rpc("rpc_sessions_paid_split_ist", { p_from: fromIso, p_to: toIso });
+  if (error) {
+    if (isMissingRpc(error)) return null;
+    throw new Error(`rpc_sessions_paid_split_ist: ${error.message}`);
+  }
+  return ((data ?? []) as { day: string; paid: number | string; organic: number | string }[]).map((r) => ({
+    day: r.day,
+    paid: Number(r.paid) || 0,
+    organic: Number(r.organic) || 0,
+  }));
+}
+
 export async function fetchLeadFunnelUncached(
   filters: MarketingFilters
 ): Promise<FunnelDayRow[]> {
@@ -297,7 +334,7 @@ export async function fetchLeadFunnelUncached(
     )
   );
 
-  const [sessions, leads, history, spendRows, costRows, campsRes, notesRes, activations] =
+  const [sessions, leads, funnelLeads, spendRows, costRows, campsRes, notesRes, activations] =
     await Promise.all([
       sessionsPerDay(admin, fromIso, toIso),
       fetchAllPages<{
@@ -324,17 +361,7 @@ export async function fetchLeadFunnelUncached(
             .order("id", { ascending: true }).range(from, to),
         "leads.funnel"
       ),
-      fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
-        (from, to) =>
-          admin
-            .from("stage_history")
-            .select("lead_id, to_stage, changed_at")
-            .gte("changed_at", fromIso)
-            .lte("changed_at", toIso)
-            .order("changed_at", { ascending: true })
-            .order("id", { ascending: true }).range(from, to),
-        "stage_history.funnel"
-      ),
+      loadFunnelLeads(admin, fromIso, toIso),
       fetchAllPages<{ date: string; spend: number }>(
         (from, to) =>
           admin
@@ -400,6 +427,9 @@ export async function fetchLeadFunnelUncached(
       row = {
         date,
         sessions: 0,
+        sessionsPaid: null,
+        sessionsOrganic: null,
+        funnel: emptyFunnelCounts(),
         metaSpend: 0,
         nonMetaSpend: 0,
         organicSpend: 0,
@@ -436,21 +466,20 @@ export async function fetchLeadFunnelUncached(
     return row;
   };
 
-  const leadInorgById = new Map<string, boolean>();
-  for (const l of leads) {
-    const campId = attrMap.get(l.id);
-    leadInorgById.set(
-      l.id,
-      isInorganicLead({
-        utm_medium: l.utm_medium,
-        source: l.source,
-        campaignSourceType: campId ? campMap.get(campId) : null,
-      })
-    );
-  }
-
   for (const s of sessions) {
     ensure(s.day).sessions += s.sessions;
+  }
+  const split = await sessionsPaidSplit(admin, fromIso, toIso);
+  if (split) {
+    for (const r of Array.from(dayMap.values())) {
+      r.sessionsPaid = 0;
+      r.sessionsOrganic = 0;
+    }
+    for (const sp of split) {
+      const row = ensure(sp.day);
+      row.sessionsPaid = (row.sessionsPaid ?? 0) + sp.paid;
+      row.sessionsOrganic = (row.sessionsOrganic ?? 0) + sp.organic;
+    }
   }
 
   for (const sp of spendRows) {
@@ -465,25 +494,32 @@ export async function fetchLeadFunnelUncached(
     else ensure(d).metaSpend += amt;
   }
 
-  for (const l of leads) {
-    if (filters.programme && l.programme !== filters.programme) continue;
-    if (filters.cohortId && l.cohort_id !== filters.cohortId) continue;
-    const d = istDateKey(l.created_at);
-    const campId = attrMap.get(l.id);
-    const inorg = isInorganicLead({
-      utm_medium: l.utm_medium,
-      source: l.source,
-      campaignSourceType: campId ? campMap.get(campId) : null,
-    });
-    if (filters.organicOnly && inorg) continue;
-    if (filters.inorganicOnly && !inorg) continue;
+  // Leads + every funnel milestone from the shared engine (one source of truth)
+  const scopedFunnelLeads = funnelLeads.filter(
+    (l) =>
+      (!filters.programme || l.programme === filters.programme) &&
+      (!filters.cohortId || l.cohortId === filters.cohortId) &&
+      (!filters.organicOnly || !l.inorganic) &&
+      (!filters.inorganicOnly || l.inorganic)
+  );
+  const byDay = bucketFunnel(scopedFunnelLeads, filters.basis ?? "event", (iso) => {
+    const d = istDateKey(iso);
+    return d >= filters.fromDate && d <= filters.toDate ? d : null;
+  });
+  for (const [d, counts] of Array.from(byDay.entries())) {
     const row = ensure(d);
-    row.leads += 1;
-    if (inorg) row.inorganicLeads += 1;
-    else row.organicLeads += 1;
+    row.funnel = counts;
+    row.leads = counts.leads.total;
+    row.organicLeads = counts.leads.org;
+    row.inorganicLeads = counts.leads.inorg;
+    row.r1Booked = counts.r1Booked.total;
+    row.r1BookedOrganic = counts.r1Booked.org;
+    row.r1BookedInorganic = counts.r1Booked.inorg;
+    row.r1Completed = counts.r1Completed.total;
   }
 
   for (const l of leads) {
+    if (l.source === PAST_STUDENT_SOURCE) continue;
     const aqlDate = l.aql_at
       ? istDateKey(l.aql_at)
       : meetsAqlCriteria(l)
@@ -500,56 +536,6 @@ export async function fetchLeadFunnelUncached(
     row.aqlTotal += 1;
     if (inorg) row.aqlInorganic += 1;
     else row.aqlOrganic += 1;
-  }
-
-  const historyLeadIds = Array.from(new Set(history.map((h) => h.lead_id)));
-  const missingHistoryIds = historyLeadIds.filter((id) => !leadInorgById.has(id));
-  if (missingHistoryIds.length) {
-    const missingLeads = await selectInChunks<{
-      id: string;
-      source: string | null;
-      utm_medium: string | null;
-    }>("leads", "id", missingHistoryIds, "id, source, utm_medium");
-    const missingAttrs = await selectInChunks<{
-      lead_id: string;
-      first_touch_campaign_id: string | null;
-    }>(
-      "lead_attribution",
-      "lead_id",
-      missingHistoryIds,
-      "lead_id, first_touch_campaign_id"
-    );
-    const missingAttrMap = new Map(
-      missingAttrs.map((a) => [a.lead_id, a.first_touch_campaign_id])
-    );
-    for (const l of missingLeads) {
-      const campId = missingAttrMap.get(l.id);
-      leadInorgById.set(
-        l.id,
-        isInorganicLead({
-          utm_medium: l.utm_medium,
-          source: l.source,
-          campaignSourceType: campId ? campMap.get(campId) : null,
-        })
-      );
-    }
-  }
-
-  const r1BookedLeads = new Set<string>();
-  const r1DoneLeads = new Set<string>();
-  for (const h of history) {
-    const d = istDateKey(h.changed_at);
-    if (R1_BOOKED_STAGES.has(h.to_stage) && !r1BookedLeads.has(`${h.lead_id}:${d}`)) {
-      r1BookedLeads.add(`${h.lead_id}:${d}`);
-      const row = ensure(d);
-      row.r1Booked += 1;
-      if (leadInorgById.get(h.lead_id)) row.r1BookedInorganic += 1;
-      else row.r1BookedOrganic += 1;
-    }
-    if (R1_DONE_STAGES.has(h.to_stage) && !r1DoneLeads.has(`${h.lead_id}:${d}`)) {
-      r1DoneLeads.add(`${h.lead_id}:${d}`);
-      ensure(d).r1Completed += 1;
-    }
   }
 
   for (const a of activations.data ?? []) {
@@ -627,7 +613,7 @@ export async function fetchLeadFunnelUncached(
 /** Cached funnel — same numbers; request dedupe + 90s TTL (CRM dashboard pattern). */
 export const fetchLeadFunnel = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-lead-funnel-ist",
+    keyPrefix: "marketing-lead-funnel-v2",
     tags: [MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (filters: MarketingFilters) => marketingFilterCacheKey(filters),
   },
@@ -1044,6 +1030,8 @@ export type MetaAdPerformance = {
   rows: MetaAdPerfRow[];
   totals: Omit<MetaAdPerfRow, "key" | "campaignName" | "adSetName" | "adName" | "days">;
   lastSyncedAt: string | null;
+  /** meta_ad_insights_daily migration not applied yet */
+  setupNeeded: boolean;
 };
 
 type MetaDailyRow = {
@@ -1075,6 +1063,7 @@ export async function fetchMetaAdPerformance(
   groupBy: MetaAdGroupBy
 ): Promise<MetaAdPerformance> {
   const admin = db();
+  let setupNeeded = false;
   const [daily, leads] = await Promise.all([
     fetchAllPages<MetaDailyRow>(
       (from, to) =>
@@ -1089,7 +1078,14 @@ export async function fetchMetaAdPerformance(
           .order("ad_id", { ascending: true })
           .range(from, to),
       "meta_ad_insights_daily"
-    ),
+    ).catch((e: Error) => {
+      // Table arrives with migration 20261002100000 — show setup note, not a crash
+      if (/meta_ad_insights_daily|does not exist|schema cache/i.test(e.message)) {
+        setupNeeded = true;
+        return [] as MetaDailyRow[];
+      }
+      throw e;
+    }),
     fetchAllPages<{
       id: string;
       meta_ad_name: string | null;
@@ -1222,7 +1218,7 @@ export async function fetchMetaAdPerformance(
   rows.sort((a, b) => b.spend - a.spend);
   const crmTotal = rows.reduce((n, r) => n + r.crmLeads, 0);
 
-  return { rows, totals: finish(tot, crmTotal), lastSyncedAt };
+  return { rows, totals: finish(tot, crmTotal), lastSyncedAt, setupNeeded };
 }
 
 export type MonthlyMktRow = {

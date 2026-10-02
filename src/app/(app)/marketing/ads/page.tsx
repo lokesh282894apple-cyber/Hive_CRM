@@ -145,7 +145,9 @@ export default async function MarketingAdsPage({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={13} className="px-3 py-8 text-muted">
-                  No Meta data for these dates — run &quot;Sync now&quot; on the Meta connection, or upload a CSV.
+                  {perf.setupNeeded
+                    ? "Meta ad table not set up yet — run the latest database migration, then Sync now."
+                    : "No Meta data for these dates — run \"Sync now\" on the Meta connection, or upload a CSV."}
                 </td>
               </tr>
             )}

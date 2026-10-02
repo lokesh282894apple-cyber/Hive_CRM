@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { requireUser } from "@/lib/auth";
 import { MarketingPageShell } from "@/components/marketing/MarketingPageShell";
 import { DailyNotesEditor } from "@/components/marketing/DailyNotesEditor";
@@ -11,6 +12,7 @@ import {
   type FunnelDayRow,
 } from "@/lib/marketing/dashboard-queries";
 import Link from "next/link";
+import { addCounts, emptyFunnelCounts, type SplitCount } from "@/lib/analytics/funnel-engine";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -33,55 +35,71 @@ export default async function MarketingFunnelPage({
         ? rollMonthly(rows)
         : rows;
 
-  const totals = rolled.reduce(
-    (a, r) => ({
-      sessions: a.sessions + r.sessions,
-      organicSpend: a.organicSpend + r.organicSpend,
-      inorganicSpend: a.inorganicSpend + r.inorganicSpend,
-      spend: a.spend + r.totalSpend,
-      leads: a.leads + r.leads,
-      organicLeads: a.organicLeads + r.organicLeads,
-      inorganicLeads: a.inorganicLeads + r.inorganicLeads,
-      r1: a.r1 + r.r1Booked,
-      r1Org: a.r1Org + r.r1BookedOrganic,
-      r1Inorg: a.r1Inorg + r.r1BookedInorganic,
-      r1Done: a.r1Done + r.r1Completed,
-    }),
-    {
-      sessions: 0,
-      organicSpend: 0,
-      inorganicSpend: 0,
-      spend: 0,
-      leads: 0,
-      organicLeads: 0,
-      inorganicLeads: 0,
-      r1: 0,
-      r1Org: 0,
-      r1Inorg: 0,
-      r1Done: 0,
+  const basis = filters.basis ?? "event";
+  const total = recompute([rolled.reduce((acc, r) => {
+    mergeRow(acc, r);
+    return acc;
+  }, emptyRow("Total"))])[0];
+  const totals = {
+    sessions: total.sessions,
+    organicSpend: total.organicSpend,
+    inorganicSpend: total.inorganicSpend,
+    spend: total.totalSpend,
+    leads: total.leads,
+    organicLeads: total.organicLeads,
+    inorganicLeads: total.inorganicLeads,
+    r1: total.r1Booked,
+    r1Org: total.r1BookedOrganic,
+    r1Inorg: total.r1BookedInorganic,
+    r1Done: total.r1Completed,
+  };
+
+  const hrefWith = (patch: Record<string, string | null>) => {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(searchParams)) if (v) sp.set(k, v);
+    for (const [k, v] of Object.entries(patch)) {
+      if (v == null) sp.delete(k);
+      else sp.set(k, v);
     }
-  );
+    const q = sp.toString();
+    return `/marketing/funnel${q ? `?${q}` : ""}`;
+  };
+  const pill = (active: boolean) =>
+    `rounded-lg px-3 py-1.5 ${active ? "bg-navy text-white" : "bg-navy/5 text-navy"}`;
 
   return (
     <MarketingPageShell
       title="Lead funnel"
-      description="Daily / weekly / monthly — sessions → leads → R1 · spend · activity log"
+      description="Daily / weekly / monthly — sessions → leads → R1 → R2 → R3 → offer → convert · spend · activity log"
       basePath="/marketing/funnel"
       section="leads"
       extra={
-        <div className="flex gap-2 text-sm">
-          {(["daily", "weekly", "monthly"] as const).map((g) => (
-            <Link
-              key={g}
-              href={`/marketing/funnel?group=${g}`}
-              className={`rounded-lg px-3 py-1.5 capitalize ${group === g ? "bg-navy text-white" : "bg-navy/5 text-navy"}`}
-            >
-              {g}
+        <div className="flex flex-wrap items-center gap-4 text-sm">
+          <div className="flex gap-2">
+            {(["daily", "weekly", "monthly"] as const).map((g) => (
+              <Link key={g} href={hrefWith({ group: g === "daily" ? null : g })} className={`${pill(group === g)} capitalize`}>
+                {g}
+              </Link>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted">Count R1 / R2 / R3 / offer / convert by</span>
+            <Link href={hrefWith({ basis: null })} className={pill(basis === "event")}>
+              Date it happened
             </Link>
-          ))}
+            <Link href={hrefWith({ basis: "cohort" })} className={pill(basis === "cohort")}>
+              Lead created date (cohort)
+            </Link>
+          </div>
         </div>
       }
     >
+      {basis === "cohort" ? (
+        <p className="rounded-xl border border-border bg-navy/[0.02] px-4 py-2 text-xs text-muted">
+          Cohort view: every R1 / R2 / R3 / offer / convert is counted on the day its lead was created, so each
+          row shows how that day&apos;s leads have progressed so far. Recent rows keep growing as leads move on.
+        </p>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Sessions" value={String(totals.sessions)} />
         <StatCard label="Leads" value={String(totals.leads)} />
@@ -103,6 +121,8 @@ export default async function MarketingFunnelPage({
               <tr>
                 <th className="eyebrow px-3 py-2">Period</th>
                 <th className="eyebrow px-3 py-2">Sessions</th>
+                <th className="eyebrow px-3 py-2">Paid sessions</th>
+                <th className="eyebrow px-3 py-2">Organic sessions</th>
                 <th className="eyebrow px-3 py-2">Leads</th>
                 <th className="eyebrow px-3 py-2">Organic spend</th>
                 <th className="eyebrow px-3 py-2">Inorganic spend</th>
@@ -116,6 +136,8 @@ export default async function MarketingFunnelPage({
                 <tr key={`in-${r.date}`} className="border-b border-border last:border-0 align-top">
                   <td className="px-3 py-2 font-medium">{r.date}</td>
                   <td className="px-3 py-2 tabular-nums">{r.sessions}</td>
+                  <td className="px-3 py-2 tabular-nums">{r.sessionsPaid ?? "—"}</td>
+                  <td className="px-3 py-2 tabular-nums">{r.sessionsOrganic ?? "—"}</td>
                   <td className="px-3 py-2 tabular-nums">{r.leads}</td>
                   <td className="px-3 py-2">{formatInr(r.organicSpend)}</td>
                   <td className="px-3 py-2">{formatInr(r.inorganicSpend)}</td>
@@ -165,6 +187,8 @@ export default async function MarketingFunnelPage({
               <tr className="border-t border-border bg-navy/[0.03] font-semibold">
                 <td className="px-3 py-2">Total</td>
                 <td className="px-3 py-2">{totals.sessions}</td>
+                <td className="px-3 py-2">{total.sessionsPaid ?? "—"}</td>
+                <td className="px-3 py-2">{total.sessionsOrganic ?? "—"}</td>
                 <td className="px-3 py-2">{totals.leads}</td>
                 <td className="px-3 py-2">{formatInr(totals.organicSpend)}</td>
                 <td className="px-3 py-2">{formatInr(totals.inorganicSpend)}</td>
@@ -187,6 +211,7 @@ export default async function MarketingFunnelPage({
               <tr>
                 <th className="eyebrow px-3 py-2">Period</th>
                 <th className="eyebrow px-3 py-2">Sessions</th>
+                <th className="eyebrow px-3 py-2">Paid / Org sessions</th>
                 <th className="eyebrow px-3 py-2">Leads</th>
                 <th className="eyebrow px-3 py-2">Org / Inorg</th>
                 <th className="eyebrow px-3 py-2">R1 booked</th>
@@ -203,6 +228,9 @@ export default async function MarketingFunnelPage({
                 <tr key={`out-${r.date}`} className="border-b border-border last:border-0">
                   <td className="px-3 py-2 font-medium">{r.date}</td>
                   <td className="px-3 py-2">{r.sessions}</td>
+                  <td className="px-3 py-2 text-muted">
+                    {r.sessionsPaid ?? "—"} / {r.sessionsOrganic ?? "—"}
+                  </td>
                   <td className="px-3 py-2">{r.leads}</td>
                   <td className="px-3 py-2 text-muted">
                     {r.organicLeads} / {r.inorganicLeads}
@@ -221,6 +249,9 @@ export default async function MarketingFunnelPage({
               <tr className="border-t border-border bg-navy/[0.03] font-semibold">
                 <td className="px-3 py-2">Total</td>
                 <td className="px-3 py-2">{totals.sessions}</td>
+                <td className="px-3 py-2">
+                  {total.sessionsPaid ?? "—"} / {total.sessionsOrganic ?? "—"}
+                </td>
                 <td className="px-3 py-2">{totals.leads}</td>
                 <td className="px-3 py-2">
                   {totals.organicLeads} / {totals.inorganicLeads}
@@ -319,8 +350,81 @@ export default async function MarketingFunnelPage({
           </table>
         </div>
       </details>
+
+      <details className="panel" open>
+        <summary className="cursor-pointer border-b border-border px-4 py-3 text-sm font-semibold text-navy">
+          Cost metrics — cost per R2, R3, offer &amp; convert
+        </summary>
+        <p className="px-4 pt-3 text-xs text-muted">
+          Blended = total spend ÷ all · Org = organic spend ÷ organic leads&apos; count · InOrg = inorganic spend ÷
+          paid leads&apos; count. R2 / R3 = booked. &quot;—&quot; means nothing reached that stage.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1200px] text-left text-sm">
+            <thead className="border-b border-border bg-navy/[0.02]">
+              <tr>
+                <th className="eyebrow px-3 py-2" rowSpan={2}>Period</th>
+                {COST_STAGES.map((c) => (
+                  <th key={c.key} className="eyebrow border-l border-border px-3 py-2 text-center" colSpan={4}>
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {COST_STAGES.map((c) => (
+                  <Fragment key={c.key}>
+                    <th className="eyebrow border-l border-border px-3 py-1">#</th>
+                    <th className="eyebrow px-3 py-1">Blended</th>
+                    <th className="eyebrow px-3 py-1">Org</th>
+                    <th className="eyebrow px-3 py-1">InOrg</th>
+                  </Fragment>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...rolled, total].map((r) => (
+                <tr
+                  key={`cost4-${r.date}`}
+                  className={
+                    r === total
+                      ? "border-t border-border bg-navy/[0.03] font-semibold"
+                      : "border-b border-border last:border-0"
+                  }
+                >
+                  <td className="px-3 py-2 font-medium">{r.date}</td>
+                  {COST_STAGES.map((c) => {
+                    const n: SplitCount = r.funnel[c.key];
+                    return (
+                      <Fragment key={c.key}>
+                        <td className="border-l border-border px-3 py-2 tabular-nums">
+                          {n.total}
+                          <span className="text-[11px] text-muted"> ({n.org}/{n.inorg})</span>
+                        </td>
+                        <td className="px-3 py-2">{formatInr(costPer(r.totalSpend, n.total))}</td>
+                        <td className="px-3 py-2">{formatInr(costPer(r.organicSpend, n.org))}</td>
+                        <td className="px-3 py-2">{formatInr(costPer(r.inorganicSpend, n.inorg))}</td>
+                      </Fragment>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </MarketingPageShell>
   );
+}
+
+const COST_STAGES = [
+  { key: "r2Booked", label: "R2" },
+  { key: "r3Booked", label: "R3" },
+  { key: "offer", label: "Offer" },
+  { key: "convert", label: "Convert / Acquisition" },
+] as const;
+
+function costPer(spend: number, n: number): number | null {
+  return n > 0 ? spend / n : null;
 }
 
 function rollWeekly(rows: FunnelDayRow[]) {
@@ -353,6 +457,9 @@ function emptyRow(date: string): FunnelDayRow {
   return {
     date,
     sessions: 0,
+    sessionsPaid: null,
+    sessionsOrganic: null,
+    funnel: emptyFunnelCounts(),
     metaSpend: 0,
     nonMetaSpend: 0,
     organicSpend: 0,
@@ -388,6 +495,9 @@ function emptyRow(date: string): FunnelDayRow {
 
 function mergeRow(cur: FunnelDayRow, r: FunnelDayRow) {
   cur.sessions += r.sessions;
+  if (r.sessionsPaid != null) cur.sessionsPaid = (cur.sessionsPaid ?? 0) + r.sessionsPaid;
+  if (r.sessionsOrganic != null) cur.sessionsOrganic = (cur.sessionsOrganic ?? 0) + r.sessionsOrganic;
+  addCounts(cur.funnel, r.funnel);
   cur.metaSpend += r.metaSpend;
   cur.nonMetaSpend += r.nonMetaSpend;
   cur.organicSpend += r.organicSpend;

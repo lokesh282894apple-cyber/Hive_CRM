@@ -32,6 +32,7 @@ export function marketingFilterCacheKey(filters: {
   channel?: string | null;
   organicOnly?: boolean;
   inorganicOnly?: boolean;
+  basis?: "event" | "cohort";
 }): string {
   return [
     filters.fromDate,
@@ -41,6 +42,7 @@ export function marketingFilterCacheKey(filters: {
     filters.channel ?? "",
     filters.organicOnly ? "1" : "0",
     filters.inorganicOnly ? "1" : "0",
+    filters.basis ?? "event",
   ].join("|");
 }
 
