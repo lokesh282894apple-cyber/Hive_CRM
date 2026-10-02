@@ -893,6 +893,40 @@ export const CALL_OUTCOMES = [
 
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 
+/** Calls where the counselor spoke to the student — these need a Lead Quality score. */
+export const SCORED_CALL_OUTCOMES: readonly CallOutcome[] = ["connected", "callback_requested", "other"];
+
+/**
+ * Counselors score Intent + Comms + Profile after every call while the lead is
+ * pre-R1 (nurturing) or R1 Booked. Later rounds are scored by panelists.
+ */
+export const COUNSELOR_SCORING_STAGES: readonly Stage[] = [
+  "lead_created",
+  "in_funnel",
+  "new_lead",
+  "call_logged_nurturing",
+  "dnp",
+  "no_show",
+  "reschedule",
+  "retarget_next_batch",
+  "r1_booked",
+  "r1_reschedule",
+  "r1_no_show",
+];
+
+export function needsCallScore(stage: string, outcome: string): boolean {
+  return (
+    (COUNSELOR_SCORING_STAGES as readonly string[]).includes(stage) &&
+    (SCORED_CALL_OUTCOMES as readonly string[]).includes(outcome)
+  );
+}
+
+export const LEAD_QUALITY_PARTS = [
+  { key: "intent", label: "Intent", hint: "How keen the student is to join" },
+  { key: "comms", label: "Comms", hint: "How well they communicate" },
+  { key: "profile", label: "Profile", hint: "Background, education, fit" },
+] as const;
+
 export const INTERVIEW_ROUNDS = ["R1", "R2", "R3"] as const;
 export type InterviewRound = (typeof INTERVIEW_ROUNDS)[number];
 

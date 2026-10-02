@@ -50,7 +50,7 @@ export type ScopePair = { course_id: string; cohort_id: string };
 type Supabase = ReturnType<typeof createClient>;
 
 export const LEAD_LIST_SELECT =
-  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, counselor_intent, counselor_comms, counselor_profile, lead_quality, panel_intent, panel_profile, panel_round, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
 
 export function parseLeadsSearchParams(
   sp: Record<string, string | string[] | undefined>,

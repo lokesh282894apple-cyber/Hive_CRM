@@ -72,6 +72,16 @@ export type Lead = {
   programme?: string | null;
   /** Mean of lead_stage_scores.intent_score (1–5) */
   avg_student_intent?: number | null;
+  /** Latest counselor scores (1–5) and Lead Quality = intent + comms + profile (3–15) */
+  counselor_intent?: number | null;
+  counselor_comms?: number | null;
+  counselor_profile?: number | null;
+  lead_quality?: number | null;
+  lead_quality_at?: string | null;
+  /** Latest panelist scores (1–5) — kept beside, never mixed into, Lead Quality */
+  panel_intent?: number | null;
+  panel_profile?: number | null;
+  panel_round?: string | null;
   /** Last website hs_session_id from form dual-write */
   website_session_id?: string | null;
   years_experience: number | null;

@@ -10,7 +10,6 @@ import {
 } from "@/app/actions/leads";
 import {
   fetchLeadMarketing,
-  fetchLeadScoreBreakdown,
 } from "@/app/actions/lead-detail";
 import { markNoShowOrReschedule } from "@/app/actions/interviews";
 import {
@@ -38,7 +37,8 @@ import {
 } from "@/components/leads/LeadMarketingTab";
 import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
 import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
-import { LeadScoreCard, LeadScoreSummary } from "@/components/leads/LeadScoreCard";
+import { LeadQualityBadge, LeadQualityCard } from "@/components/leads/LeadQuality";
+import { CallScoreFields } from "@/components/leads/CallScoreFields";
 import { LeadQualificationPanel } from "@/components/leads/LeadQualificationPanel";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
 import { LeadTasksPanel } from "@/components/leads/LeadTasksPanel";
@@ -91,8 +91,6 @@ export function LeadDetailClient({
   counselors = [],
   allocatedToId = null,
   interviewBookings = [],
-  scoreBreakdown = null,
-  loadScoreOnDemand = false,
   messageLogs = [],
   touchpoints = [],
   marketing = null,
@@ -142,22 +140,16 @@ export function LeadDetailClient({
   
   const [courseId, setCourseId] = useState(lead.course_id ?? "");
   const [ownerId, setOwnerId] = useState(allocatedToId ?? "");
-  const [liveScore, setLiveScore] = useState<ScoreBreakdown | null>(scoreBreakdown);
   const [liveMarketing, setLiveMarketing] = useState<LeadMarketingData | null>(
     marketing
   );
   const [marketingLoading, setMarketingLoading] = useState(false);
-  const [scoreLoading, setScoreLoading] = useState(false);
 
   const [marketingLoaded, setMarketingLoaded] = useState(false);
 
   useEffect(() => {
     setOwnerId(allocatedToId ?? "");
   }, [allocatedToId]);
-
-  useEffect(() => {
-    if (scoreBreakdown) setLiveScore(scoreBreakdown);
-  }, [scoreBreakdown]);
 
   useEffect(() => {
     setLocalLead(lead);
@@ -170,24 +162,6 @@ export function LeadDetailClient({
       setMarketingLoaded(true);
     }
   }, [marketing]);
-
-  // Score breakdown off the critical path
-  useEffect(() => {
-    if (!loadScoreOnDemand) return;
-    let cancelled = false;
-    setScoreLoading(true);
-    fetchLeadScoreBreakdown(lead.id)
-      .then((data) => {
-        if (!cancelled) setLiveScore(data);
-      })
-      .catch(() => null)
-      .finally(() => {
-        if (!cancelled) setScoreLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [lead.id, loadScoreOnDemand]);
 
   // Marketing journey only when tab is opened (once per lead)
   useEffect(() => {
@@ -383,28 +357,7 @@ export function LeadDetailClient({
           <h1 className="mt-1 text-3xl font-semibold text-navy">{localLead.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StageBadge stage={localLead.stage} />
-            {(localLead.score_override ?? localLead.score_auto ?? localLead.intent_score) != null ? (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-2.5 py-1 text-xs font-semibold text-navy"
-                title={
-                  lead.score_override != null
-                    ? "Counselor-adjusted conversion likelihood"
-                    : "Estimated chance this lead becomes a student"
-                }
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-                  Convert
-                </span>
-                <span className="tabular-nums text-sm">
-                  {localLead.score_override ?? localLead.score_auto ?? localLead.intent_score}%
-                </span>
-                {localLead.score_override != null ? (
-                  <span className="rounded bg-gold/20 px-1 text-[10px] font-semibold text-navy">
-                    adj
-                  </span>
-                ) : null}
-              </span>
-            ) : null}
+            <LeadQualityBadge lead={localLead} compact />
             {activeCounselors.length > 0 ? (
               <label className="inline-flex items-center gap-2 text-sm text-muted">
                 <span className="whitespace-nowrap">Allocated to</span>
@@ -500,16 +453,11 @@ export function LeadDetailClient({
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
-            Conversion chance
+            Lead quality
           </p>
-          <p className="mt-1 text-sm font-medium tabular-nums text-navy">
-            {(lead.score_override ?? lead.score_auto ?? lead.intent_score) != null
-              ? `${lead.score_override ?? lead.score_auto ?? lead.intent_score}%`
-              : "—"}
-            {lead.score_override != null ? (
-              <span className="ml-1 text-[10px] font-semibold uppercase text-muted">adj</span>
-            ) : null}
-          </p>
+          <div className="mt-1 text-sm">
+            <LeadQualityBadge lead={localLead} />
+          </div>
         </div>
         <div className="rounded-xl border border-border bg-white px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
@@ -673,12 +621,7 @@ export function LeadDetailClient({
 
       {tab === "info" ? (
         <div className="space-y-6">
-          <LeadScoreSummary
-            intentScore={localLead.intent_score}
-            scoreAuto={localLead.score_auto ?? liveScore?.score ?? null}
-            scoreOverride={localLead.score_override ?? null}
-            breakdown={liveScore}
-          />
+          <LeadQualityCard leadId={localLead.id} lead={localLead} />
 
           <LeadQualificationPanel
             leadId={localLead.id}
@@ -721,6 +664,7 @@ export function LeadDetailClient({
                 <input name="recording_url" className="input-field" />
               </div>
             </div>
+            <CallScoreFields stage={localLead.stage} />
             <div>
               <label className="label-field">Notes</label>
               <textarea name="notes" className="input-field min-h-[60px]" />
@@ -955,18 +899,7 @@ export function LeadDetailClient({
           </div>
           </div>
 
-          <LeadScoreCard
-            leadId={lead.id}
-            intentScore={lead.intent_score}
-            scoreAuto={lead.score_auto ?? liveScore?.score ?? null}
-            scoreOverride={lead.score_override ?? null}
-            scoreOverrideReason={lead.score_override_reason ?? null}
-            scoreOverrideAt={lead.score_override_at ?? null}
-            breakdown={liveScore}
-          />
-          {scoreLoading ? (
-            <p className="mt-2 text-xs text-muted">Loading score detail…</p>
-          ) : null}
+
         </div>
       ) : null}
 
@@ -1009,6 +942,7 @@ export function LeadDetailClient({
               <label className="label-field">Duration (seconds)</label>
               <input name="duration" type="number" className="input-field" />
             </div>
+            <CallScoreFields stage={localLead.stage} />
             <div>
               <label className="label-field">Notes</label>
               <textarea name="notes" className="input-field min-h-[100px]" />

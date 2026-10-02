@@ -11,7 +11,9 @@ import {
   stageRequiresStudentIntent,
   isValidRejectionReasonForStage,
   rejectAtStageFromLeadStage,
+  needsCallScore,
 } from "@/lib/constants";
+import { recomputeAvgStudentIntent } from "@/app/actions/scores";
 import { getFunnelConfig } from "@/lib/funnel/config";
 import { recomputeLeadScore } from "@/lib/leads/score";
 import { createClient } from "@/lib/supabase/server";
@@ -561,12 +563,43 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
 
   if (!payload.lead_id) return { ok: false, error: "Missing lead" };
 
-  const { error } = await supabase.from("call_logs").insert({
-    ...payload,
-    call_source: "manual",
-    direction: "outbound",
-  });
+  // Lead Quality: Intent + Comms + Profile, required after every conversation
+  // while the lead is pre-R1 / R1 Booked
+  const { data: leadRow } = await supabase.from("leads").select("stage").eq("id", leadId).maybeSingle();
+  const scoreNeeded = !!leadRow && needsCallScore(leadRow.stage, payload.outcome);
+  const score = (k: string) => Number(formData.get(`score_${k}`));
+  const scores = { intent: score("intent"), comms: score("comms"), profile: score("profile") };
+  const scoresValid = Object.values(scores).every((n) => Number.isInteger(n) && n >= 1 && n <= 5);
+  if (scoreNeeded && !scoresValid) {
+    return { ok: false, error: "Score Intent, Comms and Profile (1–5) for this call" };
+  }
+
+  const { data: inserted, error } = await supabase
+    .from("call_logs")
+    .insert({
+      ...payload,
+      call_source: "manual",
+      direction: "outbound",
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, error: error.message };
+
+  if (scoresValid) {
+    const { error: scoreErr } = await supabase.from("lead_stage_scores").insert({
+      lead_id: leadId,
+      scored_by: counselorId,
+      context: "call",
+      round: null,
+      intent_score: scores.intent,
+      comms_score: scores.comms,
+      profile_score: scores.profile,
+      call_log_id: inserted?.id ?? null,
+      notes: rawNotes || null,
+    });
+    if (scoreErr) return { ok: false, error: `Call saved, score not saved: ${scoreErr.message}` };
+    await recomputeAvgStudentIntent(supabase, leadId);
+  }
 
   if (payload.outcome === "dnp") {
     try {

@@ -99,3 +99,48 @@ export async function recordStudentIntentScore(input: {
     notes: input.notes ?? null,
   });
 }
+
+export type LeadScoreHistoryRow = {
+  id: string;
+  context: string;
+  round: string | null;
+  intent: number;
+  comms: number | null;
+  profile: number;
+  notes: string | null;
+  createdAt: string;
+  scorer: string | null;
+};
+
+/** Every score given on a lead, newest first — counselor calls and panel rounds. */
+export async function fetchLeadScoreHistory(leadId: string): Promise<LeadScoreHistoryRow[]> {
+  await requireUser(["counselor", "admin", "interviewer"]);
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("lead_stage_scores")
+    .select("id, context, round, intent_score, comms_score, profile_score, notes, created_at, scorer:users!lead_stage_scores_scored_by_fkey(name)")
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  return ((data ?? []) as unknown as {
+    id: string;
+    context: string;
+    round: string | null;
+    intent_score: number;
+    comms_score: number | null;
+    profile_score: number;
+    notes: string | null;
+    created_at: string;
+    scorer: { name: string } | null;
+  }[]).map((r) => ({
+    id: r.id,
+    context: r.context,
+    round: r.round,
+    intent: r.intent_score,
+    comms: r.comms_score ?? null,
+    profile: r.profile_score,
+    notes: r.notes,
+    createdAt: r.created_at,
+    scorer: r.scorer?.name ?? null,
+  }));
+}
