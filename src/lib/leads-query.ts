@@ -51,6 +51,27 @@ type Supabase = ReturnType<typeof createClient>;
 
 export const LEAD_LIST_SELECT =
   "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, counselor_intent, counselor_comms, counselor_profile, lead_quality, panel_intent, panel_profile, panel_round, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+/** Same list without the Lead Quality columns (before migration 20261002120000). */
+const LEAD_LIST_SELECT_BASE =
+  "id, name, email, phone, linkedin, course_id, cohort_id, source, years_experience, preferred_industry, intent_score, avg_student_intent, lead_allocated_to, stage, stage_reason, reject_kind, reject_reason_category, created_at, updated_at, last_contacted_at, hubspot_id, offer_call_status, counselor_intent_check, convert_probability, offer_accept_deadline, recording_url, qualification_intent, financial_check, dq_reason, course:courses(id, name, active), cohort:cohorts(id, name, course_id, active, default_total_fee, cohort_number, year), allocated:users!leads_lead_allocated_to_fkey(id, name, email, role)";
+
+/**
+ * Board / list rows. Falls back to the columns that existed before the Lead
+ * Quality migration so the board never comes up empty if the code ships first.
+ */
+export async function selectLeadsList(
+  supabase: Supabase,
+  opts: Parameters<typeof applyLeadsFilters>[1]
+): Promise<{ data: unknown[] | null; select: string }> {
+  const run = (select: string) => applyLeadsFilters(supabase.from("leads").select(select), opts);
+  const first = await run(LEAD_LIST_SELECT);
+  if (!first.error) return { data: first.data, select: LEAD_LIST_SELECT };
+  if (!/column .* does not exist|lead_quality|counselor_intent|panel_intent/i.test(first.error.message)) {
+    return { data: first.data, select: LEAD_LIST_SELECT };
+  }
+  const fallback = await run(LEAD_LIST_SELECT_BASE);
+  return { data: fallback.data, select: LEAD_LIST_SELECT_BASE };
+}
 
 export function parseLeadsSearchParams(
   sp: Record<string, string | string[] | undefined>,
