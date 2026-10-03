@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/Primitives";
 import { MarketingFilterBar } from "@/components/marketing/MarketingFilterBar";
 import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import type { MarketingSection } from "@/lib/marketing/nav";
+import { MetaAutoSync } from "@/components/marketing/MetaAutoSync";
 
 export function MarketingPageShell({
   title,
@@ -24,6 +25,7 @@ export function MarketingPageShell({
   return (
     <div className="space-y-6">
       <PageHeader title={title} description={description} />
+      <MetaAutoSync />
       {section ? <MarketingSubNav section={section} /> : null}
       {extra}
       <Suspense fallback={<div className="panel h-16 animate-pulse" />}>

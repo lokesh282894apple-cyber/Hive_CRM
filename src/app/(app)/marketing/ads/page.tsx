@@ -153,7 +153,7 @@ export default async function MarketingAdsPage({
                 <td colSpan={13} className="px-3 py-8 text-muted">
                   {perf.setupNeeded
                     ? "Meta ad table not set up yet — run the latest database migration, then Sync now."
-                    : "No Meta data for these dates yet — it fills in after the next automatic sync (around 9:30 AM IST)."}
+                    : "No Meta data for these dates yet — today's numbers load automatically in a few seconds; older days come from the daily run."}
                 </td>
               </tr>
             )}

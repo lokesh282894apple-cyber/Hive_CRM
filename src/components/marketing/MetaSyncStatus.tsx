@@ -9,12 +9,15 @@ function when(iso: string) {
 export function MetaSyncStatus({ runs }: { runs: MetaSyncRun[] }) {
   const lastAuto = runs.find((r) => r.trigger === "auto");
   const last = runs[0];
-  const staleAuto = !lastAuto || Date.now() - new Date(lastAuto.at).getTime() > 30 * 3600 * 1000;
+  const staleAuto = !lastAuto || Date.now() - new Date(lastAuto.at).getTime() > 26 * 3600 * 1000;
   const tone = !lastAuto ? "border-amber-200 bg-amber-50" : lastAuto.ok ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50";
 
   return (
     <div className={`rounded-xl border px-4 py-3 text-sm text-navy ${tone}`}>
-      <p className="font-semibold">Automatic Meta sync — every day around 9:30 AM IST (last 7 days)</p>
+      <p className="font-semibold">
+        Meta data updates automatically — whenever a marketing page is opened and the data is over 30 minutes
+        old, plus a daily run around 9:30 AM IST
+      </p>
       <p className="mt-1">
         {lastAuto ? (
           <>
@@ -23,7 +26,7 @@ export function MetaSyncStatus({ runs }: { runs: MetaSyncRun[] }) {
             {staleAuto ? " · more than a day ago" : ""}
           </>
         ) : (
-          "No automatic run recorded yet — the first one is logged at the next 9:30 AM run."
+          "No automatic run recorded yet — it starts the next time a marketing page is opened."
         )}
       </p>
       {lastAuto && !lastAuto.ok && lastAuto.errors.length ? (
@@ -35,7 +38,7 @@ export function MetaSyncStatus({ runs }: { runs: MetaSyncRun[] }) {
           {last.ok ? `${last.synced.toLocaleString("en-IN")} rows` : `failed — ${last.errors[0] ?? ""}`}
         </p>
       ) : null}
-      <p className="mt-1 text-xs text-muted">&quot;Sync now&quot; is only needed for an instant refresh.</p>
+      <p className="mt-1 text-xs text-muted">No button needed. &quot;Sync now&quot; on Ad Connections is only for re-pulling the last 14 days.</p>
     </div>
   );
 }
