@@ -162,7 +162,8 @@ export async function syncMetaSpendNow(): Promise<
 > {
   await requireUser(["admin"]);
   const { createAdminClient } = await import("@/lib/supabase/admin");
-  const { syncMetaAdSpend } = await import("@/lib/marketing/meta-sync");
+  const { recordMetaSyncRun, syncMetaAdSpend } = await import("@/lib/marketing/meta-sync");
+  const startedAt = Date.now();
   const admin = createAdminClient();
 
   const { data: connections } = await admin
@@ -189,6 +190,16 @@ export async function syncMetaSpendNow(): Promise<
     errors.push(...result.errors);
     accounts.push(...result.accounts);
   }
+
+  await recordMetaSyncRun(admin, {
+    at: new Date().toISOString(),
+    trigger: "manual",
+    ok: synced > 0 || errors.length === 0,
+    synced,
+    days: 14,
+    durationMs: Date.now() - startedAt,
+    errors,
+  });
 
   revalidatePath("/marketing/ads");
   revalidatePath("/marketing/funnel");

@@ -11,6 +11,9 @@ import {
   type MetaAdGroupBy,
 } from "@/lib/marketing/dashboard-queries";
 import { istDateKey, istTime } from "@/lib/tz";
+import { MetaSyncStatus } from "@/components/marketing/MetaSyncStatus";
+import { fetchMetaSyncRuns } from "@/lib/marketing/meta-sync";
+import { createClient } from "@/lib/supabase/server";
 
 // Cold aggregates can take several seconds on a small DB — finish and fill
 // the cache instead of hitting the default function timeout.
@@ -33,9 +36,10 @@ export default async function MarketingAdsPage({
   const filters = parseMarketingFilters(searchParams);
   const groupBy: MetaAdGroupBy =
     searchParams.group === "campaign" || searchParams.group === "adset" ? searchParams.group : "ad";
-  const [perf, csvRows] = await Promise.all([
+  const [perf, csvRows, syncRuns] = await Promise.all([
     fetchMetaAdPerformance(filters, groupBy),
     fetchAdInsights(filters),
+    fetchMetaSyncRuns(createClient()).catch(() => []),
   ]);
   const { rows, totals } = perf;
 
@@ -60,6 +64,8 @@ export default async function MarketingAdsPage({
       showOrganic={false}
       extra={<CsvUploadPanel />}
     >
+      <MetaSyncStatus runs={syncRuns} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1">
           {GROUPS.map((g) => (
@@ -147,7 +153,7 @@ export default async function MarketingAdsPage({
                 <td colSpan={13} className="px-3 py-8 text-muted">
                   {perf.setupNeeded
                     ? "Meta ad table not set up yet — run the latest database migration, then Sync now."
-                    : "No Meta data for these dates — run \"Sync now\" on the Meta connection, or upload a CSV."}
+                    : "No Meta data for these dates yet — it fills in after the next automatic sync (around 9:30 AM IST)."}
                 </td>
               </tr>
             )}
