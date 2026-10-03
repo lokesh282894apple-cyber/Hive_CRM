@@ -162,7 +162,8 @@ export async function syncMetaSpendNow(): Promise<
 > {
   await requireUser(["admin"]);
   const { createAdminClient } = await import("@/lib/supabase/admin");
-  const { syncMetaAdSpend } = await import("@/lib/marketing/meta-sync");
+  const { recordMetaSyncRun, syncMetaAdSpend } = await import("@/lib/marketing/meta-sync");
+  const startedAt = Date.now();
   const admin = createAdminClient();
 
   const { data: connections } = await admin
@@ -189,6 +190,16 @@ export async function syncMetaSpendNow(): Promise<
     errors.push(...result.errors);
     accounts.push(...result.accounts);
   }
+
+  await recordMetaSyncRun(admin, {
+    at: new Date().toISOString(),
+    trigger: "manual",
+    ok: synced > 0 || errors.length === 0,
+    synced,
+    days: 14,
+    durationMs: Date.now() - startedAt,
+    errors,
+  });
 
   revalidatePath("/marketing/ads");
   revalidatePath("/marketing/funnel");
@@ -394,4 +405,60 @@ async function testMetaToken(
 function looksLikeNumericAdAccount(id: string): boolean {
   // Prefer act_ prefix; bare digits may be Page ID — only treat as ad account if prefixed.
   return /^act_\d+$/i.test(id.trim());
+}
+
+/** Meta data older than this is refreshed when someone opens a marketing page. */
+const META_FRESH_MINUTES = 30;
+/** A sync started this recently is assumed still running — don't start another. */
+const META_LOCK_MINUTES = 3;
+
+/**
+ * Keep Meta data live without anyone pressing "Sync now": called in the
+ * background from every marketing page. Pulls today + yesterday (ad level)
+ * when the last sync is older than META_FRESH_MINUTES. The nightly cron is
+ * the backstop for days nobody opens the dashboards.
+ */
+export async function autoSyncMetaIfStale(): Promise<{ ran: boolean; synced: number }> {
+  await requireUser(["admin", "marketing"]);
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const { fetchMetaSyncRuns, recordMetaSyncRun, syncMetaAdSpend } = await import("@/lib/marketing/meta-sync");
+  const admin = createAdminClient();
+
+  const now = Date.now();
+  const [runs, { data: lock }] = await Promise.all([
+    fetchMetaSyncRuns(admin),
+    admin.from("app_settings").select("value").eq("key", "meta_sync_lock").maybeSingle(),
+  ]);
+  const lastOk = runs.find((r) => r.ok);
+  if (lastOk && now - new Date(lastOk.at).getTime() < META_FRESH_MINUTES * 60_000) return { ran: false, synced: 0 };
+  const lockedAt = (lock?.value as { at?: string } | null)?.at;
+  if (lockedAt && now - new Date(lockedAt).getTime() < META_LOCK_MINUTES * 60_000) return { ran: false, synced: 0 };
+  await admin.from("app_settings").upsert({ key: "meta_sync_lock", value: { at: new Date(now).toISOString() } });
+
+  const { data: connections } = await admin
+    .from("ad_platform_connections")
+    .select("account_id, access_token")
+    .eq("status", "connected")
+    .eq("platform", "meta");
+  if (!connections?.length) return { ran: false, synced: 0 };
+
+  let synced = 0;
+  const errors: string[] = [];
+  for (const conn of connections) {
+    if (!conn.access_token || !conn.account_id) continue;
+    const result = await syncMetaAdSpend(admin, conn.access_token, conn.account_id, { days: 1, maxPages: 6 });
+    synced += result.synced;
+    errors.push(...result.errors);
+  }
+  await recordMetaSyncRun(admin, {
+    at: new Date().toISOString(),
+    trigger: "auto",
+    ok: synced > 0 || errors.length === 0,
+    synced,
+    days: 1,
+    durationMs: Date.now() - now,
+    errors,
+  });
+  if (synced > 0) invalidateMarketingCaches();
+  return { ran: true, synced };
 }

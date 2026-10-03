@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuth } from "@/lib/marketing/track-auth";
-import { syncMetaAdSpend } from "@/lib/marketing/meta-sync";
+import { recordMetaSyncRun, syncMetaAdSpend } from "@/lib/marketing/meta-sync";
+import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 
 // Ad-level × daily is a few thousand rows a month — give the sync room to finish
 export const maxDuration = 60;
@@ -15,9 +16,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // ?days=400 re-syncs history (Meta keeps 37 months of insights)
+  // Nightly: last 7 days (Meta revises recent days; small enough to finish
+  // well inside the 60s limit). ?days=400 re-syncs history (Meta keeps 37 months).
   const daysParam = Number(request.nextUrl.searchParams.get("days"));
-  const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.min(Math.floor(daysParam), 400) : 30;
+  const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.min(Math.floor(daysParam), 400) : 7;
+  const startedAt = Date.now();
 
   const admin = createAdminClient();
   const { data: connections } = await admin
@@ -45,6 +48,18 @@ export async function POST(request: NextRequest) {
     errors.push(...result.errors);
     accounts.push(...result.accounts);
   }
+
+  if (!(connections ?? []).length) errors.push("No connected Meta account");
+  await recordMetaSyncRun(admin, {
+    at: new Date().toISOString(),
+    trigger: "auto",
+    ok: synced > 0 || errors.length === 0,
+    synced,
+    days,
+    durationMs: Date.now() - startedAt,
+    errors,
+  });
+  if (synced > 0) invalidateMarketingCaches();
 
   return NextResponse.json({
     ok: true,

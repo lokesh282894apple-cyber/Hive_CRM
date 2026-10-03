@@ -351,3 +351,33 @@ async function ensureCampaign(
     .single();
   return created;
 }
+
+export type MetaSyncRun = {
+  at: string;
+  trigger: "auto" | "manual";
+  ok: boolean;
+  synced: number;
+  days: number;
+  durationMs: number;
+  errors: string[];
+};
+
+/** Last runs kept in app_settings so the UI can show whether the nightly sync worked. */
+export const META_SYNC_RUNS_KEY = "meta_sync_runs";
+const KEEP_RUNS = 10;
+
+export async function recordMetaSyncRun(admin: SupabaseClient, run: MetaSyncRun): Promise<void> {
+  try {
+    const { data } = await admin.from("app_settings").select("value").eq("key", META_SYNC_RUNS_KEY).maybeSingle();
+    const prev = Array.isArray(data?.value) ? (data!.value as MetaSyncRun[]) : [];
+    const next = [{ ...run, errors: run.errors.slice(0, 5).map((e) => e.slice(0, 300)) }, ...prev].slice(0, KEEP_RUNS);
+    await admin.from("app_settings").upsert({ key: META_SYNC_RUNS_KEY, value: next, updated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error("[meta-sync] could not record run", err);
+  }
+}
+
+export async function fetchMetaSyncRuns(client: SupabaseClient): Promise<MetaSyncRun[]> {
+  const { data } = await client.from("app_settings").select("value").eq("key", META_SYNC_RUNS_KEY).maybeSingle();
+  return Array.isArray(data?.value) ? (data!.value as MetaSyncRun[]) : [];
+}

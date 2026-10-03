@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/Primitives";
 import { ConnectionsClient } from "@/components/marketing/ConnectionsClient";
 import type { AdPlatformConnectionStatus } from "@/types/database";
+import { MetaSyncStatus } from "@/components/marketing/MetaSyncStatus";
+import { fetchMetaSyncRuns } from "@/lib/marketing/meta-sync";
 
 export default async function AdConnectionsPage() {
   await requireUser(["admin"]);
@@ -32,6 +34,8 @@ export default async function AdConnectionsPage() {
     .eq("key", "meta_webhook_verify_token")
     .maybeSingle();
 
+  const syncRuns = await fetchMetaSyncRuns(supabase).catch(() => []);
+
   let metaWebhookVerifyToken = "";
   const raw = verifySetting?.value;
   if (typeof raw === "string") metaWebhookVerifyToken = raw.replace(/^"|"$/g, "");
@@ -47,6 +51,9 @@ export default async function AdConnectionsPage() {
         accent="Connections"
         description="Store Meta / Google / LinkedIn credentials in the CRM. Meta tokens power Lead Ads ingest (and later spend sync)."
       />
+      <div className="mb-4">
+        <MetaSyncStatus runs={syncRuns} />
+      </div>
       <ConnectionsClient
         connections={connections}
         metaWebhookVerifyToken={metaWebhookVerifyToken}
