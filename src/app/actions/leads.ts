@@ -562,6 +562,11 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
   };
 
   if (!payload.lead_id) return { ok: false, error: "Missing lead" };
+  // Talk time comes only from this field — Sep 2026 had 2 of 332 connected
+  // calls with a duration, so the dashboard showed 0h
+  if (payload.outcome === "connected" && !(payload.duration && payload.duration > 0)) {
+    return { ok: false, error: "Enter the call length (minutes and seconds) for a connected call" };
+  }
 
   // Lead Quality: Intent + Comms + Profile, required after every conversation
   // while the lead is pre-R1 / R1 Booked

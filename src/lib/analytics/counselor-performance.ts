@@ -36,8 +36,10 @@ export type CounselorCallingStats = {
   pickupRatePct: number | null;
   /** Total talk time (seconds) in range */
   totalTalkSec: number;
-  /** Average of daily talk totals across days with calls (seconds) */
+  /** Average of daily talk totals across days with calls (seconds); null when no connected call has a duration */
   avgDailyTalkSec: number | null;
+  /** Connected calls that have a call length entered — talk time is only as good as this */
+  connectedWithDuration: number;
   inboundCalls: number;
   inboundAttended: number;
   inboundAttendPct: number | null;
@@ -136,6 +138,7 @@ function emptyCalling(): CounselorCallingStats {
     pickupRatePct: null,
     totalTalkSec: 0,
     avgDailyTalkSec: null,
+    connectedWithDuration: 0,
     inboundCalls: 0,
     inboundAttended: 0,
     inboundAttendPct: null,
@@ -539,10 +542,12 @@ async function fetchCounselorDashboardUncached(
       mine.length > 0
         ? Number(((connected.length / mine.length) * 100).toFixed(1))
         : null;
+    const timed = connected.filter((c) => (c.duration ?? 0) > 0);
+    // Days with a timed connected call — untimed calls can't add talk time
+    const timedDays = new Set(timed.map((c) => dayKey(c.logged_at)));
+    row.calling.connectedWithDuration = timed.length;
     row.calling.totalTalkSec = totalTalk;
-    row.calling.avgDailyTalkSec = dailyTalks.length
-      ? Math.round(totalTalk / dailyTalks.length)
-      : null;
+    row.calling.avgDailyTalkSec = timedDays.size ? Math.round(totalTalk / timedDays.size) : null;
     row.calling.inboundCalls = inbound.length;
     row.calling.inboundAttended = inboundAttended.length;
     row.calling.inboundAttendPct =
@@ -691,6 +696,7 @@ async function fetchCounselorDashboardUncached(
     totals.calling.connectedCalls += r.calling.connectedCalls;
     totals.calling.notConnectedCalls += r.calling.notConnectedCalls;
     totals.calling.totalTalkSec += r.calling.totalTalkSec;
+    totals.calling.connectedWithDuration += r.calling.connectedWithDuration;
     totals.calling.inboundCalls += r.calling.inboundCalls;
     totals.calling.inboundAttended += r.calling.inboundAttended;
     totals.calling.outboundCalls += r.calling.outboundCalls;
@@ -773,7 +779,7 @@ export async function fetchCounselorDashboard(
   const key = filterKey(filters);
   return unstable_cache(
     () => fetchCounselorDashboardUncached(filters),
-    ["counselor-dashboard-v4-engine", key],
+    ["counselor-dashboard-v5-talk", key],
     { revalidate: 60, tags: ["counselor-dashboard"] }
   )();
 }

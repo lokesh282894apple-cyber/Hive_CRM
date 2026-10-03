@@ -17,6 +17,13 @@ function pctLabel(n: number, of: number) {
   return of > 0 ? `${((n / of) * 100).toFixed(1)}%` : "—";
 }
 
+function formatTalk(sec: number | null) {
+  if (sec == null) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
 function formatSecs(sec: number | null) {
   if (sec == null) return "—";
   const m = Math.floor(sec / 60);
@@ -168,11 +175,8 @@ export default async function AdminCounselorPage({
         />
         <StatCard
           label="Talk time (avg/day)"
-          value={
-            t.calling.avgDailyTalkSec != null
-              ? `${(t.calling.avgDailyTalkSec / 3600).toFixed(2)}h`
-              : "—"
-          }
+          value={formatTalk(t.calling.avgDailyTalkSec)}
+          hint={`${t.calling.connectedWithDuration} of ${t.calling.connectedCalls} connected calls have a call length — talk time counts only those`}
         />
         <StatCard
           label="Inbound attended"
@@ -404,9 +408,10 @@ export default async function AdminCounselorPage({
                       : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    {r.calling.avgDailyTalkSec != null
-                      ? `${(r.calling.avgDailyTalkSec / 3600).toFixed(2)}h`
-                      : "—"}
+                    {formatTalk(r.calling.avgDailyTalkSec)}
+                    <span className="block text-[10px] text-muted">
+                      {r.calling.connectedWithDuration}/{r.calling.connectedCalls} timed
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     {r.calling.inboundCalls}/{r.calling.outboundCalls}

@@ -1,6 +1,7 @@
 "use client";
 import { createCallLog } from "@/app/actions/leads";
 import { CallScoreFields } from "@/components/leads/CallScoreFields";
+import { CallDurationField } from "@/components/leads/CallDurationField";
 import { LeadQualityBadge } from "@/components/leads/LeadQuality";
 
 import {
@@ -413,10 +414,7 @@ export function LeadInspectorPanel({
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-muted">Duration (s)</label>
-                <input name="duration" type="number" className="input-field mt-1 text-xs" />
-              </div>
+              <CallDurationField compact />
             </div>
             <CallScoreFields stage={lead.stage} />
             <div>

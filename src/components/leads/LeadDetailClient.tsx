@@ -39,6 +39,7 @@ import { LeadActivityTimeline } from "@/components/leads/LeadActivityTimeline";
 import { ClickToCallButton } from "@/components/leads/ClickToCallButton";
 import { LeadQualityBadge, LeadQualityCard } from "@/components/leads/LeadQuality";
 import { CallScoreFields } from "@/components/leads/CallScoreFields";
+import { CallDurationField } from "@/components/leads/CallDurationField";
 import { LeadQualificationPanel } from "@/components/leads/LeadQualificationPanel";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
 import { LeadTasksPanel } from "@/components/leads/LeadTasksPanel";
@@ -655,10 +656,7 @@ export function LeadDetailClient({
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="label-field">Duration (sec)</label>
-                <input name="duration" type="number" className="input-field" />
-              </div>
+              <CallDurationField />
               <div className="sm:col-span-2">
                 <label className="label-field">Recording URL</label>
                 <input name="recording_url" className="input-field" />
@@ -938,10 +936,7 @@ export function LeadDetailClient({
                 ))}
               </select>
             </div>
-            <div>
-              <label className="label-field">Duration (seconds)</label>
-              <input name="duration" type="number" className="input-field" />
-            </div>
+            <CallDurationField />
             <CallScoreFields stage={localLead.stage} />
             <div>
               <label className="label-field">Notes</label>
