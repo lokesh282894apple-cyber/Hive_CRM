@@ -16,10 +16,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchLeadFunnel } from "@/lib/marketing/dashboard-queries";
 import { cachedMarketingQuery, MARKETING_CACHE_TAGS } from "@/lib/marketing/query-cache";
 import { bookedRevenueByConvertMonth, realisedRevenueByMonth } from "@/lib/analytics/revenue-events";
+import { fetchArchiveMonths, LIVE_FROM_MONTH, type ArchiveMetric } from "@/lib/analytics/archive";
 import { istEndIso, istStartIso, monthLastDay } from "@/lib/tz";
 
 /** First month the CRM tracks sessions, spend and the funnel itself. */
-export const PNL_LIVE_FROM_MONTH = "2026-07";
+export const PNL_LIVE_FROM_MONTH = LIVE_FROM_MONTH;
 
 export const PNL_LINES = [
   { key: "sessions", label: "Sessions", kind: "count" },
@@ -70,7 +71,7 @@ export type PnlMonth = {
   values: Record<PnlLineKey, number | null>;
   counts: Record<PnlCountKey, number | null>;
   /** Archive extras (sheet notes) */
-  archive?: { activations: string | null; note: string | null };
+  archive?: { activations: string | null; note: string | null; from?: Partial<Record<string, string>> };
 };
 
 const div = (a: number | null, b: number | null) => (a != null && b != null && b > 0 ? a / b : null);
@@ -142,18 +143,9 @@ function derive(base: {
   };
 }
 
-type ArchiveRow = {
+type ArchiveNoteRow = {
   month_key: string;
   is_partial: boolean;
-  meta_spend: number | null;
-  non_meta_spend: number | null;
-  active_users_total: number | null;
-  leads_total: number | null;
-  r1: number | null;
-  r2: number | null;
-  r3: number | null;
-  offered: number | null;
-  converts_total: number | null;
   activations: string | null;
   import_note: string | null;
 };
@@ -166,15 +158,18 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
   const liveMonths = months.filter((m) => m >= PNL_LIVE_FROM_MONTH);
   const archiveMonths = months.filter((m) => m < PNL_LIVE_FROM_MONTH);
 
+  // Numbers from the sheet archive (one source per metric, see archive.ts);
+  // activations / partial-month notes from the first Waterfall import
   const archiveP = archiveMonths.length
-    ? admin
-        .from("marketing_monthly_archive")
-        .select(
-          "month_key, is_partial, meta_spend, non_meta_spend, active_users_total, leads_total, r1, r2, r3, offered, converts_total, activations, import_note"
-        )
-        .in("month_key", archiveMonths)
-        .then((r) => (r.error ? [] : ((r.data ?? []) as ArchiveRow[])))
-    : Promise.resolve([] as ArchiveRow[]);
+    ? Promise.all([
+        fetchArchiveMonths(admin, archiveMonths),
+        admin
+          .from("marketing_monthly_archive")
+          .select("month_key, is_partial, activations, import_note")
+          .in("month_key", archiveMonths)
+          .then((r) => (r.error ? [] : ((r.data ?? []) as ArchiveNoteRow[]))),
+      ])
+    : Promise.resolve([[], []] as [Awaited<ReturnType<typeof fetchArchiveMonths>>, ArchiveNoteRow[]]);
 
   let liveP: Promise<{
     funnel: Awaited<ReturnType<typeof fetchLeadFunnel>>;
@@ -191,14 +186,15 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
       realisedRevenueByMonth(admin, fromDate, toDate),
     ]).then(([funnel, booked, realised]) => ({ funnel, booked, realised }));
   }
-  const [archive, live] = await Promise.all([archiveP, liveP]);
-  const archiveBy = new Map(archive.map((a) => [a.month_key, a]));
+  const [[archiveMonthsData, archiveNotes], live] = await Promise.all([archiveP, liveP]);
+  const archiveBy = new Map(archiveMonthsData.map((a) => [a.month, a]));
+  const notesBy = new Map(archiveNotes.map((n) => [n.month_key, n]));
 
   return months.map((month): PnlMonth => {
     if (month < PNL_LIVE_FROM_MONTH) {
       const a = archiveBy.get(month);
       const emptyCounts = Object.fromEntries(PNL_COUNT_LINES.map((l) => [l.key, null])) as Record<PnlCountKey, number | null>;
-      if (!a) {
+      if (!a || !Object.keys(a.values).length) {
         return {
           month,
           source: "none",
@@ -209,37 +205,36 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
           }),
         };
       }
-      const meta = numOrNull(a.meta_spend);
-      const nonMeta = numOrNull(a.non_meta_spend);
-      const total = meta == null && nonMeta == null ? null : (meta ?? 0) + (nonMeta ?? 0);
+      const v = (k: ArchiveMetric) => numOrNull(a.values[k]);
+      const total = v("totalSpend");
+      const note = notesBy.get(month);
       return {
         month,
         source: "archive",
-        partial: a.is_partial,
-        archive: { activations: a.activations, note: a.import_note },
+        partial: note?.is_partial ?? false,
+        archive: { activations: note?.activations ?? null, note: note?.import_note ?? null, from: a.from },
         ...derive({
-          sessions: numOrNull(a.active_users_total),
-          leads: numOrNull(a.leads_total),
+          sessions: v("sessions"),
+          leads: v("leads"),
           counts: {
-            // The sheet has one R1/R2/R3 number — booked vs completed is not known
-            r1Booked: numOrNull(a.r1),
-            r1Completed: null,
-            r2Booked: numOrNull(a.r2),
-            r2Completed: null,
-            r3Booked: numOrNull(a.r3),
-            r3Completed: null,
-            offer: numOrNull(a.offered),
-            convert: numOrNull(a.converts_total),
+            // Sheet R1/R2/R3 = interviews on the calendar / conducted that month
+            r1Booked: v("r1Booked"),
+            r1Completed: v("r1Completed"),
+            r2Booked: v("r2Booked"),
+            r2Completed: v("r2Completed"),
+            r3Booked: v("r3Booked"),
+            r3Completed: v("r3Completed"),
+            offer: v("offer"),
+            convert: v("convert"),
           },
-          // Every rupee in the sheet bought reach (Meta ads, LinkedIn campaigns,
-          // influencers, events) → inorganic. Organic activations in the sheet
-          // (Shark Tank, posts, challenges) cost nothing → organic spend 0.
+          // Team rule: every rupee spent is inorganic; organic = no spend
           organicSpend: total == null ? null : 0,
           inorganicSpend: total,
           totalSpend: total,
-          revenueBooked: null,
+          revenueBooked: v("revenueBooked"),
+          // The P&L sheet doesn't split GST out of booked revenue
           gstBooked: null,
-          revenueRealised: null,
+          revenueRealised: v("revenueRealised"),
         }),
       };
     }
@@ -271,7 +266,7 @@ async function fetchMarketingPnlUncached(fromMonth: string, toMonth: string): Pr
 
 export const fetchMarketingPnl = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-pnl-monthly-v2-paid",
+    keyPrefix: "marketing-pnl-monthly-v3-archive",
     tags: [MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (fromMonth: string, toMonth: string) => `${fromMonth}|${toMonth}`,
   },

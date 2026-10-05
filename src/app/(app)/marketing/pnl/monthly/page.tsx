@@ -68,7 +68,7 @@ export default async function MarketingPnlMonthlyPage({
   return (
     <MarketingPageShell
       title="Marketing P&L"
-      description="Monthly — spend, funnel cost and revenue. Months before July 2026 come from the archived marketing sheet."
+      description="Monthly — spend, funnel cost and revenue. Months up to September 2026 come from the team's sheets; October 2026 onwards from the CRM."
       basePath="/marketing/pnl/monthly"
       section="pnl"
       showOrganic={false}
@@ -160,9 +160,11 @@ export default async function MarketingPnlMonthlyPage({
           Realised = money that hit the bank that month. ARPU = Realised ÷ converts.
         </p>
         <p>
-          Sheet months: sessions = &quot;active users&quot;; all spend (Meta + non-Meta: ads, LinkedIn, influencers, events) is
-          paid, so it counts as inorganic and organic spend is ₹0 (organic activations cost nothing); the sheet
-          has one R1 / R2 / R3 number (booked vs completed unknown) and no revenue.
+          Sheet months (up to Sep 2026): sessions = &quot;active users&quot; and leads from the Waterfall tab; spend =
+          the P&amp;L tab&apos;s grand total (ads, agency, GST, influencers, PR, production — salaries excluded), else
+          Waterfall Meta + non-Meta; all spend counts as inorganic. R1 / R2 / R3 booked = interviews on the calendar
+          that month, completed = conducted (2026 tab; Aug–Sep from the day-by-day log). Converts and revenue from the
+          P&amp;L tabs (revenue only Sep 2025 – Apr 2026).
           &quot;—&quot; always means the data does not exist, not zero.
         </p>
       </section>
