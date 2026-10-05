@@ -32,6 +32,7 @@ import {
   bucketFunnel,
   emptyFunnelCounts,
   loadFunnelLeads,
+  loadFunnelLeadsById,
   PAST_STUDENT_SOURCE,
   type FunnelBasis,
   type FunnelCounts,
@@ -751,6 +752,7 @@ export async function fetchAttributionReport(
   );
 
   const attrByLead = new Map(attrs.map((a) => [a.lead_id, a]));
+  const reachedById = new Map((await loadFunnelLeadsById(admin, leadIds)).map((f) => [f.id, f.at]));
   const sessionIds = attrs
     .map((a) => a.session_id)
     .filter((id): id is string => Boolean(id));
@@ -797,11 +799,12 @@ export async function fetchAttributionReport(
     }
     row.leads += 1;
     if (l.aql_at || meetsAqlCriteria(l)) row.aql += 1;
-    if (R1_BOOKED_STAGES.has(l.stage) || R1_DONE_STAGES.has(l.stage)) row.r1 += 1;
-    if (l.stage === "closed_paid") row.enrolled += 1;
+    const at = reachedById.get(l.id) ?? {};
+    if (at.r1Booked) row.r1 += 1;
+    if (at.convert) row.enrolled += 1;
   }
 
-  const wonIds = leadList.filter((l) => l.stage === "closed_paid").map((l) => l.id as string);
+  const wonIds = leadList.filter((l) => reachedById.get(l.id)?.convert).map((l) => l.id as string);
   if (wonIds.length) {
     const fees = await selectInChunks<{
       lead_id: string;
@@ -863,6 +866,7 @@ export async function fetchCampaignRoi(filters: MarketingFilters): Promise<Campa
     first_touch_campaign_id: string | null;
   }>("lead_attribution", "lead_id", leadIds, "lead_id, first_touch_campaign_id");
 
+  const reachedById = new Map((await loadFunnelLeadsById(admin, leadIds)).map((f) => [f.id, f.at]));
   const spendByCamp = new Map<string, number>();
   for (const s of spendRows) {
     if (!s.campaign_id) continue;
@@ -884,12 +888,13 @@ export async function fetchCampaignRoi(filters: MarketingFilters): Promise<Campa
     const st = stats.get(cid) ?? { leads: 0, aql: 0, r1: 0, enrolled: 0, revenue: 0 };
     st.leads += 1;
     if (l.aql_at || meetsAqlCriteria(l)) st.aql += 1;
-    if (R1_BOOKED_STAGES.has(l.stage) || R1_DONE_STAGES.has(l.stage)) st.r1 += 1;
-    if (l.stage === "closed_paid") st.enrolled += 1;
+    const at = reachedById.get(a.lead_id) ?? {};
+    if (at.r1Booked) st.r1 += 1;
+    if (at.convert) st.enrolled += 1;
     stats.set(cid, st);
   }
 
-  const enrolledIds = leads.filter((l) => l.stage === "closed_paid").map((l) => l.id as string);
+  const enrolledIds = leads.filter((l) => reachedById.get(l.id as string)?.convert).map((l) => l.id as string);
   if (enrolledIds.length) {
     const fees = await selectInChunks<{
       lead_id: string;
@@ -1823,6 +1828,8 @@ export async function fetchChannelFunnelUncached(
   );
 
   const leadIds = leads.map((l) => l.id);
+  // "Reached" from the shared funnel engine — a lead now in R2 still did R1
+  const reachedById = new Map((await loadFunnelLeadsById(admin, leadIds)).map((f) => [f.id, f.at]));
   const attrs = await selectInChunks<{
     lead_id: string;
     first_touch_campaign_id: string | null;
@@ -1897,14 +1904,12 @@ export async function fetchChannelFunnelUncached(
     const row = byChannel.get(key)!;
     row.leads += 1;
     row.forms += 1;
-    const stage = l.stage;
-    if (R1_BOOKED_STAGES.has(stage) || R1_DONE_STAGES.has(stage) || stage.startsWith("r1"))
-      row.r1 += 1;
-    if (stage.startsWith("r2")) row.r2 += 1;
-    if (stage.startsWith("r3")) row.r3 += 1;
-    if (stage === "offered" || stage === "yet_to_offer" || stage === "closed_paid")
-      row.offer += 1;
-    if (stage === "closed_paid") row.converts += 1;
+    const at = reachedById.get(l.id) ?? {};
+    if (at.r1Booked) row.r1 += 1;
+    if (at.r2Booked) row.r2 += 1;
+    if (at.r3Booked) row.r3 += 1;
+    if (at.offer) row.offer += 1;
+    if (at.convert) row.converts += 1;
   }
 
   for (const s of spendRows) {
@@ -1967,7 +1972,7 @@ export async function fetchChannelFunnelUncached(
 
 export const fetchChannelFunnel = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-channel-funnel-ist",
+    keyPrefix: "marketing-channel-funnel-v2-reached",
     tags: [MARKETING_CACHE_TAGS.channel],
     serializeArgs: (filters: MarketingFilters) => marketingFilterCacheKey(filters),
   },
