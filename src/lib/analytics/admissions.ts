@@ -1,3 +1,4 @@
+import { bookedRevenueByConvertMonth, realisedRevenueByMonth } from "@/lib/analytics/revenue-events";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -605,7 +606,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
   });
   const byMonth = new Map(monthKeys.map((k) => [k, empty()]));
 
-  const [leads, fees, history] = await Promise.all([
+  const [leads, revenue, history] = await Promise.all([
     fetchAllPages<{ id: string; created_at: string; stage: string }>(
       (from, to) =>
         supabase
@@ -618,22 +619,12 @@ async function fetchAdmissionsMonthlyRollupUncached(
           .range(from, to),
       "monthly_leads"
     ),
-    fetchAllPages<{
-      total_fee: number;
-      remaining_fee: number;
-      revenue_amount: number | null;
-      updated_at: string;
-    }>(
-      (from, to) =>
-        supabase
-          .from("fee_records")
-          .select("total_fee, remaining_fee, revenue_amount, updated_at")
-          .gte("updated_at", fromIso)
-          .lte("updated_at", toIso)
-          .order("updated_at", { ascending: true })
-          .order("id", { ascending: true }).range(from, to),
-      "monthly_fees"
-    ),
+    // Revenue dated by when it happened (shared with the Marketing P&L):
+    // booked = fee excl. GST in the convert month, realised = cash by date hit bank
+    Promise.all([
+      bookedRevenueByConvertMonth(supabase, fromIso, toIso),
+      realisedRevenueByMonth(supabase, fromDate, toDate),
+    ]),
     fetchAllPages<{ lead_id: string; to_stage: string; changed_at: string }>(
       (from, to) =>
         supabase
@@ -671,25 +662,24 @@ async function fetchAdmissionsMonthlyRollupUncached(
     }
   }
 
+  const lostSet = new Set<string>(LOST_STAGES);
   for (const l of leads ?? []) {
     const mk = istMonth(l.created_at);
     const t = byMonth.get(mk);
     if (!t) continue;
     if (l.stage === "closed_paid") t.converts += 1;
-    if (l.stage === "closed_deferred") t.lost += 1;
+    // Lost = every closed-lost stage (was Closed–Deferred only)
+    if (lostSet.has(l.stage)) t.lost += 1;
   }
 
-  for (const f of fees) {
-    const mk = istMonth(f.updated_at);
+  const [booked, realised] = revenue;
+  for (const [mk, b] of Array.from(booked.entries())) {
     const t = byMonth.get(mk);
-    if (!t) continue;
-    const booked = Number(f.total_fee) || 0;
-    const realized =
-      f.revenue_amount != null
-        ? Number(f.revenue_amount) || 0
-        : booked - (Number(f.remaining_fee) || 0);
-    t.revenueBooked += booked;
-    t.revenueRealized += realized;
+    if (t) t.revenueBooked += b.exGst;
+  }
+  for (const [mk, amt] of Array.from(realised.entries())) {
+    const t = byMonth.get(mk);
+    if (t) t.revenueRealized += amt;
   }
 
   return monthKeys.map((monthKey) => {
@@ -703,7 +693,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
 }
 
 const fetchAdmissionsMonthlyRollupCached = cachedAdmissionsQuery(
-  "fetchAdmissionsMonthlyRollup-v3-ist",
+  "fetchAdmissionsMonthlyRollup-v4-defs",
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) =>
     fetchAdmissionsMonthlyRollupUncached(createAdminClient(), opts)

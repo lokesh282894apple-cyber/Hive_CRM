@@ -232,6 +232,8 @@ const OFFER_PLUS = new Set([
   "closed_deferred",
   "closed_refund",
 ]);
+/** Actually received an offer — "Yet to offer" is not an offer (and deferred / refund only count if offered first) */
+const OFFERED = new Set(["offered", "offered_accepted", "student_reject", "closed_paid"]);
 const WON = new Set<string>(WON_STAGES);
 const LOST = new Set<string>(LOST_STAGES);
 
@@ -494,7 +496,7 @@ function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
   let lost = 0;
   for (const f of facts) {
     const pool = mode === "snapshot" ? f.stagesEver : f.stagesInPeriod;
-    if (!hasAny(pool, OFFER_PLUS)) continue;
+    if (!hasAny(pool, OFFERED)) continue;
     offered += 1;
     if (hasAny(pool, WON) || (mode === "snapshot" && f.lead.stage === "closed_paid")) {
       won += 1;
@@ -513,29 +515,33 @@ function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
   };
 }
 
-function computeConversions(
-  facts: LeadFacts[],
-  offer: OfferMetrics
-): ConversionPercents {
+/**
+ * Conversion % for one group of leads: every count (R1/R2/R3 booked, offered,
+ * converted) is "ever reached" for the SAME leads. It used to divide offers
+ * happening in the period (any lead) by R1s of leads created in the period.
+ */
+function computeConversions(facts: LeadFacts[]): ConversionPercents {
   let r1 = 0;
   let r2 = 0;
   let r3 = 0;
+  let offered = 0;
   let won = 0;
   for (const f of facts) {
     if (hasAny(f.stagesEver, R1_ALL) || f.bookings.some((b) => b.round === "R1")) r1 += 1;
     if (hasAny(f.stagesEver, R2_ALL) || f.bookings.some((b) => b.round === "R2")) r2 += 1;
     if (hasAny(f.stagesEver, R3_ALL) || f.bookings.some((b) => b.round === "R3")) r3 += 1;
+    if (hasAny(f.stagesEver, OFFERED)) offered += 1;
     if (f.lead.stage === "closed_paid" || hasAny(f.stagesEver, WON)) won += 1;
   }
   const leads = facts.length;
   return {
-    r1BookedToOffered: rate(offer.offered, r1),
-    r2BookedToOffered: rate(offer.offered, r2),
-    r3BookedToOffered: rate(offer.offered, r3),
+    r1BookedToOffered: rate(offered, r1),
+    r2BookedToOffered: rate(offered, r2),
+    r3BookedToOffered: rate(offered, r3),
     r1BookedToConverts: rate(won, r1),
     r2BookedToConverts: rate(won, r2),
     r3BookedToConverts: rate(won, r3),
-    offeredToConverts: rate(won, offer.offered),
+    offeredToConverts: rate(won, offered),
     leadsToConverts: rate(won, leads),
   };
 }
@@ -752,7 +758,7 @@ function buildStripRow(opts: {
     won: of.won,
     roundFunnel: rf,
     offerFunnel: of,
-    conversionPercents: computeConversions(createdForConv, of),
+    conversionPercents: computeConversions(createdForConv),
   };
 }
 
@@ -866,10 +872,7 @@ export async function fetchAdmissionsFunnelUncached(
   const offerFunnel = computeOffer(facts, mode);
   const createdInRange = createdBetween(allFacts, periodStart, endExclusive);
   const conversionPercents = computeConversions(
-    attribution === "all"
-      ? createdInRange
-      : createdBetween(facts, periodStart, endExclusive),
-    offerFunnel
+    attribution === "all" ? createdInRange : createdBetween(facts, periodStart, endExclusive)
   );
   const totals = leadTotalsOf(createdInRange);
 
@@ -996,7 +999,7 @@ export async function fetchAdmissionsFunnelUncached(
 }
 
 const fetchAdmissionsFunnelCached = cachedAdmissionsQuery(
-  "fetchAdmissionsFunnel-v2-ist",
+  "fetchAdmissionsFunnel-v3-defs",
   (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) =>
     fetchAdmissionsFunnelUncached(createAdminClient(), opts)

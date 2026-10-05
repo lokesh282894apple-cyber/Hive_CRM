@@ -269,7 +269,7 @@ export function FeeLoanTrackerClient({
             <p className="text-[11px] uppercase tracking-eyebrow text-muted">Month</p>
             <p className="mt-1 text-lg font-semibold text-navy">{monthKey}</p>
             <p className="text-xs text-muted">
-              {revenue.converts} converts · {revenue.dropOffs} drop-offs
+              {revenue.converts} converted this month · {revenue.dropOffs} dropped
             </p>
           </div>
           <div className="panel p-4">
@@ -277,17 +277,21 @@ export function FeeLoanTrackerClient({
             <p className="mt-1 text-lg font-semibold text-navy">
               {formatCurrency(revenue.bookedGross)}
             </p>
-            <p className="text-xs text-muted">Net {formatCurrency(revenue.bookedNet)}</p>
+            <p className="text-xs text-muted">
+              Incl. GST · {formatCurrency(revenue.bookedNet)} excl. GST — fees of students converted this month
+            </p>
           </div>
           <div className="panel p-4">
             <p className="text-[11px] uppercase tracking-eyebrow text-muted">Revenue realized</p>
             <p className="mt-1 text-lg font-semibold text-navy">
               {formatCurrency(revenue.realized)}
             </p>
+            <p className="text-xs text-muted">Money that hit the bank this month</p>
           </div>
           <div className="panel p-4">
             <p className="text-[11px] uppercase tracking-eyebrow text-muted">Revenue loss</p>
             <p className="mt-1 text-lg font-semibold text-navy">{formatCurrency(revenue.loss)}</p>
+            <p className="text-xs text-muted">Fee not received from this month&apos;s drop-offs</p>
           </div>
         </div>
       ) : null}

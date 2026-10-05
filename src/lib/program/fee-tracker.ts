@@ -26,6 +26,8 @@ export type FeeTrackerStudent = {
   lines: Installment[];
   loan: Loan | null;
   pinnedDeadline: string | null;
+  /** First time the lead reached Closed–Paid (stage history), null if never */
+  convertedAt: string | null;
 };
 
 export type FeeRevenueMonth = {
@@ -148,7 +150,7 @@ export async function fetchFeeTrackerStudents(
       if (error) throw new Error(`${table}: ${error.message}`);
       return (data ?? []) as T[];
     });
-  const [leads, lines, loans, { data: courses }, { data: cohorts }] = await Promise.all([
+  const [leads, lines, loans, { data: courses }, { data: cohorts }, paidHistory] = await Promise.all([
     inChunks<Record<string, unknown>>(
       "leads",
       "id",
@@ -159,7 +161,22 @@ export async function fetchFeeTrackerStudents(
     inChunks<Record<string, unknown>>("loans", "fee_record_id", feeIds, "*"),
     db.from("courses").select("id, name"),
     db.from("cohorts").select("id, name"),
+    mapInChunks<{ lead_id: string; changed_at: string }>(leadIds, async (chunk) => {
+      const { data, error } = await db
+        .from("stage_history")
+        .select("lead_id, changed_at")
+        .eq("to_stage", "closed_paid")
+        .in("lead_id", chunk);
+      if (error) throw new Error(`stage_history: ${error.message}`);
+      return (data ?? []) as { lead_id: string; changed_at: string }[];
+    }),
   ]);
+  const convertedAt = new Map<string, string>();
+  for (const h of paidHistory) {
+    const iso = new Date(h.changed_at).toISOString();
+    const cur = convertedAt.get(h.lead_id);
+    if (!cur || iso < cur) convertedAt.set(h.lead_id, iso);
+  }
 
   const leadMap = new Map((leads ?? []).map((l) => [l.id as string, l]));
   const courseMap = new Map((courses ?? []).map((c) => [c.id as string, c.name as string]));
@@ -206,71 +223,62 @@ export async function fetchFeeTrackerStudents(
       lines: feeLines,
       loan,
       pinnedDeadline: pinnedDeadlineFor(fee, feeLines, loan),
+      convertedAt: convertedAt.get(lead.id as string) ?? null,
     });
   }
   return out;
 }
 
+/**
+ * The month box on Fee & Loan, with the CRM-wide revenue rules:
+ *  - converts      = students who first reached Closed–Paid in the month
+ *  - booked gross / net = their fee incl. / excl. GST
+ *  - realised      = money that hit the bank in the month (any student),
+ *                    by date hit bank, else paid date
+ *  - drop-offs     = converted this month and marked dropped
+ *  - loss          = for those drop-offs, booked gross not received
+ * Used to date students by their lead's last edit and count the full fee as
+ * realised for anyone not dropped.
+ */
 export function computeFeeRevenueMonth(
   students: FeeTrackerStudent[],
   monthKey: string
 ): FeeRevenueMonth {
-  const from = `${monthKey}-01`;
-  const y = Number(monthKey.slice(0, 4));
-  const m = Number(monthKey.slice(5, 7));
-  const last = new Date(y, m, 0).getDate();
-  const to = `${monthKey}-${String(last).padStart(2, "0")}`;
+  const inMonth = (iso: string | null | undefined) => !!iso && istDateKey(iso).slice(0, 7) === monthKey;
+  const dayInMonth = (day: string | null | undefined) => !!day && day.slice(0, 7) === monthKey;
 
   let bookedGross = 0;
   let bookedNet = 0;
   let realized = 0;
   let dropOffs = 0;
   let converts = 0;
+  let loss = 0;
 
   for (const s of students) {
-    const close = istDateKey(s.lead.updated_at || s.lead.created_at);
-    if (close < from || close > to) continue;
-    if (s.lead.stage !== "closed_paid" && s.lead.stage !== "closed_deferred") {
-      // still count fee records tied to converted students
+    for (const l of s.lines) {
+      const bank = Number(l.amount_hit_bank) || 0;
+      const paid = Number(l.amount_realised) || 0;
+      if (l.date_hit_bank ? dayInMonth(l.date_hit_bank) : inMonth(l.paid_at)) realized += bank || paid;
     }
+
+    if (!inMonth(s.convertedAt)) continue;
     converts += 1;
     const gross = Number(s.fee.gross_fee_with_gst ?? s.fee.total_fee) || 0;
     const net = Number(s.fee.net_fee_without_gst ?? s.fee.gross_fee_ex_gst ?? gross) || 0;
     bookedGross += gross;
     bookedNet += net;
 
-    const admissionPaid = s.lines
-      .filter((l) => l.line_type === "admission_fee" || l.mode_of_payment === "Admission Fee")
-      .reduce(
-        (sum, l) =>
-          sum +
-          (Number(l.amount_hit_bank) ||
-            (l.payment_status === "Paid" || l.status === "paid"
-              ? Number(l.amount_to_realise) || 0
-              : 0)),
+    const dropped = s.fee.drop_email || normalizeLoanStage(s.loan?.stage ?? "") === "drop_email";
+    if (dropped) {
+      dropOffs += 1;
+      const receivedEver = s.lines.reduce(
+        (sum, l) => sum + (Number(l.amount_hit_bank) || Number(l.amount_realised) || 0),
         0
       );
-
-    const furtherPaid = s.lines
-      .filter((l) => l.line_type !== "admission_fee" && l.mode_of_payment !== "Admission Fee")
-      .some(
-        (l) =>
-          l.payment_status === "Paid" ||
-          l.status === "paid" ||
-          (Number(l.amount_hit_bank) || 0) > 0
-      );
-
-    const dropped = s.fee.drop_email || normalizeLoanStage(s.loan?.stage ?? "") === "drop_email";
-
-    if (dropped && !furtherPaid) {
-      dropOffs += 1;
-      realized += admissionPaid;
-    } else {
-      realized += gross;
+      loss += Math.max(0, gross - receivedEver);
     }
   }
 
-  const loss = Math.max(0, bookedGross - realized);
   return { monthKey, bookedGross, bookedNet, realized, loss, converts, dropOffs };
 }
 

@@ -105,7 +105,8 @@ async function fetchPaymentsDashboardUncached(
       supabase
         .from("leads")
         .select("id, name, course_id, cohort_id, stage, created_at")
-        .in("stage", ["offered", "closed_paid"]),
+        // Every student with a fee in play — "Offered – Accepted" was missing
+        .in("stage", ["offered", "offered_accepted", "closed_paid"]),
       supabase.from("courses").select("id, name"),
       supabase
         .from("cohorts")
