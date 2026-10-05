@@ -1,4 +1,5 @@
 "use client";
+import { PendingBar } from "@/components/ui/PendingBar";
 
 import {
   MONTH_SHORT,
@@ -132,6 +133,7 @@ export function DateRangeBar({
         pending && "pointer-events-none opacity-60"
       )}
     >
+      <PendingBar active={pending} label="Loading dates…" />
       <div className="flex flex-col gap-4 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-start gap-3">
           <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-navy/[0.06] text-navy">

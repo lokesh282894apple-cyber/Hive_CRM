@@ -1,4 +1,5 @@
 "use client";
+import { PendingBar } from "@/components/ui/PendingBar";
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -45,6 +46,7 @@ export function MarketingFilterBar({
       className="panel flex flex-wrap items-end gap-3 p-4"
       onSubmit={onSubmit}
     >
+      <PendingBar active={pending} label="Applying filters…" />
       <label className="flex flex-col gap-1 text-xs">
         <span className="eyebrow text-muted">From</span>
         <input

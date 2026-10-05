@@ -1,4 +1,5 @@
 "use client";
+import { PendingBar } from "@/components/ui/PendingBar";
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type ReactNode } from "react";
@@ -93,6 +94,7 @@ export function SyncedAnalyticsFilters({
       }}
     >
       <fieldset disabled={pending} className="contents m-0 min-w-0 border-0 p-0">
+        <PendingBar active={pending} label="Applying filters…" />
         {children}
 
         {values.mode !== undefined ? (

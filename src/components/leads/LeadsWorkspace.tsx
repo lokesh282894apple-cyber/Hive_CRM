@@ -1,4 +1,5 @@
 "use client";
+import { PendingBar } from "@/components/ui/PendingBar";
 import { LeadQualityBadge } from "@/components/leads/LeadQuality";
 
 import { claimLead, reassignLead } from "@/app/actions/leads";
@@ -555,10 +556,11 @@ export function LeadsWorkspace({
     <div
       className={cn(
         "transition-opacity duration-150",
-        pending && "opacity-80"
+        pending && "opacity-50 transition-opacity"
       )}
       aria-busy={pending}
     >
+      <PendingBar active={pending} label="Updating leads…" />
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
       {/* Ownership + layout */}

@@ -13,10 +13,8 @@ import {
 } from "@/lib/leads-query";
 import { cookies } from "next/headers";
 import { BOARD_FETCH_MAX } from "@/lib/constants";
-import { fetchAttributionForLeads } from "@/lib/marketing/queries";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
-import { loadLeadCardMetrics } from "@/lib/leads/card-metrics";
-import { loadOpenTasksForLeads } from "@/lib/leads/open-tasks";
+import { enrichWithTopUp } from "@/lib/leads/board-enrich";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 import { viewAsHref } from "@/lib/impersonation";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
@@ -74,24 +72,17 @@ export default async function LeadsPage({
   const [listRes, { count }] = await Promise.all([dataQuery, countPromise]);
   const data = listRes.data;
   // Board is capped at BOARD_FETCH_MAX cards — give columns exact totals
-  const stageTotals =
-    filters.mode === "board" && (count ?? 0) > ((data as unknown[] | null)?.length ?? 0)
-      ? await stageTotalsPromise
-      : undefined;
+  const needStageTotals = filters.mode === "board" && (count ?? 0) > ((data as unknown[] | null)?.length ?? 0);
+  let stageTotals: Record<string, number> | undefined;
 
-  let leadsRaw = (data as unknown as LeadWithRelations[]) ?? [];
-  if (stageTotals) {
-    // Older leads (R2/R3/offer) sit outside the newest-cards window — load them per column
-    leadsRaw = await topUpBoardStages(supabase, filterOpts, listRes.select, leadsRaw, stageTotals).catch(
-      () => leadsRaw
-    );
-  }
-  const leadIds = leadsRaw.map((l) => l.id);
-  const [leadsWithMetrics, attrMap, openTasks] = await Promise.all([
-    loadLeadCardMetrics(supabase, leadsRaw),
-    fetchAttributionForLeads(supabase, leadIds),
-    loadOpenTasksForLeads(supabase, leadIds),
-  ]);
+  const firstCards = (data as unknown as LeadWithRelations[]) ?? [];
+  // Card details for the first batch start now; older columns top up meanwhile
+  const { cards: leadsWithMetrics, attrMap, openTasks } = await enrichWithTopUp(supabase, firstCards, async () => {
+    stageTotals = needStageTotals ? await stageTotalsPromise : undefined;
+    return stageTotals
+      ? topUpBoardStages(supabase, filterOpts, listRes.select, firstCards, stageTotals).catch(() => firstCards)
+      : firstCards;
+  });
 
   const leads = leadsWithMetrics.map((l) => {
     const tasks = openTasks.get(l.id);

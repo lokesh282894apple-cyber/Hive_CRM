@@ -73,3 +73,9 @@ body {
     @apply mb-1.5 block text-sm font-medium text-navy;
   }
 }
+
+/* PendingBar — filter changes in progress */
+@keyframes pendingbar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
