@@ -18,7 +18,7 @@ import {
   fetchCounselorAttributionGlance,
   summarizeCounselorAttribution,
 } from "@/lib/marketing/queries";
-import { istMidnight } from "@/lib/tz";
+import { istDateKey, istMidnight } from "@/lib/tz";
 
 type Count<K extends string> = { [P in K]: string | null } & { count: number };
 
@@ -116,7 +116,8 @@ export async function fetchCounselorHomeViaRpc(
     stages.reduce((n, st) => n + (stageCount.get(st) ?? 0), 0);
 
   const openLeads = countStages(OPEN_STAGES);
-  const newLeads = countStages(["new_lead", "lead_created", "call_logged_nurturing"]);
+  // New = not contacted into a working stage yet (Nurturing is already worked)
+  const newLeads = countStages(["new_lead", "lead_created", "in_funnel"]);
   const attentionLeads = countStages(ATTENTION_STAGES);
   const won = stageCount.get("closed_paid") ?? 0;
   const lost = countStages(LOST_STAGES);
@@ -191,8 +192,10 @@ export async function fetchCounselorHomeViaRpc(
     const row = dailyMap.get(d.date as string);
     if (row) row.leads += d.count;
   }
-  for (const d of r.daily_won) {
-    const row = dailyMap.get(d.date as string);
+  // Won per day = the day the lead first reached Closed–Paid (the RPC dated it
+  // by the lead's last edit)
+  for (const d of await wonPerDay(db, counselorId, sinceIso, untilExclusiveIso)) {
+    const row = dailyMap.get(d.date);
     if (row) row.won += d.count;
   }
   for (const d of r.daily_calls) {
@@ -274,4 +277,31 @@ export async function fetchCounselorHomeLegacy(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { leadRows, callRows, ...rest } = data;
   return { ...rest, attribution };
+}
+
+async function wonPerDay(
+  db: SupabaseClient,
+  counselorId: string | null,
+  sinceIso: string,
+  untilExclusiveIso: string
+): Promise<{ date: string; count: number }[]> {
+  const { data } = await db
+    .from("stage_history")
+    .select("lead_id, changed_at, lead:leads!inner(lead_allocated_to)")
+    .eq("to_stage", "closed_paid")
+    .gte("changed_at", sinceIso)
+    .lt("changed_at", untilExclusiveIso)
+    .limit(5000);
+  const first = new Map<string, string>();
+  for (const h of (data ?? []) as unknown as { lead_id: string; changed_at: string; lead: { lead_allocated_to: string | null } | null }[]) {
+    if (counselorId && h.lead?.lead_allocated_to !== counselorId) continue;
+    const cur = first.get(h.lead_id);
+    if (!cur || h.changed_at < cur) first.set(h.lead_id, h.changed_at);
+  }
+  const byDay = new Map<string, number>();
+  for (const at of Array.from(first.values())) {
+    const d = istDateKey(at);
+    byDay.set(d, (byDay.get(d) ?? 0) + 1);
+  }
+  return Array.from(byDay, ([date, count]) => ({ date, count }));
 }
