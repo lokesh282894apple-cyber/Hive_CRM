@@ -28,6 +28,7 @@ import { meetsAqlCriteria } from "@/lib/marketing/aql";
 import { isClosedStage } from "@/lib/constants";
 import { istDateKey, istEndIso, istMonthKey, istStartIso } from "@/lib/tz";
 import { bookedRevenueByConvertMonth, realisedRevenueByMonth } from "@/lib/analytics/revenue-events";
+import { ARCHIVE_UNTIL_MONTH, fetchArchiveMonths } from "@/lib/analytics/archive";
 import {
   bucketFunnel,
   emptyFunnelCounts,
@@ -1224,7 +1225,10 @@ export async function fetchMetaAdPerformance(
 
 export type MonthlyMktRow = {
   monthKey: string;
-  status: "live" | "closed";
+  /** sheet = up to Sep 2026, from the team's sheets */
+  status: "live" | "closed" | "sheet";
+  /** Sheet months: fields the sheet has no value for (show "—") */
+  missing?: string[];
   metaSpend: number;
   nonMetaSpend: number;
   organicSpend: number;
@@ -1343,6 +1347,40 @@ export async function fetchMonthlyMarketingDataUncached(
     if (!isClosedStage(String(l.stage))) t.availableLeads += 1;
   }
 
+  // Up to Sep 2026 the sheets are the record (same source choice as the P&L)
+  const archive = new Map(
+    (await fetchArchiveMonths(admin, monthKeys.filter((m) => m <= ARCHIVE_UNTIL_MONTH))).map((a) => [a.month, a.values])
+  );
+  const missingBy = new Map<string, string[]>();
+  for (const [mk, a] of Array.from(archive.entries())) {
+    const t = byMonth.get(mk);
+    if (!t) continue;
+    const missing: string[] = [];
+    const set = (field: keyof typeof t, v: number | undefined) => {
+      if (v == null) missing.push(field);
+      t[field] = v ?? 0;
+    };
+    set("sessions", a.sessions);
+    set("leads", a.leads);
+    set("organicLeads", a.leadsOrganic);
+    set("inorganicLeads", a.leadsPaid);
+    set("aql", a.aqlPaid != null || a.aqlOrganic != null ? (a.aqlPaid ?? 0) + (a.aqlOrganic ?? 0) : undefined);
+    set("r1Booked", a.r1Booked);
+    set("r1Completed", a.r1Completed);
+    set("offers", a.offer);
+    set("converts", a.convert);
+    set("metaSpend", a.metaSpend);
+    set("nonMetaSpend", a.totalSpend != null && a.metaSpend != null ? a.totalSpend - a.metaSpend : undefined);
+    // Team rule: every rupee spent is inorganic
+    set("organicSpend", a.totalSpend != null ? 0 : undefined);
+    set("inorganicSpend", a.totalSpend);
+    set("revenueBooked", a.revenueBooked);
+    set("revenueRealized", a.revenueRealised);
+    missing.push("availableLeads");
+    t.availableLeads = 0;
+    missingBy.set(mk, missing);
+  }
+
   const salesCost = 60000;
   return monthKeys.map((monthKey) => {
     const totals = byMonth.get(monthKey) ?? emptyTotals();
@@ -1350,9 +1388,11 @@ export async function fetchMonthlyMarketingDataUncached(
     const conv = totals.converts;
     const cac = liveCac(totalSpend, salesCost, conv);
     const romsVal = roas(totals.revenueRealized, totalSpend);
+    const missing = missingBy.get(monthKey);
     return {
       monthKey,
-      status: monthKey === currentMonth ? "live" : "closed",
+      status: missing ? "sheet" : monthKey === currentMonth ? "live" : "closed",
+      missing,
       metaSpend: totals.metaSpend,
       nonMetaSpend: totals.nonMetaSpend,
       organicSpend: totals.organicSpend,
@@ -1386,7 +1426,7 @@ export async function fetchMonthlyMarketingDataUncached(
 
 export const fetchMonthlyMarketingData = cachedMarketingQuery(
   {
-    keyPrefix: "marketing-monthly-v2-events",
+    keyPrefix: "marketing-monthly-v3-archive",
     tags: [MARKETING_CACHE_TAGS.monthly, MARKETING_CACHE_TAGS.funnel],
     serializeArgs: (monthsBack = 12) => String(monthsBack),
   },

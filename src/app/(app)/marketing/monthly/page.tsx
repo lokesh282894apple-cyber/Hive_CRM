@@ -67,7 +67,11 @@ export default async function MarketingMonthlyPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {rows.map((r) => {
+              const has = (k: string) => !r.missing?.includes(k);
+              const inr = (k: string, v: number | null) => (has(k) ? formatInr(v) : "—");
+              const n = (k: string, v: number) => (has(k) ? v : "—");
+              return (
               <tr
                 key={r.monthKey}
                 className={`border-b border-border ${r.status === "live" ? "bg-amber-50/80" : ""}`}
@@ -80,22 +84,27 @@ export default async function MarketingMonthlyPage() {
                     {r.monthKey}
                   </Link>
                 </td>
-                <td className="px-3 py-2 text-xs uppercase">{r.status}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatInr(r.organicSpend)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatInr(r.inorganicSpend)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatInr(r.totalSpend)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.leads}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.availableLeads}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.r1Booked}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.converts}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatInr(r.revenueBooked)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatInr(r.revenueRealized)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatInr(r.cac)}</td>
+                <td className="px-3 py-2 text-xs uppercase">
+                  {r.status === "sheet" ? <span className="text-amber-700">sheet</span> : r.status}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{inr("organicSpend", r.organicSpend)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{inr("inorganicSpend", r.inorganicSpend)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{inr("inorganicSpend", r.totalSpend)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n("leads", r.leads)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n("availableLeads", r.availableLeads)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n("r1Booked", r.r1Booked)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n("converts", r.converts)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{inr("revenueBooked", r.revenueBooked)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{inr("revenueRealized", r.revenueRealized)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">
-                  {r.roms?.toFixed(2) ?? "—"}
+                  {has("converts") && has("inorganicSpend") ? formatInr(r.cac) : "—"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {has("revenueRealized") && has("inorganicSpend") ? r.roms?.toFixed(2) ?? "—" : "—"}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </section>
