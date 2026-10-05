@@ -99,7 +99,9 @@ export function LeadQualityCard({ leadId, lead }: { leadId: string; lead: LeadQu
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted">Counselor scores after every call · panel scores shown separately</p>
+        <p className="text-xs text-muted">
+          Counselor scores on nurturing / R1 booked calls · panel scores shown separately
+        </p>
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-3">

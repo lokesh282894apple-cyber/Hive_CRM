@@ -19,10 +19,9 @@ function totalTone(total: number | null) {
 }
 
 /**
- * Intent / Comms / Profile (1–5) inside a "Log a call" form. Shown while the
- * lead is pre-R1 or R1 Booked; required when the call outcome means the
- * counselor actually spoke to the student. Reads the form's `outcome` select.
- * One row per score so it fits the narrow lead preview as well as the lead page.
+ * Intent / Comms / Profile (1–5) inside a "Log a call" form.
+ * Shown only for Call Logged – Nurturing and R1 Booked; required when the
+ * call outcome means the counselor actually spoke to the student.
  */
 export function CallScoreFields({ stage }: { stage: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -44,12 +43,16 @@ export function CallScoreFields({ stage }: { stage: string }) {
     };
   }, []);
 
-  if (!(COUNSELOR_SCORING_STAGES as readonly string[]).includes(stage)) return <div ref={ref} hidden />;
+  if (!(COUNSELOR_SCORING_STAGES as readonly string[]).includes(stage)) {
+    return <div ref={ref} hidden />;
+  }
+
   const required = needsCallScore(stage, outcome);
   const filled = LEAD_QUALITY_PARTS.filter((p) => values[p.key]).length;
-  const total = filled === LEAD_QUALITY_PARTS.length
-    ? LEAD_QUALITY_PARTS.reduce((n, p) => n + values[p.key], 0)
-    : null;
+  const total =
+    filled === LEAD_QUALITY_PARTS.length
+      ? LEAD_QUALITY_PARTS.reduce((n, p) => n + values[p.key], 0)
+      : null;
 
   return (
     <div ref={ref} className="rounded-xl border border-border bg-[#F7F8FC] p-3">
@@ -62,7 +65,9 @@ export function CallScoreFields({ stage }: { stage: string }) {
               : "Optional — no conversation on this call"}
           </p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-sm font-semibold tabular-nums ${totalTone(total)}`}>
+        <span
+          className={`rounded-full px-2.5 py-1 text-sm font-semibold tabular-nums ${totalTone(total)}`}
+        >
           {total != null ? total : "–"}/15
         </span>
       </div>
@@ -71,20 +76,25 @@ export function CallScoreFields({ stage }: { stage: string }) {
         {LEAD_QUALITY_PARTS.map((p) => {
           const v = values[p.key];
           return (
-            <fieldset key={p.key}>
+            <div key={p.key}>
               <div className="mb-1 flex items-baseline justify-between gap-2">
-                <legend className="text-xs font-medium text-navy">
+                <p className="text-xs font-medium text-navy">
                   {p.label}
                   <span className="ml-1 font-normal text-muted">· {p.hint}</span>
-                </legend>
+                </p>
                 <span className="shrink-0 text-[11px] text-muted">{v ? SCALE[v] : ""}</span>
               </div>
-              <div className="grid grid-cols-5 gap-1">
+              {/* Opacity-0 radios stay on the tap target so focus cannot scroll the page away. */}
+              <div
+                className="grid grid-cols-5 gap-1"
+                role="radiogroup"
+                aria-label={`${p.label}: ${p.hint}`}
+              >
                 {[1, 2, 3, 4, 5].map((n) => (
                   <label
                     key={n}
                     title={SCALE[n]}
-                    className={`flex h-8 cursor-pointer items-center justify-center rounded-lg border text-sm font-medium transition focus-within:ring-2 focus-within:ring-periwinkle/50 ${
+                    className={`relative flex h-8 cursor-pointer items-center justify-center rounded-lg border text-sm font-medium transition focus-within:ring-2 focus-within:ring-periwinkle/50 ${
                       v === n
                         ? "border-navy bg-navy text-white"
                         : v && n < v
@@ -99,13 +109,14 @@ export function CallScoreFields({ stage }: { stage: string }) {
                       required={required}
                       checked={v === n}
                       onChange={() => setValues((cur) => ({ ...cur, [p.key]: n }))}
-                      className="sr-only"
+                      className="absolute inset-0 z-10 cursor-pointer opacity-0"
+                      aria-label={`${n} — ${SCALE[n]}`}
                     />
-                    {n}
+                    <span aria-hidden="true">{n}</span>
                   </label>
                 ))}
               </div>
-            </fieldset>
+            </div>
           );
         })}
       </div>

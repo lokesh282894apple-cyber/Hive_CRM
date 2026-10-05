@@ -897,21 +897,13 @@ export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export const SCORED_CALL_OUTCOMES: readonly CallOutcome[] = ["connected", "callback_requested", "other"];
 
 /**
- * Counselors score Intent + Comms + Profile after every call while the lead is
- * pre-R1 (nurturing) or R1 Booked. Later rounds are scored by panelists.
+ * Counselors score Intent + Comms + Profile only while the lead is in
+ * Call Logged – Nurturing or R1 Booked. Later rounds are scored by panelists.
+ * Other early stages (new lead, DNP, etc.) skip the picker so logging stays fast.
  */
 export const COUNSELOR_SCORING_STAGES: readonly Stage[] = [
-  "lead_created",
-  "in_funnel",
-  "new_lead",
   "call_logged_nurturing",
-  "dnp",
-  "no_show",
-  "reschedule",
-  "retarget_next_batch",
   "r1_booked",
-  "r1_reschedule",
-  "r1_no_show",
 ];
 
 export function needsCallScore(stage: string, outcome: string): boolean {
