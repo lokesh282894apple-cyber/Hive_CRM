@@ -41,12 +41,16 @@ export async function GET(request: NextRequest) {
     const t = Date.now();
     try {
       const res = await fetch(`${origin}${path}`, {
-        headers: { cookie, RSC: "1", "Next-Router-State-Tree": "" },
+        // Same request a click makes (RSC payload); no router-state header,
+        // so the full page tree is rendered — an upper bound on a click
+        headers: { cookie, RSC: "1" },
         cache: "no-store",
         redirect: "manual",
       });
       const body = await res.arrayBuffer();
-      return { status: res.status, ms: Date.now() - t, kb: Math.round(body.byteLength / 1024) };
+      const out: Record<string, unknown> = { status: res.status, ms: Date.now() - t, kb: Math.round(body.byteLength / 1024) };
+      if (res.status >= 400) out.sample = new TextDecoder().decode(body.slice(0, 300));
+      return out;
     } catch (e) {
       return { ms: Date.now() - t, error: e instanceof Error ? e.message : String(e) };
     }
