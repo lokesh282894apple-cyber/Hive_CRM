@@ -101,6 +101,7 @@ export default async function AdminPanelPage({
   const panel = await fetchPanelPerformance(supabase, {
     rangeDays: dateRange.rangeDays,
     sinceIso: dateRange.overall ? null : dateRange.sinceIso,
+    untilExclusiveIso: dateRange.overall ? null : dateRange.untilExclusiveIso,
     overall: dateRange.overall,
     round,
     courseId,

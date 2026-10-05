@@ -10,6 +10,8 @@ export type PanelFilters = {
   fromDate?: string | null;
   toDate?: string | null;
   sinceIso?: string | null;
+  /** End of the date bar (exclusive). Without it the page counted every booking after the start date. */
+  untilExclusiveIso?: string | null;
   overall?: boolean;
   round?: "R1" | "R2" | "R3" | "all";
   courseId?: string | null;
@@ -99,6 +101,8 @@ async function fetchPanelPerformanceUncached(
         return new Date(istMidnight().getTime() - rangeDays * 86_400_000).toISOString();
       })();
 
+  const untilIso = filters.overall || !filters.untilExclusiveIso ? "9999-12-31T00:00:00.000Z" : filters.untilExclusiveIso;
+
   const [bookings, historyAll] = await Promise.all([
     fetchAllPages((from, to) => {
       let q = db
@@ -107,6 +111,7 @@ async function fetchPanelPerformanceUncached(
           "id, lead_id, round, interviewer_id, scheduled_at, outcome, submitted_at, created_at"
         )
         .gte("scheduled_at", sinceIso)
+        .lt("scheduled_at", untilIso)
         .order("scheduled_at", { ascending: false })
         .order("id", { ascending: true }).range(from, to);
       if (roundFilter !== "all") q = q.eq("round", roundFilter);
@@ -272,7 +277,8 @@ async function fetchPanelPerformanceUncached(
       .from("lead_stage_scores")
       .select("scored_by, profile_score, intent_score")
       .in("scored_by", panelIds)
-      .gte("created_at", sinceIso);
+      .gte("created_at", sinceIso)
+      .lt("created_at", untilIso);
     const byScorer = new Map<string, { p: number[]; i: number[] }>();
     for (const s of scores ?? []) {
       const cur = byScorer.get(s.scored_by) ?? { p: [], i: [] };

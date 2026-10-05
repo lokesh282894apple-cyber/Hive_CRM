@@ -148,6 +148,7 @@ export default async function AdminMonthlyPage({
     view === "panel"
       ? fetchPanelPerformance(supabase, {
           sinceIso: dateRange.sinceIso,
+          untilExclusiveIso: dateRange.untilExclusiveIso,
           overall: dateRange.overall,
           courseId,
           cohortId,
