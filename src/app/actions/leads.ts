@@ -563,7 +563,7 @@ export async function createCallLog(formData: FormData): Promise<ActionResult> {
 
   if (!payload.lead_id) return { ok: false, error: "Missing lead" };
 
-  // Lead Quality: Intent + Comms + Profile, required after every conversation
+  // Lead Quality: Intent + Comms + Profile — only nurturing / R1 booked when they spoke
   // while the lead is pre-R1 / R1 Booked
   const { data: leadRow } = await supabase.from("leads").select("stage").eq("id", leadId).maybeSingle();
   const scoreNeeded = !!leadRow && needsCallScore(leadRow.stage, payload.outcome);
