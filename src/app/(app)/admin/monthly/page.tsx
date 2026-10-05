@@ -170,10 +170,10 @@ export default async function AdminMonthlyPage({
     return mk >= dateRange.fromDate.slice(0, 7) && mk <= dateRange.toDate.slice(0, 7);
   });
 
-  const kpiLeads = filteredRows.reduce((s, r) => s + r.leads, 0);
-  const kpiConverts = filteredRows.reduce((s, r) => s + r.converts, 0);
-  const kpiBooked = filteredRows.reduce((s, r) => s + r.revenueBooked, 0);
-  const kpiRealized = filteredRows.reduce((s, r) => s + r.revenueRealized, 0);
+  const kpiLeads = filteredRows.reduce((s, r) => s + (r.leads ?? 0), 0);
+  const kpiConverts = filteredRows.reduce((s, r) => s + (r.converts ?? 0), 0);
+  const kpiBooked = filteredRows.reduce((s, r) => s + (r.revenueBooked ?? 0), 0);
+  const kpiRealized = filteredRows.reduce((s, r) => s + (r.revenueRealized ?? 0), 0);
 
   const qBase = new URLSearchParams();
   for (const [k, v] of Object.entries(searchParams)) {
@@ -334,6 +334,11 @@ export default async function AdminMonthlyPage({
               Admission Analytics →
             </Link>
           </div>
+          <p className="px-3 pb-2 text-xs text-muted">
+            Months up to Sep 2026 (&quot;sheet&quot;) come from the team&apos;s sheets — R1 = interviews on the calendar,
+            converts and revenue from the P&amp;L tabs, &quot;—&quot; = not in the sheet. CRM data from Oct 2026.{" "}
+            <a href="/admin/history" className="font-medium text-periwinkle">See the full sheet history →</a>
+          </p>
           <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="border-b border-border bg-navy/[0.02]">
               <tr>
@@ -370,16 +375,18 @@ export default async function AdminMonthlyPage({
                   className={`border-b border-border last:border-0 ${r.status === "live" ? "bg-amber-50/80" : ""}`}
                 >
                   <td className="px-3 py-2 font-medium text-navy">{r.monthKey}</td>
-                  <td className="px-3 py-2 text-xs uppercase text-muted">{r.status}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.leads}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.r1Booked}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.converts}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{r.lost}</td>
+                  <td className="px-3 py-2 text-xs uppercase text-muted">
+                    {r.status === "sheet" ? <span className="text-amber-700">sheet</span> : r.status}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.leads ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.r1Booked ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.converts ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{r.lost ?? "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {formatCurrency(r.revenueBooked)}
+                    {r.revenueBooked != null ? formatCurrency(r.revenueBooked) : "—"}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
-                    {formatCurrency(r.revenueRealized)}
+                    {r.revenueRealized != null ? formatCurrency(r.revenueRealized) : "—"}
                   </td>
                 </tr>
               ))}

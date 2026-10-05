@@ -1,4 +1,5 @@
 import { bookedRevenueByConvertMonth, realisedRevenueByMonth } from "@/lib/analytics/revenue-events";
+import { ARCHIVE_UNTIL_MONTH, fetchArchiveMonths } from "@/lib/analytics/archive";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -563,14 +564,16 @@ export async function fetchAdmissionsAnalytics(
 
 export type AdmissionsMonthlyRow = {
   monthKey: string;
-  status: "live" | "closed";
-  leads: number;
-  availableLeads: number;
-  r1Booked: number;
-  converts: number;
-  lost: number;
-  revenueBooked: number;
-  revenueRealized: number;
+  /** sheet = up to Sep 2026, numbers from the team's sheets (archive) */
+  status: "live" | "closed" | "sheet";
+  /** null = not in the sheet for that month */
+  leads: number | null;
+  availableLeads: number | null;
+  r1Booked: number | null;
+  converts: number | null;
+  lost: number | null;
+  revenueBooked: number | null;
+  revenueRealized: number | null;
 };
 
 /** Year-at-a-glance admissions rollup (month cohort + open pipeline). */
@@ -682,8 +685,28 @@ async function fetchAdmissionsMonthlyRollupUncached(
     if (t) t.revenueRealized += amt;
   }
 
-  return monthKeys.map((monthKey) => {
+  // Up to Sep 2026 the team's sheets are the record; CRM data from Oct 2026
+  const archive = new Map(
+    (await fetchArchiveMonths(supabase, monthKeys.filter((m) => m <= ARCHIVE_UNTIL_MONTH))).map((a) => [a.month, a.values])
+  );
+
+  return monthKeys.map((monthKey): AdmissionsMonthlyRow => {
     const t = byMonth.get(monthKey) ?? empty();
+    if (monthKey <= ARCHIVE_UNTIL_MONTH) {
+      const a = archive.get(monthKey) ?? {};
+      return {
+        monthKey,
+        status: "sheet",
+        leads: a.leads ?? null,
+        availableLeads: null,
+        // Sheet R1 = interviews on the calendar that month
+        r1Booked: a.r1Booked ?? null,
+        converts: a.convert ?? null,
+        lost: a.lost ?? null,
+        revenueBooked: a.revenueBooked ?? null,
+        revenueRealized: a.revenueRealised ?? null,
+      };
+    }
     return {
       monthKey,
       status: monthKey === currentMonth ? "live" : "closed",
@@ -693,7 +716,7 @@ async function fetchAdmissionsMonthlyRollupUncached(
 }
 
 const fetchAdmissionsMonthlyRollupCached = cachedAdmissionsQuery(
-  "fetchAdmissionsMonthlyRollup-v4-defs",
+  "fetchAdmissionsMonthlyRollup-v5-archive",
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsMonthlyRollupUncached>[1]) =>
     fetchAdmissionsMonthlyRollupUncached(createAdminClient(), opts)
