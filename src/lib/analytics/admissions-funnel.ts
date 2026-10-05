@@ -764,7 +764,7 @@ function weekLabel(n: number, start: string, end: string): string {
   return `Week ${n} · ${fmt(start)}–${fmt(end)}`;
 }
 
-async function fetchAdmissionsFunnelUncached(
+export async function fetchAdmissionsFunnelUncached(
   supabase: SupabaseClient,
   opts?: {
     month?: string | null;

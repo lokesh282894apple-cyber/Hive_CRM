@@ -182,7 +182,7 @@ function filterKey(f: CounselorDashFilters) {
   ].join("|");
 }
 
-async function fetchCounselorDashboardUncached(
+export async function fetchCounselorDashboardUncached(
   filters: CounselorDashFilters = {}
 ): Promise<CounselorDashboard> {
   const { createAdminClient } = await import("@/lib/supabase/admin");
