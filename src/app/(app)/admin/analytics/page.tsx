@@ -8,6 +8,7 @@ import {
 } from "@/lib/analytics/admissions-funnel";
 import { resolveStructuredRange, monthBounds, yearBounds } from "@/lib/analytics/date-range";
 import { DateRangeBar } from "@/components/admin/DateRangeBar";
+import { ArchiveNotice } from "@/components/admin/ArchiveNotice";
 import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { FunnelMatrix, OfferFunnelMatrix } from "@/components/admin/funnel/FunnelMatrix";
 import { RejectionFunnelPanel } from "@/components/admin/funnel/RejectionFunnelPanel";
@@ -231,6 +232,7 @@ export default async function AdminAnalyticsPage({
         cohorts={dateCohorts}
         pathname="/admin/analytics"
       />
+      <ArchiveNotice fromDate={dateRange.overall ? "2000-01-01" : dateRange.fromDate} />
 
       <SyncedAnalyticsFilters
         action="/admin/analytics"

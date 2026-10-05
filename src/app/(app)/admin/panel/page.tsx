@@ -5,6 +5,7 @@ import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
 import { resolveStructuredRange } from "@/lib/analytics/date-range";
 import { DateRangeBar } from "@/components/admin/DateRangeBar";
+import { ArchiveNotice } from "@/components/admin/ArchiveNotice";
 import { SyncedAnalyticsFilters } from "@/components/admin/SyncedAnalyticsFilters";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import Link from "next/link";
@@ -167,6 +168,7 @@ export default async function AdminPanelPage({
           showOverall
           pathname="/admin/panel"
         />
+        <ArchiveNotice fromDate={dateRange.overall ? "2000-01-01" : dateRange.fromDate} />
       </div>
 
       <SyncedAnalyticsFilters

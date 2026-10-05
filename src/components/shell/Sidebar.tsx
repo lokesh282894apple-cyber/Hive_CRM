@@ -31,6 +31,7 @@ import {
   Trophy,
   PanelLeftClose,
   PanelLeftOpen,
+  History,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -127,6 +128,7 @@ const adminGroups: NavGroup[] = [
     items: [
       { href: "/admin/analytics", label: "Admission Analytics", icon: BarChart3 },
       { href: "/admin/monthly", label: "All months", icon: CalendarDays },
+      { href: "/admin/history", label: "History (sheets)", icon: History },
       // Lead pages (/leads/…) open from the board — keep "All Leads" lit there
       { href: "/admin/leads", label: "All Leads", icon: ClipboardList, matchPaths: ["/admin/leads", "/leads"] },
       { href: "/attention", label: "Attention", icon: AlertTriangle },
