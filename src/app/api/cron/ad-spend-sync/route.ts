@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateCronAuth } from "@/lib/marketing/track-auth";
 import { recordMetaSyncRun, syncMetaAdSpend } from "@/lib/marketing/meta-sync";
-import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 
 // Ad-level × daily is a few thousand rows a month — give the sync room to finish
 export const maxDuration = 60;
@@ -59,7 +58,6 @@ export async function POST(request: NextRequest) {
     durationMs: Date.now() - startedAt,
     errors,
   });
-  if (synced > 0) invalidateMarketingCaches();
 
   return NextResponse.json({
     ok: true,
