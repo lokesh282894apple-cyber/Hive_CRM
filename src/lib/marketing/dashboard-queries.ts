@@ -338,7 +338,7 @@ export async function fetchLeadFunnelUncached(
     )
   );
 
-  const [sessions, leads, funnelLeads, spendRows, costRows, campsRes, notesRes, activations] =
+  const [sessions, leads, funnelLeads, spendRows, costRows, split, notesRes, activations] =
     await Promise.all([
       sessionsPerDay(admin, fromIso, toIso),
       fetchAllPages<{
@@ -388,7 +388,7 @@ export async function fetchLeadFunnelUncached(
             .order("id", { ascending: true }).range(from, to),
         "marketing_cost_entries.funnel"
       ),
-      admin.from("campaigns").select("id, source_type"),
+      sessionsPaidSplit(admin, fromIso, toIso),
       admin
         .from("marketing_daily_notes")
         .select("note_date, notes, organic_spend_inr, inorganic_spend_inr, activity_log")
@@ -404,18 +404,9 @@ export async function fetchLeadFunnelUncached(
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
     ]);
 
-  const leadIds = leads.map((l) => l.id);
-  const attrs = await selectInChunks<{
-    lead_id: string;
-    first_touch_campaign_id: string | null;
-  }>("lead_attribution", "lead_id", leadIds, "lead_id, first_touch_campaign_id");
-
-  const campMap = new Map(
-    (campsRes.data ?? []).map((c) => [c.id as string, c.source_type as string])
-  );
-  const attrMap = new Map(
-    attrs.map((a) => [a.lead_id as string, a.first_touch_campaign_id as string])
-  );
+  // Paid / organic per lead comes from the funnel engine (it already joined
+  // attribution) — no second round of attribution lookups
+  const inorganicById = new Map(funnelLeads.map((l) => [l.id, l.inorganic]));
 
   const notesByDate = new Map(
     (notesRes.data ?? []).map((n) => [
@@ -475,7 +466,6 @@ export async function fetchLeadFunnelUncached(
   for (const s of sessions) {
     ensure(s.day).sessions += s.sessions;
   }
-  const split = await sessionsPaidSplit(admin, fromIso, toIso);
   if (split) {
     for (const r of Array.from(dayMap.values())) {
       r.sessionsPaid = 0;
@@ -532,12 +522,8 @@ export async function fetchLeadFunnelUncached(
         ? istDateKey(l.created_at)
         : null;
     if (!aqlDate || !inRange(aqlDate, filters.fromDate, filters.toDate)) continue;
-    const campId = attrMap.get(l.id);
-    const inorg = isInorganicLead({
-      utm_medium: l.utm_medium,
-      source: l.source,
-      campaignSourceType: campId ? campMap.get(campId) : null,
-    });
+    const inorg =
+      inorganicById.get(l.id) ?? isInorganicLead({ utm_medium: l.utm_medium, source: l.source });
     const row = ensure(aqlDate);
     row.aqlTotal += 1;
     if (inorg) row.aqlInorganic += 1;
