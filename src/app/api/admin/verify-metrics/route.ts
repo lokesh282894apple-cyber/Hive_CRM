@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 import { BOARD_FETCH_MAX } from "@/lib/constants";
-import { bucketFunnel, loadFunnelLeads, MILESTONES } from "@/lib/analytics/funnel-engine";
+import { bucketFunnel, loadFunnelLeads, loadFunnelLeadsByIdRows, MILESTONES } from "@/lib/analytics/funnel-engine";
 import { fetchLeadFunnelUncached, sessionsPaidSplit, sessionsPerDay } from "@/lib/marketing/dashboard-queries";
 import { fetchMarketingPnl } from "@/lib/marketing/pnl-monthly";
 import { fetchRejectionFunnel } from "@/lib/analytics/rejection-funnel";
@@ -105,6 +105,21 @@ export async function GET() {
       oldR1DoneUniqueLeads: uniq.size,
       note: "oldR1DoneCount > unique leads shows the old double counting",
     };
+  });
+
+  // 2b. Fast database path must match the row-by-row path exactly
+  await step("funnel_rpc_parity", async () => {
+    const t0 = Date.now();
+    const fast = await loadFunnelLeads(db, fromIso, toIso);
+    const fastMs = Date.now() - t0;
+    const t1 = Date.now();
+    const rows = await loadFunnelLeadsByIdRows(db, fast.map((l) => l.id));
+    const rowsMs = Date.now() - t1;
+    const key = (l: (typeof fast)[number]) =>
+      JSON.stringify([l.id, l.stage, l.inorganic, MILESTONES.map((m) => l.at[m] ?? null), [...l.stagesEver].sort()]);
+    const a = new Set(fast.map(key));
+    const mismatched = rows.filter((l) => !a.has(key(l))).slice(0, 5).map((l) => l.id);
+    return { ok: rows.length === fast.length && mismatched.length === 0, leads: fast.length, fastMs, rowsMs, mismatched };
   });
 
   // 3. Sessions split adds up to sessions

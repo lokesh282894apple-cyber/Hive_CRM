@@ -168,6 +168,8 @@ export async function loadFunnelLeads(
   fromIso: string,
   toIso: string
 ): Promise<FunnelLead[]> {
+  const fast = await loadViaRpc(admin, { p_from: fromIso, p_to: toIso });
+  if (fast) return fast;
   const [created, historyInRange, bookingsInRange] = await Promise.all([
     fetchAllPages<{ id: string }>(
       (from, to) =>
@@ -217,6 +219,71 @@ export async function loadFunnelLeads(
 /** Same as loadFunnelLeads for an explicit set of lead ids. */
 export async function loadFunnelLeadsById(admin: SupabaseClient, ids: string[]): Promise<FunnelLead[]> {
   if (!ids.length) return [];
+  const fast = await loadViaRpc(admin, { p_ids: ids });
+  if (fast) return fast;
+  return loadFunnelLeadsByIdRows(admin, ids);
+}
+
+type RpcLead = {
+  id: string;
+  created_at: string;
+  stage: string;
+  owner: string | null;
+  source: string | null;
+  utm_medium: string | null;
+  programme: string | null;
+  cohort_id: string | null;
+  course_id: string | null;
+  campaign_source_type: string | null;
+  first_entry: Record<string, string>;
+  bookings: { round: string; scheduled_at: string; outcome: string | null }[];
+};
+
+/**
+ * One database call (rpc_funnel_leads, migration 20261005100000) instead of
+ * paging four tables in chunks. Returns null when the function isn't there
+ * yet so callers fall back to the row path — same results either way.
+ */
+async function loadViaRpc(
+  admin: SupabaseClient,
+  args: { p_from?: string; p_to?: string; p_ids?: string[] }
+): Promise<FunnelLead[] | null> {
+  const { data, error } = await admin.rpc("rpc_funnel_leads", args);
+  if (error) {
+    if (/could not find the function|PGRST202|42883/i.test(`${error.code} ${error.message}`)) return null;
+    throw new Error(`rpc_funnel_leads: ${error.message}`);
+  }
+  return ((data ?? []) as RpcLead[])
+    .filter((l) => l.source !== PAST_STUDENT_SOURCE)
+    .map((l) => {
+      // First entry per stage is all milestonesFor needs from history
+      const history: HistoryRow[] = Object.entries(l.first_entry ?? {}).map(([to_stage, changed_at]) => ({
+        lead_id: l.id,
+        to_stage,
+        changed_at,
+      }));
+      const bookings: BookingRow[] = (l.bookings ?? []).map((b) => ({ lead_id: l.id, ...b }));
+      return {
+        id: l.id,
+        createdAt: new Date(l.created_at).toISOString(),
+        stage: l.stage,
+        ownerId: l.owner,
+        inorganic: isInorganicLead({
+          utm_medium: l.utm_medium,
+          source: l.source,
+          campaignSourceType: l.campaign_source_type,
+        }),
+        programme: l.programme,
+        cohortId: l.cohort_id,
+        courseId: l.course_id,
+        at: milestonesFor(history, bookings),
+        stagesEver: Array.from(new Set([...history.map((h) => h.to_stage), l.stage])),
+      };
+    });
+}
+
+/** Row-by-row path — fallback, and used by /api/admin/verify-metrics as the parity reference. */
+export async function loadFunnelLeadsByIdRows(admin: SupabaseClient, ids: string[]): Promise<FunnelLead[]> {
   const [leads, history, bookings, attrs, camps] = await Promise.all([
     inChunks<{
       id: string;

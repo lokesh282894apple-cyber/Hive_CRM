@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { autoSyncMetaIfStale } from "@/app/actions/marketing";
+import { usePathname, useRouter } from "next/navigation";
 
 /**
  * Invisible unless working: refreshes Meta data in the background when it is
@@ -10,6 +9,7 @@ import { autoSyncMetaIfStale } from "@/app/actions/marketing";
  */
 export function MetaAutoSync() {
   const router = useRouter();
+  const pathname = usePathname();
   const [state, setState] = useState<"idle" | "syncing" | "done">("idle");
 
   useEffect(() => {
@@ -17,12 +17,14 @@ export function MetaAutoSync() {
     let finished = false;
     // Only show the note when a real sync is happening (fresh data returns at once)
     const show = setTimeout(() => alive && !finished && setState("syncing"), 1500);
-    autoSyncMetaIfStale()
+    fetch("/api/marketing/meta-autosync", { method: "POST", keepalive: true })
+      .then((res) => (res.ok ? (res.json() as Promise<{ ran: boolean; synced: number }>) : { ran: false, synced: 0 }))
       .then((r) => {
         finished = true;
         if (!alive) return;
         setState("done");
-        if (r.ran && r.synced > 0) router.refresh();
+        // Only the Meta page shows ad rows directly; other pages pick up spend on their next load
+        if (r.ran && r.synced > 0 && pathname.startsWith("/marketing/ads")) router.refresh();
       })
       .catch(() => {
         finished = true;
@@ -32,7 +34,9 @@ export function MetaAutoSync() {
       alive = false;
       clearTimeout(show);
     };
-  }, [router]);
+    // Once per page visit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (state !== "syncing") return null;
   return <p className="text-xs text-muted">Refreshing Meta data in the background…</p>;
