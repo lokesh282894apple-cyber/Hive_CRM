@@ -168,7 +168,7 @@ export async function loadFunnelLeads(
   fromIso: string,
   toIso: string
 ): Promise<FunnelLead[]> {
-  const fast = await loadViaRpc(admin, { p_from: fromIso, p_to: toIso });
+  const fast = await loadViaRpc(admin, { p_from: fromIso, p_to: toIso, p_ids: null });
   if (fast) return fast;
   const [created, historyInRange, bookingsInRange] = await Promise.all([
     fetchAllPages<{ id: string }>(
@@ -219,7 +219,7 @@ export async function loadFunnelLeads(
 /** Same as loadFunnelLeads for an explicit set of lead ids. */
 export async function loadFunnelLeadsById(admin: SupabaseClient, ids: string[]): Promise<FunnelLead[]> {
   if (!ids.length) return [];
-  const fast = await loadViaRpc(admin, { p_ids: ids });
+  const fast = await loadViaRpc(admin, { p_from: null, p_to: null, p_ids: ids });
   if (fast) return fast;
   return loadFunnelLeadsByIdRows(admin, ids);
 }
@@ -246,12 +246,16 @@ type RpcLead = {
  */
 async function loadViaRpc(
   admin: SupabaseClient,
-  args: { p_from?: string; p_to?: string; p_ids?: string[] }
+  // All three args always: an older, unused 2-argument rpc_funnel_leads
+  // (20260927010000_analytics_fast_rpc) shares the name, and passing only
+  // the dates made PostgREST unable to pick one.
+  args: { p_from: string | null; p_to: string | null; p_ids: string[] | null }
 ): Promise<FunnelLead[] | null> {
   const { data, error } = await admin.rpc("rpc_funnel_leads", args);
   if (error) {
-    if (/could not find the function|PGRST202|42883/i.test(`${error.code} ${error.message}`)) return null;
-    throw new Error(`rpc_funnel_leads: ${error.message}`);
+    // Any failure → the row path (same numbers, slower) instead of a broken page
+    console.error("[funnel-engine] rpc_funnel_leads failed, using row path:", error.message);
+    return null;
   }
   return ((data ?? []) as RpcLead[])
     .filter((l) => l.source !== PAST_STUDENT_SOURCE)
