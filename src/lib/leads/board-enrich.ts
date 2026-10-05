@@ -44,3 +44,20 @@ export async function enrichWithTopUp(
     openTasks: new Map([...Array.from(a.openTasks.entries()), ...Array.from(b.openTasks.entries())]),
   };
 }
+
+/**
+ * Drop null / undefined fields (one level deep, plus nested objects) before
+ * cards go to the browser. A board render sent ~680 KB for ~350 cards, most
+ * of it empty fields repeated per card; board components treat a missing
+ * field like null (`?? …`, `!= null`), so behaviour is unchanged.
+ */
+export function compactForClient<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => compactForClient(v)) as unknown as T;
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === null || v === undefined) continue;
+    out[k] = v && typeof v === "object" ? compactForClient(v) : v;
+  }
+  return out as T;
+}

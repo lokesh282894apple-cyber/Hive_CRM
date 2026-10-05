@@ -390,7 +390,8 @@ export function LeadInspectorPanel({
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Link href={detailHref} className="btn-primary text-xs">
+          {/* Prefetch the full lead page while the preview is open, so opening it is instant */}
+          <Link href={detailHref} prefetch className="btn-primary text-xs">
             Open full lead
           </Link>
           <Link

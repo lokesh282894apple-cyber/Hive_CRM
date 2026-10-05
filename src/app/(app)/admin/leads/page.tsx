@@ -13,7 +13,7 @@ import {
 import { cookies } from "next/headers";
 import { BOARD_FETCH_MAX } from "@/lib/constants";
 import { getActiveCohorts, getActiveCourses } from "@/lib/catalog";
-import { enrichWithTopUp } from "@/lib/leads/board-enrich";
+import { compactForClient, enrichWithTopUp } from "@/lib/leads/board-enrich";
 import { classifyLeadSource } from "@/lib/leads/source-class";
 import type { AppUser, Cohort, Course, LeadWithRelations } from "@/types/database";
 
@@ -120,7 +120,7 @@ export default async function AdminLeadsPage({
   return (
     <LeadsWorkspace
       stageTotals={stageTotals}
-      leads={leads}
+      leads={compactForClient(leads)}
       totalEstimate={totalEstimate}
       filters={filters}
       courses={courses as Course[]}
