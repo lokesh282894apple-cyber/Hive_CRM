@@ -79,6 +79,8 @@ async function getChannelId(admin: SupabaseClient, channelName: string): Promise
 
 /**
  * Idempotent get-or-create campaign by channel + name + source_type.
+ * Lookups take the oldest match: with `.maybeSingle()` alone, two copies made
+ * the lookup fail, which created a third copy — and so on (28k rows by Oct 2026).
  */
 export async function getOrCreateCampaign(
   admin: SupabaseClient,
@@ -102,7 +104,9 @@ export async function getOrCreateCampaign(
     .eq("channel_id", channelId)
     .eq("name", name)
     .eq("source_type", input.source_type)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
   if (existing) return existing.id;
 
@@ -127,6 +131,8 @@ export async function getOrCreateCampaign(
       .eq("channel_id", channelId)
       .eq("name", name)
       .eq("source_type", input.source_type)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
     return again?.id ?? null;
   }
@@ -147,6 +153,8 @@ export async function ensureDefaultCampaigns(admin: SupabaseClient): Promise<num
       .select("id")
       .eq("channel_id", ch.id)
       .eq("name", name)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
     if (existing) continue;
     const { error } = await admin.from("campaigns").insert({
