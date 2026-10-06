@@ -4,6 +4,13 @@ import { cache } from "react";
 /** Short TTL — same UX as live dashboards; Salesforce-style aggregate freshness. */
 export const MARKETING_CACHE_REVALIDATE_SEC = 90;
 
+/**
+ * Part of every cache key. Cached results outlive a deploy, so a changed
+ * calculation kept serving the old number until someone remembered to rename
+ * the key — keying on the deployed commit starts every deploy fresh.
+ */
+const DEPLOY_KEY = (process.env.VERCEL_GIT_COMMIT_SHA ?? "local").slice(0, 12);
+
 export const MARKETING_CACHE_TAGS = {
   funnel: "marketing-funnel",
   channel: "marketing-channel",
@@ -67,7 +74,7 @@ export function cachedMarketingQuery<TArgs extends unknown[], TResult>(
     const args = argsByKey.get(serialized)!;
     const run = unstable_cache(
       async () => fn(...args),
-      [opts.keyPrefix, serialized],
+      [opts.keyPrefix, DEPLOY_KEY, serialized],
       { revalidate, tags: opts.tags }
     );
     return run();

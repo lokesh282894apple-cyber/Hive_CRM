@@ -789,7 +789,7 @@ export async function fetchCounselorDashboard(
   const key = filterKey(filters);
   return unstable_cache(
     () => fetchCounselorDashboardUncached(filters),
-    ["counselor-dashboard-v4-engine", key],
+    ["counselor-dashboard-v4-engine", (process.env.VERCEL_GIT_COMMIT_SHA ?? "local").slice(0, 12), key],
     { revalidate: 60, tags: ["counselor-dashboard"] }
   )();
 }
