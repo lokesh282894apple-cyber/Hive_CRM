@@ -12,19 +12,31 @@ import { invalidateLeadCaches } from "@/lib/analytics/admissions-cache";
 
 /** Map website programme/source/page hints → course name substrings */
 function programmeHints(programme: string | null, source: string, pageHint: string | null): string[] {
-  const blob = `${programme ?? ""} ${source} ${pageHint ?? ""}`.toLowerCase();
+  // The form the student filled (programme / source) decides the course. Pages
+  // they browsed earlier are only a fallback — most visitors pass the PGP page
+  // before opening a UG or AI Marketing form.
+  const fromForm = matchProgramme(`${programme ?? ""} ${source}`);
+  if (fromForm.length) return fromForm;
+  return matchProgramme(pageHint ?? "");
+}
+
+function matchProgramme(text: string): string[] {
+  const blob = text.toLowerCase();
   const hints: string[] = [];
-  if (/pgp|revenue|entrepreneurship|placement-report/.test(blob)) {
-    hints.push("PGP");
-  }
-  if (/undergrad|\bug\b|brochure/.test(blob)) {
-    hints.push("Undergraduate");
-  }
-  if (/fellowship|ai marketing/.test(blob)) {
+  // "Fellowship: GTM, Revenue & AI" has no CRM course yet — leave it unassigned
+  // rather than filing it under PGP or the AI Marketing fellowship.
+  if (/gtm[\s_-]*revenue|fellowship[\s_-]*gtm/.test(blob)) return ["GTM"];
+  if (/fellowship|ai[\s_-]*(and[\s_-]*creator[\s_-]*)?marketing|creator[\s_-]*marketing/.test(blob)) {
     hints.push("Fellowship");
+  }
+  if (/undergrad|\bug\b/.test(blob)) {
+    hints.push("Undergraduate");
   }
   if (/executive|sprint/.test(blob)) {
     hints.push("Executive");
+  }
+  if (/pgp|revenue|entrepreneurship|placement-report/.test(blob)) {
+    hints.push("PGP");
   }
   return hints;
 }
