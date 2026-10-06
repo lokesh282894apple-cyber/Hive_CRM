@@ -71,6 +71,150 @@ function PasswordCell({
   );
 }
 
+function UserEditDrawer({
+  user,
+  courses,
+  cohorts,
+  scopes,
+  onClose,
+  onSaved,
+}: {
+  user: AppUser;
+  courses: Course[];
+  cohorts: Cohort[];
+  scopes: CounselorScope[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState(user.name);
+  const [role, setRole] = useState<Role>(user.role as Role);
+  const [active, setActive] = useState(user.active);
+  const [password, setPassword] = useState("");
+  const [picked, setPicked] = useState<string[]>(
+    scopes.filter((s) => s.user_id === user.id).map((s) => s.cohort_id)
+  );
+
+  const byCourse = courses
+    .map((course) => ({ course, cohorts: cohorts.filter((c) => c.course_id === course.id) }))
+    .filter((g) => g.cohorts.length);
+
+  function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (password && password.trim().length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    startTransition(async () => {
+      const profile = await updateUserProfile({ id: user.id, name: name.trim() || user.name, role, active });
+      if (!profile.ok) return setError(profile.error);
+      if (role === "counselor") {
+        const next = picked
+          .map((cid) => cohorts.find((c) => c.id === cid))
+          .filter((c): c is Cohort => Boolean(c))
+          .map((c) => ({ course_id: c.course_id, cohort_id: c.id }));
+        const scoped = await setCounselorScopes(user.id, next);
+        if (!scoped.ok) return setError(scoped.error);
+      }
+      if (password.trim()) {
+        const pw = await resetUserTempPassword({ userId: user.id, password: password.trim() });
+        if (!pw.ok) return setError(pw.error);
+      }
+      onSaved();
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-navy/30" onClick={onClose}>
+      <form
+        onSubmit={save}
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-full max-w-md flex-col overflow-y-auto bg-white shadow-xl"
+      >
+        <div className="flex items-start justify-between border-b border-border px-5 py-4">
+          <div>
+            <p className="eyebrow">Edit user</p>
+            <p className="text-sm text-muted">{user.email}</p>
+          </div>
+          <button type="button" className="btn-ghost text-xs" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 px-5 py-4">
+          <div>
+            <label className="label-field">Name</label>
+            <input className="input-field" value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div>
+            <label className="label-field">Role</label>
+            <select className="input-field" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+            Active (can sign in)
+          </label>
+          <div>
+            <label className="label-field">New temp password</label>
+            <input
+              className="input-field"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave empty to keep the current one"
+              minLength={8}
+            />
+          </div>
+          {role === "counselor" ? (
+            <div>
+              <label className="label-field">Courses / cohorts this counselor works</label>
+              <p className="mb-2 text-[11px] text-muted">
+                They can open and edit leads of the ticked cohorts that are allocated to them.
+              </p>
+              <div className="space-y-3 rounded-xl border border-border p-3">
+                {byCourse.map(({ course, cohorts: list }) => (
+                  <div key={course.id}>
+                    <p className="text-xs font-semibold text-navy">{course.name}</p>
+                    {list.map((c) => (
+                      <label key={c.id} className="mt-1 flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={picked.includes(c.id)}
+                          onChange={(e) =>
+                            setPicked((prev) =>
+                              e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)
+                            )
+                          }
+                        />
+                        {c.name}
+                        {c.active === false ? <span className="text-[11px] text-muted">(inactive)</span> : null}
+                      </label>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {error ? <p className="text-sm text-danger">{error}</p> : null}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn-primary" disabled={pending}>
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function UsersClient({
   users,
   courses,
@@ -87,6 +231,7 @@ export function UsersClient({
   const [error, setError] = useState<string | null>(null);
   const [role, setRole] = useState<Role>("counselor");
   const [selectedCohorts, setSelectedCohorts] = useState<string[]>([]);
+  const [editing, setEditing] = useState<AppUser | null>(null);
 
   function onCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -235,7 +380,8 @@ export function UsersClient({
                           ? userScopes
                               .map((s) => {
                                 const co = cohorts.find((c) => c.id === s.cohort_id);
-                                return co?.name;
+                                const course = courses.find((x) => x.id === s.course_id);
+                                return co ? `${course?.name ?? ""} · ${co.name}` : null;
                               })
                               .filter(Boolean)
                               .join(", ")
@@ -291,31 +437,10 @@ export function UsersClient({
                   <td className="px-4 py-3 space-y-2">
                     <button
                       type="button"
-                      className="btn-ghost text-xs"
-                      disabled={pending}
-                      onClick={() => {
-                        const next = prompt(
-                          `New temp password for ${u.name} (min 8 chars)`,
-                          u.admin_temp_password || ""
-                        );
-                        if (next == null) return;
-                        if (next.trim().length < 8) {
-                          setError("Password must be at least 8 characters.");
-                          return;
-                        }
-                        startTransition(async () => {
-                          const res = await resetUserTempPassword({
-                            userId: u.id,
-                            password: next.trim(),
-                          });
-                          if (!res.ok) setError(res.error);
-                          else {
-                            setError(null);
-                          }
-                        });
-                      }}
+                      className="btn-ghost text-xs font-semibold text-navy"
+                      onClick={() => setEditing(u)}
                     >
-                      Set password
+                      Edit
                     </button>
                     <button
                       type="button"
@@ -367,36 +492,6 @@ export function UsersClient({
                     >
                       Remove
                     </button>
-                    {u.role === "counselor" ? (
-                      <button
-                        type="button"
-                        className="btn-ghost block text-xs text-periwinkle"
-                        onClick={() => {
-                          const ids = prompt(
-                            "Comma-separated cohort IDs for scope (leave empty to clear)",
-                            userScopes.map((s) => s.cohort_id).join(",")
-                          );
-                          if (ids == null) return;
-                          const cohortIds = ids
-                            .split(",")
-                            .map((x) => x.trim())
-                            .filter(Boolean);
-                          const next = cohortIds
-                            .map((cid) => {
-                              const co = cohorts.find((c) => c.id === cid);
-                              return co
-                                ? { course_id: co.course_id, cohort_id: co.id }
-                                : null;
-                            })
-                            .filter(Boolean) as { course_id: string; cohort_id: string }[];
-                          startTransition(async () => {
-                            await setCounselorScopes(u.id, next);
-                          });
-                        }}
-                      >
-                        Edit scope IDs
-                      </button>
-                    ) : null}
                   </td>
                 </tr>
               );
@@ -404,6 +499,21 @@ export function UsersClient({
           </tbody>
         </table>
       </div>
+      {editing ? (
+        <UserEditDrawer
+          key={editing.id}
+          user={editing}
+          courses={courses}
+          cohorts={cohorts}
+          scopes={scopes}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            setError(null);
+            router.refresh();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -112,11 +112,24 @@ export async function setCounselorScopes(
 ): Promise<ActionResult> {
   await requireUser(["admin"]);
   const admin = createAdminClient();
-  await admin.from("counselor_scope").delete().eq("user_id", userId);
+  // Add the new cohorts first, then drop the unticked ones — a failed write
+  // never leaves the counselor with no access at all.
   if (scopes.length) {
-    const { error } = await admin.from("counselor_scope").insert(
-      scopes.map((s) => ({ ...s, user_id: userId }))
+    const { error } = await admin.from("counselor_scope").upsert(
+      scopes.map((s) => ({ ...s, user_id: userId })),
+      { onConflict: "user_id,course_id,cohort_id", ignoreDuplicates: true }
     );
+    if (error) return { ok: false, error: error.message };
+  }
+  const keep = new Set(scopes.map((s) => s.cohort_id));
+  const { data: current, error: readErr } = await admin
+    .from("counselor_scope")
+    .select("id, cohort_id")
+    .eq("user_id", userId);
+  if (readErr) return { ok: false, error: readErr.message };
+  const drop = (current ?? []).filter((r) => !keep.has(r.cohort_id)).map((r) => r.id);
+  if (drop.length) {
+    const { error } = await admin.from("counselor_scope").delete().in("id", drop);
     if (error) return { ok: false, error: error.message };
   }
   revalidatePath("/admin/users");
