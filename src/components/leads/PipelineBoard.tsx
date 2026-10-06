@@ -52,7 +52,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { differenceInDays } from "date-fns";
 import { Layers, LayoutGrid, Phone } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { reportResult } from "@/components/ui/Toaster";
+import { notify, reportResult } from "@/components/ui/Toaster";
 
 function isStale(lead: LeadWithRelations) {
   const anchor = lead.last_contacted_at ?? lead.created_at;
@@ -71,7 +71,7 @@ function LeadCardMetricsBlock({ lead }: { lead: LeadWithCard }) {
   const m = lead.cardMetrics;
   const stage = lead.stage;
   const isNew = stage === "new_lead" || stage === "lead_created" || stage === "in_funnel";
-  const isNurture = stage === "call_logged_nurturing" || stage === "dnp";
+  const isNurture = stage === "call_logged_nurturing" || stage === "dnp" || stage === "dnp_whatsapp_replied";
   const isInterview =
     stage.startsWith("r1_") || stage.startsWith("r2_") || stage.startsWith("r3_");
   const isOffer =
@@ -254,11 +254,24 @@ function LeadCard({
   const style = transform
     ? { transform: CSS.Translate.toString(transform) }
     : undefined;
+  // Drag from anywhere on the card (only the small handle used to work — team,
+  // 6 Oct); a click without moving still opens the lead. Form fields keep
+  // their own pointer so typing / selecting text doesn't start a drag.
+  const dragProps = disableDrag
+    ? {}
+    : {
+        ...attributes,
+        onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+          if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable], [data-no-drag]")) return;
+          listeners?.onPointerDown?.(e);
+        },
+      };
 
   return (
     <article
       ref={setNodeRef}
       style={style}
+      {...dragProps}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       onClick={() => onSelect?.(lead.id)}
@@ -275,7 +288,8 @@ function LeadCard({
         stale ? "border-warning/50 bg-yellow-50/40" : "border-border hover:border-periwinkle/50",
         selected && "border-periwinkle ring-2 ring-periwinkle/40",
         (isDragging || dragging) && "opacity-40 ring-2 ring-gold/60",
-        onSelect && "cursor-pointer"
+        onSelect && "cursor-pointer",
+        !disableDrag && "touch-none"
       )}
     >
       <div className="flex items-start gap-2">
@@ -285,8 +299,6 @@ function LeadCard({
           aria-label="Drag lead"
           disabled={disableDrag}
           onClick={(e) => e.stopPropagation()}
-          {...(disableDrag ? {} : listeners)}
-          {...(disableDrag ? {} : attributes)}
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
             <circle cx="9" cy="7" r="1.5" />
@@ -674,6 +686,11 @@ export function PipelineBoard({
     setDndReady(true);
   }, []);
 
+  // The inline message sits above the board, often scrolled out of view
+  useEffect(() => {
+    if (error) notify(error);
+  }, [error]);
+
   useEffect(() => {
     const saved = window.localStorage.getItem("hive-board-density") as BoardDensity | null;
     if (saved === "grouped" || saved === "breakdown") setDensity(saved);
@@ -834,8 +851,11 @@ export function PipelineBoard({
           STAGE_TRANSITIONS[lead.stage] ??
           [];
         if (!allowed.includes(nextStage)) {
+          const round = /^r([12])_booked$/.exec(lead.stage)?.[1];
           setError(
-            `Can't move ${stageLabel(lead.stage)} → ${stageLabel(nextStage)}. Open the lead to pick a valid stage.`
+            round && nextStage === `r${Number(round) + 1}_booked`
+              ? `${lead.name}: R${round} outcome isn't in yet. Move the card to R${round} ${round === "1" ? "Confirmed" : "TBB"} first (or the panelist submits it), then drag to R${Number(round) + 1}.`
+              : `Can't move ${stageLabel(lead.stage)} → ${stageLabel(nextStage)}. Open the lead to pick a valid stage.`
           );
           return;
         }

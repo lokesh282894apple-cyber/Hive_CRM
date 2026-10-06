@@ -13,6 +13,8 @@ export const STAGES = [
   "new_lead",
   "call_logged_nurturing",
   "dnp",
+  // DNP on calls but replied on WhatsApp (team, 6 Oct)
+  "dnp_whatsapp_replied",
   "no_show",
   "reschedule",
   "retarget_next_batch",
@@ -52,6 +54,7 @@ export const PRIMARY_PRE_INTERVIEW_STAGES = [
   "new_lead",
   "call_logged_nurturing",
   "dnp",
+  "dnp_whatsapp_replied",
   "retarget_next_batch",
   "admission_team_rejected",
 ] as const satisfies readonly Stage[];
@@ -166,7 +169,7 @@ export function stageRequiresReason(stage: string): boolean {
 
 /** DNP is a call outcome lane — no student-intent score on move. */
 export function stageRequiresStudentIntent(stage: string): boolean {
-  return stage !== "dnp" && stage !== "no_show" && stage !== "reschedule";
+  return stage !== "dnp" && stage !== "dnp_whatsapp_replied" && stage !== "no_show" && stage !== "reschedule";
 }
 
 export function stageRequiresPresetReason(stage: string): boolean {
@@ -224,6 +227,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
   new_lead: "New Lead",
   call_logged_nurturing: "Call Logged – Nurturing",
   dnp: "DNP",
+  dnp_whatsapp_replied: "DNP – WhatsApp replied",
   no_show: "No Show",
   reschedule: "Reschedule",
   retarget_next_batch: "Retarget Next Batch",
@@ -262,6 +266,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "dnp_whatsapp_replied",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -273,6 +278,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "dnp_whatsapp_replied",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -283,6 +289,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   new_lead: [
     "call_logged_nurturing",
     "dnp",
+    "dnp_whatsapp_replied",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -293,6 +300,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   call_logged_nurturing: [
     "new_lead",
     "dnp",
+    "dnp_whatsapp_replied",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -302,7 +310,19 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
   ],
   dnp: [
     "new_lead",
+    "dnp_whatsapp_replied",
     "call_logged_nurturing",
+    "retarget_next_batch",
+    "admission_team_rejected",
+    "r1_booked",
+    "student_reject",
+    "closed_deferred",
+    "closed_lost",
+  ],
+  dnp_whatsapp_replied: [
+    "new_lead",
+    "call_logged_nurturing",
+    "dnp",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -314,6 +334,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "dnp_whatsapp_replied",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -325,6 +346,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "dnp_whatsapp_replied",
     "retarget_next_batch",
     "admission_team_rejected",
     "r1_booked",
@@ -336,6 +358,7 @@ export const STAGE_TRANSITIONS: Partial<Record<Stage, Stage[]>> = {
     "new_lead",
     "call_logged_nurturing",
     "dnp",
+    "dnp_whatsapp_replied",
     "r1_booked",
     "student_reject",
     "closed_deferred",
@@ -463,7 +486,7 @@ export const LEAD_LIST_TABS = [
     label: "Nurturing",
     stages: ["call_logged_nurturing"] as Stage[],
   },
-  { id: "dnp", label: "DNP", stages: ["dnp", "no_show", "reschedule"] as Stage[] },
+  { id: "dnp", label: "DNP", stages: ["dnp", "dnp_whatsapp_replied", "no_show", "reschedule"] as Stage[] },
   {
     id: "no_show",
     label: "Interview no-shows",
@@ -521,6 +544,7 @@ export const STAGE_GROUPS = [
       "new_lead",
       "call_logged_nurturing",
       "dnp",
+      "dnp_whatsapp_replied",
       "retarget_next_batch",
       "admission_team_rejected",
       "lead_created",
@@ -653,7 +677,7 @@ export const BOARD_COLUMNS: BoardColumnDef[] = [
     id: "dnp",
     label: "DNP",
     hint: "Did not pick · legacy no-show/reschedule here",
-    stages: ["dnp", "no_show", "reschedule"],
+    stages: ["dnp", "dnp_whatsapp_replied", "no_show", "reschedule"],
     dropStage: "dnp",
     accent: "warning",
     section: "Pre-interview",
@@ -813,7 +837,7 @@ function accentForStage(stage: Stage): BoardColumnDef["accent"] {
     stage === "closed_deferred" ||
     stage === "retarget_next_batch" ||
     stage.includes("no_show") ||
-    stage === "dnp"
+    stage.startsWith("dnp")
   ) {
     return "warning";
   }
@@ -1144,7 +1168,7 @@ export function stageTone(stage: Stage): "green" | "yellow" | "red" | "gray" | "
   }
   if (
     stage.includes("no_show") ||
-    stage === "dnp" ||
+    stage.startsWith("dnp") ||
     stage === "retarget_next_batch"
   ) {
     return "yellow";

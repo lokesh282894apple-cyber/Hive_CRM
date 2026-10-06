@@ -9,6 +9,7 @@ import {
 } from "@/lib/leads/identity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { invalidateLeadCaches } from "@/lib/analytics/admissions-cache";
+import { OPEN_STAGES, type Stage } from "@/lib/constants";
 
 /** Map website programme/source/page hints → course name substrings */
 function programmeHints(programme: string | null, source: string, pageHint: string | null): string[] {
@@ -81,8 +82,12 @@ async function resolveCourseAndCohort(
 
   if (!resolvedCourse) {
     const pageHint = await pageHintFromSession(admin, sessionId);
-    const hints = programmeHints(programme, source, pageHint);
-    if (hints.length) {
+    const found = programmeHints(programme, source, pageHint);
+    // Forms with no programme (homepage, salespreneur report, D2C playbook,
+    // placement report…) are PGP leads (Nikhil, 6 Oct). GTM stays unassigned:
+    // it has no CRM course yet.
+    const hints = found.length ? found : ["PGP"];
+    if (hints[0] !== "GTM") {
       const { data: courses } = await admin
         .from("courses")
         .select("id, name")
@@ -290,6 +295,29 @@ export async function POST(request: NextRequest) {
           }
         } else {
           return NextResponse.json({ error: updErr.message }, { status: 400 });
+        }
+      }
+
+      // Re-inquiry: a lead still in the pipeline filled a form again → task for
+      // the owner, due now (shows on the board card, Tasks and the dashboard)
+      if (OPEN_STAGES.includes(existing.stage as Stage)) {
+        const { data: openReinquiry } = await admin
+          .from("lead_tasks")
+          .select("id")
+          .eq("lead_id", leadId)
+          .eq("status", "open")
+          .ilike("title", "Re-inquiry%")
+          .limit(1);
+        if (!openReinquiry?.length) {
+          const form = source.replace(/^website:?/, "").replace(/[-_:]+/g, " ").trim() || "website form";
+          const { error: taskErr } = await admin.from("lead_tasks").insert({
+            lead_id: leadId,
+            title: `Re-inquiry: filled ${form} again — call back`,
+            notes: `Submitted again on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST while in ${existing.stage}.`,
+            due_at: new Date().toISOString(),
+            created_by: null,
+          });
+          if (taskErr) console.error("[website lead] re-inquiry task", taskErr.message);
         }
       }
 

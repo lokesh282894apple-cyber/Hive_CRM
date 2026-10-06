@@ -6,6 +6,7 @@ import { STAGE_LABELS, type Stage } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
 import { viewAsHref } from "@/lib/impersonation";
 import Link from "next/link";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 function Metric({
   label,
@@ -59,7 +60,10 @@ export default async function CounselorDashboardPage({
     ? Number(searchParams.range)
     : 30;
 
-  const data = await fetchCounselorHome(isCounselor ? user.id : null, rangeDays);
+  const [data, reinquiries] = await Promise.all([
+    fetchCounselorHome(isCounselor ? user.id : null, rangeDays),
+    loadReinquiries(isCounselor ? user.id : null),
+  ]);
   const { kpis, attribution } = data;
   const ranges = [7, 30, 90];
   const vid = ctx.impersonating ? user.id : null;
@@ -114,6 +118,38 @@ export default async function CounselorDashboardPage({
           />
         </div>
       </section>
+
+      {reinquiries.length ? (
+        <Section
+          title={`Re-inquiries · ${reinquiries.length}`}
+          action={
+            <Link href={h("/leads/tasks")} className="text-xs font-medium text-periwinkle hover:underline">
+              Tasks →
+            </Link>
+          }
+        >
+          <p className="mb-3 text-xs text-muted">
+            Leads already in your pipeline that filled a form again — call them back. Mark the task done once called.
+          </p>
+          <ul className="space-y-2">
+            {reinquiries.map((r) => (
+              <Link
+                key={r.id}
+                href={h(`/leads/${r.leadId}`)}
+                className="flex items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2 text-sm"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-navy">{r.leadName}</span>
+                  <span className="block truncate text-xs text-muted">{r.title.replace(/^Re-inquiry:\s*/, "")}</span>
+                </span>
+                <span className="shrink-0 text-xs text-muted">
+                  {STAGE_LABELS[r.stage as Stage] ?? r.stage} · {formatDateTime(r.createdAt)}
+                </span>
+              </Link>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
 
       {/* Work first */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -262,4 +298,22 @@ export default async function CounselorDashboardPage({
       ) : null}
     </div>
   );
+}
+
+/** Open "Re-inquiry" tasks (made when a pipeline lead fills a form again). */
+async function loadReinquiries(ownerId: string | null) {
+  const db = createAdminClient();
+  let q = db
+    .from("lead_tasks")
+    .select("id, title, created_at, lead:leads!inner(id, name, stage, lead_allocated_to)")
+    .eq("status", "open")
+    .ilike("title", "Re-inquiry%")
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (ownerId) q = q.eq("lead.lead_allocated_to", ownerId);
+  const { data } = await q;
+  return (data ?? []).map((r) => {
+    const lead = (Array.isArray(r.lead) ? r.lead[0] : r.lead) as { id: string; name: string; stage: string };
+    return { id: r.id as string, title: r.title as string, createdAt: r.created_at as string, leadId: lead.id, leadName: lead.name, stage: lead.stage };
+  });
 }

@@ -96,6 +96,7 @@ export type AdmissionsAnalytics = {
 
 export const ATTENTION_STAGES = [
   "dnp",
+  "dnp_whatsapp_replied",
   "no_show",
   "reschedule",
   "r1_no_show",

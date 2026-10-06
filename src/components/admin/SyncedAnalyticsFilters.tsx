@@ -102,10 +102,11 @@ export function SyncedAnalyticsFilters({
             Funnel mode
             <select
               name="mode"
-              value={local.mode ?? "period"}
+              value={local.mode ?? "cohort"}
               onChange={(e) => setLocal((s) => ({ ...s, mode: e.target.value }))}
               className="input-field mt-1 py-2 text-sm font-medium"
             >
+              <option value="cohort">Lead created date</option>
               <option value="period">Period activity</option>
               <option value="snapshot">Pipeline snapshot</option>
             </select>

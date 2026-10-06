@@ -151,10 +151,10 @@ await check("Leads", "Manual-looking 'website' leads (no visit, no programme) in
   report("Leads", "Manual-looking 'website' leads (no visit, no programme) in last 7 days", x.length,
     x.map((l) => l.name), "Add Lead defaults Source to 'website' — counts as website traffic");
 });
-await check("Leads", "Website leads with no course (go to everyone by turns)", async () => {
+await check("Leads", "Leads with no course (new website leads default to PGP)", async () => {
   const x = leads.filter((l) => !l.course_id && l.created_at >= daysAgo(7));
-  report("Leads", "Website leads with no course (go to everyone by turns)", x.length,
-    x.map((l) => `${l.name} [${l.source}]`));
+  report("Leads", "Leads with no course (new website leads default to PGP)", x.length,
+    x.map((l) => `${l.name} [${l.source}]`), "Only GTM fellowship / manual leads should be here — set the course on the lead");
 });
 await check("Leads", "Cohort intake window closing within 14 days", async () => {
   const soon = new Date(now + 14 * 86400_000).toISOString().slice(0, 10);

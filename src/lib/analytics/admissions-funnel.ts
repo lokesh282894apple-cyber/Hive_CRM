@@ -6,6 +6,7 @@ import { classifyLeadSource } from "@/lib/leads/source-class";
 import { loadTouchSignals } from "@/lib/marketing/touch-signals";
 import { istDateKey, istMonthKey, istStartIso } from "@/lib/tz";
 import { LOST_STAGES, WON_STAGES } from "@/lib/constants";
+import { ARCHIVE_UNTIL_MONTH, LIVE_FROM_MONTH, fetchArchiveMonths, type ArchiveMonth } from "@/lib/analytics/archive";
 
 /** Business days are India (IST, UTC+5:30, no DST) — same as the leads list filter. */
 function istDay(iso: string): string {
@@ -13,7 +14,18 @@ function istDay(iso: string): string {
 }
 
 export type FunnelAttribution = "all" | "organic" | "inorganic";
-export type FunnelMode = "period" | "snapshot";
+/**
+ * cohort   = leads created in the dates, every stage they ever reached (default;
+ *            a lead created 30 Sep whose R2 is on 5 Oct counts in September)
+ * period   = stage changes / interviews that happened in the dates (any lead)
+ * snapshot = leads touched in the window, everything they ever reached
+ */
+export type FunnelMode = "cohort" | "period" | "snapshot";
+
+/** cohort and snapshot both read "ever reached"; only period reads in-window activity. */
+function everMode(mode: FunnelMode) {
+  return mode !== "period";
+}
 export type RoundKey = "R1" | "R2" | "R3";
 
 export type RoundRates = {
@@ -115,6 +127,8 @@ export type MonthStripRow = {
   roundFunnel: Record<RoundKey, RoundMetrics>;
   offerFunnel: OfferMetrics;
   conversionPercents: ConversionPercents;
+  /** crm = CRM data · sheet = team's sheets (≤ Sep 2026) · none = sheet has no split for the filters */
+  source: "crm" | "sheet" | "none";
 };
 
 export type AdmissionsFunnel = {
@@ -132,6 +146,10 @@ export type AdmissionsFunnel = {
   weekRollups: WeekRollup[];
   byCohort: CohortFunnelSummary[];
   pulse: AdmissionsPulse;
+  /** Months (≤ Sep 2026) whose numbers come from the sheets, not CRM */
+  sheetMonths: string[];
+  /** Months (≤ Sep 2026) left out: the sheets have no course / counselor / organic split */
+  skippedSheetMonths: string[];
   organic: {
     leadTotals: LeadTotals;
     roundFunnel: Record<RoundKey, RoundMetrics>;
@@ -438,18 +456,18 @@ function computeRound(
   let yetN = 0;
 
   for (const f of facts) {
-    const pool = mode === "snapshot" ? f.stagesEver : f.stagesInPeriod;
+    const pool = everMode(mode) ? f.stagesEver : f.stagesInPeriod;
     const ever = f.stagesEver;
     const stageNow = f.lead.stage;
 
     const isOnCal =
       hasAny(pool, allRound) ||
-      (mode === "snapshot" && f.bookings.some((b) => b.round === round));
+      (everMode(mode) && f.bookings.some((b) => b.round === round));
 
     if (!isOnCal) continue;
     onCalendar += 1;
 
-    const stagePool = mode === "snapshot" ? ever : pool;
+    const stagePool = everMode(mode) ? ever : pool;
     const wasConducted =
       hasAny(stagePool, conducted) ||
       f.bookings.some(
@@ -457,16 +475,16 @@ function computeRound(
           b.round === round &&
           b.outcome != null &&
           ["confirmed", "reject", "tbb"].includes(b.outcome) &&
-          (mode === "snapshot" || hasAny(pool, allRound))
+          (everMode(mode) || hasAny(pool, allRound))
       );
     const wasNoShow =
-      hasAny(stagePool, noShow) || (mode === "snapshot" && noShow.has(stageNow));
+      hasAny(stagePool, noShow) || (everMode(mode) && noShow.has(stageNow));
     const wasResch =
-      hasAny(stagePool, resch) || (mode === "snapshot" && resch.has(stageNow));
+      hasAny(stagePool, resch) || (everMode(mode) && resch.has(stageNow));
     const wasReject =
       hasAny(stagePool, reject) ||
       f.bookings.some((b) => b.round === round && b.outcome === "reject") ||
-      (mode === "snapshot" && reject.has(stageNow));
+      (everMode(mode) && reject.has(stageNow));
     const wasMoved = hasAny(ever, moved);
 
     if (wasConducted) {
@@ -497,14 +515,14 @@ function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
   let won = 0;
   let lost = 0;
   for (const f of facts) {
-    const pool = mode === "snapshot" ? f.stagesEver : f.stagesInPeriod;
+    const pool = everMode(mode) ? f.stagesEver : f.stagesInPeriod;
     if (!hasAny(pool, OFFERED)) continue;
     offered += 1;
-    if (hasAny(pool, WON) || (mode === "snapshot" && f.lead.stage === "closed_paid")) {
+    if (hasAny(pool, WON) || (everMode(mode) && f.lead.stage === "closed_paid")) {
       won += 1;
     } else if (
       hasAny(pool, LOST) ||
-      (mode === "snapshot" && LOST.has(f.lead.stage))
+      (everMode(mode) && LOST.has(f.lead.stage))
     ) {
       lost += 1;
     }
@@ -523,19 +541,24 @@ function computeOffer(facts: LeadFacts[], mode: FunnelMode): OfferMetrics {
  * happening in the period (any lead) by R1s of leads created in the period.
  */
 function computeConversions(facts: LeadFacts[]): ConversionPercents {
-  let r1 = 0;
-  let r2 = 0;
-  let r3 = 0;
-  let offered = 0;
-  let won = 0;
+  return conversionsFromCounts(conversionCountsOf(facts));
+}
+
+type ConversionCounts = { r1: number; r2: number; r3: number; offered: number; won: number; leads: number };
+
+function conversionCountsOf(facts: LeadFacts[]): ConversionCounts {
+  const c: ConversionCounts = { r1: 0, r2: 0, r3: 0, offered: 0, won: 0, leads: facts.length };
   for (const f of facts) {
-    if (hasAny(f.stagesEver, R1_ALL) || f.bookings.some((b) => b.round === "R1")) r1 += 1;
-    if (hasAny(f.stagesEver, R2_ALL) || f.bookings.some((b) => b.round === "R2")) r2 += 1;
-    if (hasAny(f.stagesEver, R3_ALL) || f.bookings.some((b) => b.round === "R3")) r3 += 1;
-    if (hasAny(f.stagesEver, OFFERED)) offered += 1;
-    if (f.lead.stage === "closed_paid" || hasAny(f.stagesEver, WON)) won += 1;
+    if (hasAny(f.stagesEver, R1_ALL) || f.bookings.some((b) => b.round === "R1")) c.r1 += 1;
+    if (hasAny(f.stagesEver, R2_ALL) || f.bookings.some((b) => b.round === "R2")) c.r2 += 1;
+    if (hasAny(f.stagesEver, R3_ALL) || f.bookings.some((b) => b.round === "R3")) c.r3 += 1;
+    if (hasAny(f.stagesEver, OFFERED)) c.offered += 1;
+    if (f.lead.stage === "closed_paid" || hasAny(f.stagesEver, WON)) c.won += 1;
   }
-  const leads = facts.length;
+  return c;
+}
+
+function conversionsFromCounts({ r1, r2, r3, offered, won, leads }: ConversionCounts): ConversionPercents {
   return {
     r1BookedToOffered: rate(offered, r1),
     r2BookedToOffered: rate(offered, r2),
@@ -568,6 +591,87 @@ function createdBetween(
     const day = istDay(f.lead.created_at);
     return day >= start && day < endExclusive;
   });
+}
+
+/** One sheet month as funnel numbers (the sheet has no R3 moved / reject). */
+function archiveFunnel(v: ArchiveMonth["values"], crmLeads?: LeadTotals) {
+  const round = (
+    onCalendar?: number,
+    conducted?: number,
+    noShow?: number,
+    reschedule?: number,
+    moved?: number,
+    reject?: number
+  ): RoundMetrics => {
+    const c = conducted ?? 0;
+    const mv = moved ?? 0;
+    const rj = reject ?? 0;
+    return withRates({
+      onCalendar: onCalendar ?? 0,
+      conducted: c,
+      noShow: noShow ?? 0,
+      reschedule: reschedule ?? 0,
+      moved: mv,
+      reject: rj,
+      yetToMove: Math.max(0, c - mv - rj),
+    });
+  };
+  const offered = v.offer ?? 0;
+  const won = v.convert ?? v.won ?? 0;
+  const lost = v.lost ?? 0;
+  // Aug / Sep 2026 sheets have no lead count — the CRM's leads created that month stand in
+  const useCrm = v.leads == null && crmLeads != null;
+  const leads = useCrm ? crmLeads.total : v.leads ?? 0;
+  const organic = useCrm ? crmLeads.organic : v.leadsOrganic ?? 0;
+  return {
+    rounds: {
+      R1: round(v.r1Booked, v.r1Completed, v.r1NoShow, v.r1Reschedule, v.r1Moved, v.r1Reject),
+      R2: round(v.r2Booked, v.r2Completed, v.r2NoShow, v.r2Reschedule, v.r2Moved, v.r2Reject),
+      R3: round(v.r3Booked, v.r3Completed, v.r3NoShow, v.r3Reschedule, v.r3Moved, v.r3Reject),
+    } as Record<RoundKey, RoundMetrics>,
+    offer: { offered, won, lost, rates: { won: rate(won, offered), lost: rate(lost, offered) } } as OfferMetrics,
+    leadTotals: {
+      total: leads,
+      organic,
+      inorganic: useCrm ? crmLeads.inorganic : v.leadsPaid ?? Math.max(0, leads - organic),
+    } as LeadTotals,
+    counts: { r1: v.r1Booked ?? 0, r2: v.r2Booked ?? 0, r3: v.r3Booked ?? 0, offered, won, leads } as ConversionCounts,
+  };
+}
+
+type FunnelParts = ReturnType<typeof archiveFunnel>;
+
+function addParts(a: FunnelParts, b: FunnelParts): FunnelParts {
+  const r = (x: RoundMetrics, y: RoundMetrics) =>
+    withRates({
+      onCalendar: x.onCalendar + y.onCalendar,
+      conducted: x.conducted + y.conducted,
+      noShow: x.noShow + y.noShow,
+      reschedule: x.reschedule + y.reschedule,
+      moved: x.moved + y.moved,
+      reject: x.reject + y.reject,
+      yetToMove: x.yetToMove + y.yetToMove,
+    });
+  const offered = a.offer.offered + b.offer.offered;
+  const won = a.offer.won + b.offer.won;
+  const lost = a.offer.lost + b.offer.lost;
+  return {
+    rounds: { R1: r(a.rounds.R1, b.rounds.R1), R2: r(a.rounds.R2, b.rounds.R2), R3: r(a.rounds.R3, b.rounds.R3) },
+    offer: { offered, won, lost, rates: { won: rate(won, offered), lost: rate(lost, offered) } },
+    leadTotals: {
+      total: a.leadTotals.total + b.leadTotals.total,
+      organic: a.leadTotals.organic + b.leadTotals.organic,
+      inorganic: a.leadTotals.inorganic + b.leadTotals.inorganic,
+    },
+    counts: {
+      r1: a.counts.r1 + b.counts.r1,
+      r2: a.counts.r2 + b.counts.r2,
+      r3: a.counts.r3 + b.counts.r3,
+      offered: a.counts.offered + b.counts.offered,
+      won: a.counts.won + b.counts.won,
+      leads: a.counts.leads + b.counts.leads,
+    },
+  };
 }
 
 function roundBundle(facts: LeadFacts[], mode: FunnelMode): Record<RoundKey, RoundMetrics> {
@@ -732,6 +836,7 @@ function buildStripRow(opts: {
   start: string;
   endExclusive: string;
   attribution: FunnelAttribution;
+  mode: FunnelMode;
 }): MonthStripRow {
   const monthFactsMap = buildLeadFacts(
     opts.leads,
@@ -748,12 +853,13 @@ function buildStripRow(opts: {
     opts.attribution === "all"
       ? monthAll
       : filterAttr(monthAll, opts.attribution);
-  const rf = roundBundle(activity, "period");
-  const of = computeOffer(activity, "period");
   const createdForConv =
     opts.attribution === "all"
       ? created
       : createdBetween(activity, opts.start, opts.endExclusive);
+  // Lead created date: the bar shows that month's leads and every stage they reached
+  const rf = opts.mode === "cohort" ? roundBundle(createdForConv, "cohort") : roundBundle(activity, "period");
+  const of = opts.mode === "cohort" ? computeOffer(createdForConv, "cohort") : computeOffer(activity, "period");
   return {
     month: opts.key,
     label: opts.label,
@@ -765,6 +871,29 @@ function buildStripRow(opts: {
     roundFunnel: rf,
     offerFunnel: of,
     conversionPercents: computeConversions(createdForConv),
+    source: "crm",
+  };
+}
+
+function sheetStripRow(
+  key: string,
+  label: string,
+  v: ArchiveMonth["values"] | null,
+  crmLeads: LeadTotals
+): MonthStripRow {
+  const a = archiveFunnel(v ?? {}, crmLeads);
+  return {
+    month: key,
+    label,
+    pointDate: `${key}-01`,
+    leadTotals: a.leadTotals,
+    r1OnCalendar: a.rounds.R1.onCalendar,
+    offered: a.offer.offered,
+    won: a.offer.won,
+    roundFunnel: a.rounds,
+    offerFunnel: a.offer,
+    conversionPercents: conversionsFromCounts(a.counts),
+    source: v ? "sheet" : "none",
   };
 }
 
@@ -792,7 +921,8 @@ export async function fetchAdmissionsFunnelUncached(
     cohortId?: string | null;
   }
 ): Promise<AdmissionsFunnel> {
-  const mode: FunnelMode = opts?.mode === "snapshot" ? "snapshot" : "period";
+  const mode: FunnelMode =
+    opts?.mode === "snapshot" || opts?.mode === "period" ? opts.mode : "cohort";
   const attribution: FunnelAttribution =
     opts?.attribution === "organic" || opts?.attribution === "inorganic"
       ? opts.attribution
@@ -883,32 +1013,19 @@ export async function fetchAdmissionsFunnelUncached(
     sessionMedium
   );
   const allFacts = Array.from(allFactsMap.values());
-  const facts = filterAttr(allFacts, attribution);
+  // In-window activity, any lead — the day-wise grid always reads this
+  const activityFacts = filterAttr(allFacts, attribution);
 
-  const roundFunnel = roundBundle(facts, mode);
-  const offerFunnel = computeOffer(facts, mode);
-  const createdInRange = createdBetween(allFacts, periodStart, endExclusive);
-  const conversionPercents = computeConversions(
-    attribution === "all" ? createdInRange : createdBetween(facts, periodStart, endExclusive)
-  );
-  const totals = leadTotalsOf(createdInRange);
+  // Lead created date: up to Sep 2026 the team's sheets are the record, so CRM
+  // leads count only from 1 Oct 2026 and earlier months come from the sheets.
+  const cohort = mode === "cohort";
+  const liveFromDay = `${LIVE_FROM_MONTH}-01`;
+  const crmStart = cohort && periodStart < liveFromDay ? liveFromDay : periodStart;
+  const inCohort = (list: LeadFacts[]) => (cohort ? createdBetween(list, crmStart, endExclusive) : list);
+  const facts = inCohort(activityFacts);
+  // The sheets have no course / cohort / counselor / organic split
+  const sheetUsable = attribution === "all" && !courseId && !cohortId && !counselorId;
 
-  const organicFacts = filterAttr(allFacts, "organic");
-  const inorganicFacts = filterAttr(allFacts, "inorganic");
-  const organicInRange = createdBetween(organicFacts, periodStart, endExclusive);
-  const inorganicInRange = createdBetween(inorganicFacts, periodStart, endExclusive);
-
-  const days = daysInRange(periodStart, periodEnd);
-  const dayWise: DayWiseRow[] = days.map((date) => ({
-    date,
-    r1: dayCountsFor(facts, date, "R1"),
-    r2: dayCountsFor(facts, date, "R2"),
-    r3: dayCountsFor(facts, date, "R3"),
-  }));
-  const weekRollups = buildWeekRollups(dayWise);
-
-  // Month strip + year charts: prefer explicit chart window (full year),
-  // so focusing one month for matrices still shows Jan–Dec trends.
   const chartFromOk =
     opts?.chartFromDate && /^\d{4}-\d{2}-\d{2}$/.test(opts.chartFromDate)
       ? opts.chartFromDate
@@ -924,10 +1041,72 @@ export async function fetchAdmissionsFunnelUncached(
     chartStart = chartEnd;
     chartEnd = tmp;
   }
+  const periodSheetMonths = cohort
+    ? monthsInRange(periodStart, periodEnd).filter((m) => m <= ARCHIVE_UNTIL_MONTH)
+    : [];
+  const wantedSheetMonths = cohort
+    ? monthsInRange(chartStart < periodStart ? chartStart : periodStart, chartEnd > periodEnd ? chartEnd : periodEnd).filter(
+        (m) => m <= ARCHIVE_UNTIL_MONTH
+      )
+    : [];
+  const archive = new Map(
+    sheetUsable && wantedSheetMonths.length
+      ? (await fetchArchiveMonths(createAdminClient(), wantedSheetMonths)).map((a) => [a.month, a.values])
+      : []
+  );
+  const sheetMonths = sheetUsable ? periodSheetMonths : [];
+  const crmCreatedIn = (m: string) => {
+    const b = monthBounds(m);
+    return leadTotalsOf(createdBetween(allFacts, b.start, b.endExclusive));
+  };
+  const skippedSheetMonths = sheetUsable ? [] : periodSheetMonths;
 
+  let roundFunnel = roundBundle(facts, mode);
+  let offerFunnel = computeOffer(facts, mode);
+  const createdInRange = createdBetween(allFacts, crmStart, endExclusive);
+  let conversionPercents = computeConversions(
+    attribution === "all" ? createdInRange : createdBetween(activityFacts, crmStart, endExclusive)
+  );
+  let totals = leadTotalsOf(createdInRange);
+  if (sheetMonths.length) {
+    let parts: FunnelParts = {
+      rounds: roundFunnel,
+      offer: offerFunnel,
+      leadTotals: totals,
+      counts: conversionCountsOf(createdInRange),
+    };
+    for (const m of sheetMonths) parts = addParts(parts, archiveFunnel(archive.get(m) ?? {}, crmCreatedIn(m)));
+    roundFunnel = parts.rounds;
+    offerFunnel = parts.offer;
+    totals = parts.leadTotals;
+    conversionPercents = conversionsFromCounts(parts.counts);
+  }
+
+  const organicFacts = inCohort(filterAttr(allFacts, "organic"));
+  const inorganicFacts = inCohort(filterAttr(allFacts, "inorganic"));
+  const organicInRange = createdBetween(organicFacts, crmStart, endExclusive);
+  const inorganicInRange = createdBetween(inorganicFacts, crmStart, endExclusive);
+
+  const days = daysInRange(periodStart, periodEnd);
+  const dayWise: DayWiseRow[] = days.map((date) => ({
+    date,
+    r1: dayCountsFor(activityFacts, date, "R1"),
+    r2: dayCountsFor(activityFacts, date, "R2"),
+    r3: dayCountsFor(activityFacts, date, "R3"),
+  }));
+  const weekRollups = buildWeekRollups(dayWise);
+
+  // Month strip + year charts: explicit chart window (full year), so focusing
+  // one month for matrices still shows Jan–Dec trends.
   const byMonth: MonthStripRow[] = [];
   for (const key of monthsInRange(chartStart, chartEnd)) {
     const b = monthBounds(key);
+    if (cohort && key <= ARCHIVE_UNTIL_MONTH) {
+      byMonth.push(
+        sheetStripRow(key, monthLabel(key), sheetUsable ? archive.get(key) ?? {} : null, crmCreatedIn(key))
+      );
+      continue;
+    }
     byMonth.push(
       buildStripRow({
         key,
@@ -941,13 +1120,15 @@ export async function fetchAdmissionsFunnelUncached(
           start: b.start,
           endExclusive: b.endExclusive,
           attribution,
+          mode,
         })
     );
   }
 
   // When viewing a single month, also bucket that month into weeks for charts.
   const byWeek: MonthStripRow[] = [];
-  if (periodStart.slice(0, 7) === periodEnd.slice(0, 7)) {
+  // (no weeks for sheet months — the sheets are monthly)
+  if (periodStart.slice(0, 7) === periodEnd.slice(0, 7) && !(cohort && periodStart.slice(0, 7) <= ARCHIVE_UNTIL_MONTH)) {
     const monthDays = daysInRange(periodStart, periodEnd);
     for (let i = 0; i < monthDays.length; i += 7) {
       const slice = monthDays.slice(i, i + 7);
@@ -970,6 +1151,7 @@ export async function fetchAdmissionsFunnelUncached(
           start,
           endExclusive: endEx,
           attribution,
+          mode,
         })
       );
     }
@@ -983,7 +1165,7 @@ export async function fetchAdmissionsFunnelUncached(
       return {
         id: c.id,
         name: c.name,
-        leadTotals: leadTotalsOf(createdBetween(cf, periodStart, endExclusive)),
+        leadTotals: leadTotalsOf(createdBetween(cf, crmStart, endExclusive)),
         roundFunnel: roundBundle(cf, mode),
         offerFunnel: computeOffer(cf, mode),
       };
@@ -1004,6 +1186,8 @@ export async function fetchAdmissionsFunnelUncached(
     weekRollups,
     byCohort,
     pulse: buildPulse(roundFunnel, offerFunnel),
+    sheetMonths,
+    skippedSheetMonths,
     organic: {
       leadTotals: leadTotalsOf(organicInRange),
       roundFunnel: roundBundle(organicFacts, mode),
@@ -1018,7 +1202,7 @@ export async function fetchAdmissionsFunnelUncached(
 }
 
 const fetchAdmissionsFunnelCached = cachedAdmissionsQuery(
-  "fetchAdmissionsFunnel-v3-defs",
+  "fetchAdmissionsFunnel-v4-cohort",
   (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchAdmissionsFunnelUncached>[1]) =>
     fetchAdmissionsFunnelUncached(createAdminClient(), opts)

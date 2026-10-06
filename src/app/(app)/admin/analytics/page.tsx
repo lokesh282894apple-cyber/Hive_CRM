@@ -139,7 +139,7 @@ export default async function AdminAnalyticsPage({
     q.set("from", fromDate);
     q.set("to", toDate);
     if (counselorId) q.set("counselor", counselorId);
-    if (searchParams.mode === "snapshot") q.set("mode", "snapshot");
+    if (searchParams.mode === "snapshot" || searchParams.mode === "period") q.set("mode", searchParams.mode);
     if (
       searchParams.attribution === "organic" ||
       searchParams.attribution === "inorganic"
@@ -148,8 +148,9 @@ export default async function AdminAnalyticsPage({
     }
     redirect(`/admin/analytics?${q.toString()}`);
   }
+  // Default: every stage counted against the month the lead was created (team, 6 Oct)
   const mode: FunnelMode =
-    searchParams.mode === "snapshot" ? "snapshot" : "period";
+    searchParams.mode === "snapshot" || searchParams.mode === "period" ? searchParams.mode : "cohort";
   const attribution: FunnelAttribution =
     searchParams.attribution === "organic" ||
     searchParams.attribution === "inorganic"
@@ -190,6 +191,9 @@ export default async function AdminAnalyticsPage({
     }),
   ]);
 
+  // Sheet months with filters on have no numbers — keep them off the charts
+  const chartMonths = funnel.byMonth.filter((m) => m.source !== "none");
+
   const courseMap = new Map((courses ?? []).map((c) => [c.id, c.name]));
   const cohorts = allCohorts.filter((c) =>
     courseId ? c.course_id === courseId : true
@@ -205,7 +209,7 @@ export default async function AdminAnalyticsPage({
     course: courseId ?? undefined,
     cohort: cohortId ?? undefined,
     counselor: counselorId ?? undefined,
-    mode: mode === "period" ? undefined : mode,
+    mode: mode === "cohort" ? undefined : mode,
     attribution: attribution === "all" ? undefined : attribution,
   };
 
@@ -235,7 +239,27 @@ export default async function AdminAnalyticsPage({
         cohorts={dateCohorts}
         pathname="/admin/analytics"
       />
-      <ArchiveNotice fromDate={dateRange.overall ? "2000-01-01" : dateRange.fromDate} />
+      {mode === "cohort" ? (
+        funnel.sheetMonths.length || funnel.skippedSheetMonths.length ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            {funnel.sheetMonths.length
+              ? `${monthList(funnel.sheetMonths)} ${funnel.sheetMonths.length > 1 ? "are" : "is"} from the team's sheets (CRM leads are counted from 1 Oct 2026). `
+              : null}
+            {funnel.sheetMonths.some((m) => m === "2026-08" || m === "2026-09")
+              ? "Aug / Sep lead counts are CRM leads — those sheets have interviews only. "
+              : null}
+            {funnel.skippedSheetMonths.length
+              ? `${monthList(funnel.skippedSheetMonths)} ${funnel.skippedSheetMonths.length > 1 ? "are" : "is"} left out — the sheets have no course / cohort / counselor / organic split. Clear those filters to see them. `
+              : null}
+            The day-wise grid still shows CRM activity.{" "}
+            <Link href="/admin/history" className="font-semibold underline">
+              History (sheets)
+            </Link>
+          </div>
+        ) : null
+      ) : (
+        <ArchiveNotice fromDate={dateRange.overall ? "2000-01-01" : dateRange.fromDate} />
+      )}
 
       <SyncedAnalyticsFilters
         action="/admin/analytics"
@@ -283,7 +307,11 @@ export default async function AdminAnalyticsPage({
         id="funnel"
         title="Admissions funnel"
         subtitle={`${fromDate} → ${toDate} · ${
-          mode === "period" ? "period activity" : "pipeline snapshot"
+          mode === "cohort"
+            ? "leads created in these dates, every stage they reached"
+            : mode === "period"
+              ? "period activity"
+              : "pipeline snapshot"
         } · click Organic / Inorganic on a month to drill in`}
       >
         <div className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -365,9 +393,12 @@ export default async function AdminAnalyticsPage({
                         {m.label}
                       </p>
                       <p className="mt-1 text-lg font-semibold tabular-nums">
-                        {m.leadTotals.total}
+                        {m.source === "none" ? "—" : m.leadTotals.total}
                       </p>
                     </Link>
+                    {m.source === "none" ? (
+                      <p className="mt-1 text-[11px] opacity-70">sheet · no split</p>
+                    ) : (
                     <div className="mt-1 flex gap-2 text-[11px]">
                       <Link
                         href={`/admin/analytics${buildQuery({
@@ -387,7 +418,9 @@ export default async function AdminAnalyticsPage({
                       >
                         {m.leadTotals.inorganic} inorg
                       </Link>
+                      {m.source === "sheet" ? <span className="opacity-70">· sheet</span> : null}
                     </div>
+                    )}
                   </div>
                 );
               })}
@@ -445,7 +478,7 @@ export default async function AdminAnalyticsPage({
             </p>
             <RoundYearCharts
               rows={
-                funnel.byWeek.length > 0 ? funnel.byWeek : funnel.byMonth
+                funnel.byWeek.length > 0 ? funnel.byWeek : chartMonths
               }
               grain={funnel.byWeek.length > 0 ? "week" : "month"}
             />
@@ -472,7 +505,7 @@ export default async function AdminAnalyticsPage({
             </p>
             <ConversionYearChart
               rows={
-                funnel.byWeek.length > 0 ? funnel.byWeek : funnel.byMonth
+                funnel.byWeek.length > 0 ? funnel.byWeek : chartMonths
               }
               grain={funnel.byWeek.length > 0 ? "week" : "month"}
             />
@@ -503,4 +536,10 @@ export default async function AdminAnalyticsPage({
       ) : null}
     </div>
   );
+}
+
+function monthList(months: string[]): string {
+  const name = (m: string) =>
+    new Date(`${m}-15T00:00:00Z`).toLocaleString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+  return months.length > 2 ? `${name(months[0]!)} – ${name(months[months.length - 1]!)}` : months.map(name).join(", ");
 }

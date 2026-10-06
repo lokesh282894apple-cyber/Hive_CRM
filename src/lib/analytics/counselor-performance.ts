@@ -14,6 +14,13 @@ export type CounselorDashFilters = {
   courseId?: string | null;
   cohortId?: string | null;
   counselorId?: string | null;
+  /**
+   * Pipeline columns (R1 / R2 / R3 / offer / rejects / nurturing):
+   * cohort   = leads created in the dates, every stage they reached (any time)
+   * activity = stage first reached inside the dates (default)
+   * Calls are always activity in the dates.
+   */
+  basis?: "cohort" | "activity";
 };
 
 export type CounselorCallingStats = {
@@ -179,6 +186,7 @@ function filterKey(f: CounselorDashFilters) {
     f.courseId ?? "",
     f.cohortId ?? "",
     f.counselorId ?? "",
+    f.basis ?? "activity",
   ].join("|");
 }
 
@@ -192,6 +200,7 @@ export async function fetchCounselorDashboardUncached(
     ? "2000-01-01T00:00:00.000Z"
     : filters.sinceIso ?? new Date(Date.now() - 30 * 86400000).toISOString();
   const until = filters.untilExclusiveIso ?? new Date().toISOString();
+  const cohortBasis = filters.basis === "cohort";
 
   const { data: counselors } = await supabase
     .from("users")
@@ -262,11 +271,15 @@ export async function fetchCounselorDashboardUncached(
       changed_at: string;
       changed_by: string | null;
     }>((from, to) =>
-      supabase
-        .from("stage_history")
-        .select("lead_id, to_stage, changed_at, changed_by")
-        .gte("changed_at", since)
-        .lt("changed_at", until)
+      // Lead-created basis: every later move of those leads, so no upper bound
+      (cohortBasis
+        ? supabase.from("stage_history").select("lead_id, to_stage, changed_at, changed_by").gte("changed_at", since)
+        : supabase
+            .from("stage_history")
+            .select("lead_id, to_stage, changed_at, changed_by")
+            .gte("changed_at", since)
+            .lt("changed_at", until)
+      )
         .order("changed_at", { ascending: true })
         .order("lead_id", { ascending: true })
         .order("id", { ascending: true }).range(from, to),
@@ -327,6 +340,9 @@ export async function fetchCounselorDashboardUncached(
 
   for (const l of leads) {
     if (!l.lead_allocated_to) continue;
+    // Counselor filter: only that counselor's leads (other owners used to be
+    // added as extra rows, so the totals never changed — team, 6 Oct)
+    if (filters.counselorId && l.lead_allocated_to !== filters.counselorId) continue;
 
     // Created-in-range allocated (any stage) — comparable to Analytics “Total leads”
     const createdAt = l.created_at || "";
@@ -389,10 +405,16 @@ export async function fetchCounselorDashboardUncached(
   // R1 / R2 / R3 / offer / convert: first time reached, inside the range —
   // same definitions as the marketing funnel (shared engine)
   const inRangeIso = (iso: string | undefined) => !!iso && iso >= since && iso < until;
+  const createdInRange = new Set(
+    leads.filter((l) => filters.overall || inRangeIso(l.created_at)).map((l) => l.id)
+  );
+  // activity: reached inside the dates · cohort: lead created in the dates, reached any time
+  const counts = (id: string, at: string | undefined) =>
+    cohortBasis ? createdInRange.has(id) && !!at : inRangeIso(at);
   const funnelIds = Array.from(
     new Set([
       ...scopedHistory.map((h) => h.lead_id),
-      ...leads.filter((l) => inRangeIso(l.created_at)).map((l) => l.id),
+      ...Array.from(createdInRange),
       ...scopedCalls.map((c) => c.lead_id),
     ])
   );
@@ -404,11 +426,11 @@ export async function fetchCounselorDashboardUncached(
   const offered = new Set<string>();
   const converted = new Set<string>();
   for (const f of funnelLeads) {
-    if (inRangeIso(f.at.r1Booked)) r1Booked.add(f.id);
-    if (inRangeIso(f.at.r1Completed)) r1Conducted.add(f.id);
-    if (inRangeIso(f.at.r2Booked)) r2Booked.add(f.id);
-    if (inRangeIso(f.at.r3Booked)) r3Booked.add(f.id);
-    if (inRangeIso(f.at.offer)) offered.add(f.id);
+    if (counts(f.id, f.at.r1Booked)) r1Booked.add(f.id);
+    if (counts(f.id, f.at.r1Completed)) r1Conducted.add(f.id);
+    if (counts(f.id, f.at.r2Booked)) r2Booked.add(f.id);
+    if (counts(f.id, f.at.r3Booked)) r3Booked.add(f.id);
+    if (counts(f.id, f.at.offer)) offered.add(f.id);
     if (f.at.convert) converted.add(f.id);
   }
 
@@ -419,6 +441,7 @@ export async function fetchCounselorDashboardUncached(
   const hiveReject = new Set<string>();
   const nurturing = new Set<string>();
   for (const h of scopedHistory) {
+    if (cohortBasis ? !createdInRange.has(h.lead_id) : !inRangeIso(h.changed_at)) continue;
     if (h.to_stage === "r1_reject") r1Reject.add(h.lead_id);
     if (
       h.to_stage === "student_reject" ||
@@ -473,6 +496,7 @@ export async function fetchCounselorDashboardUncached(
   bump(nurturing, "nurturing");
   // R1 booked goes to the counselor who booked it (first move into R1 Booked);
   // an admin booking, or no history row, falls back to the lead's owner.
+  const counselorIds = new Set((counselors ?? []).map((c) => c.id));
   const r1BookedBy = new Map<string, string>();
   for (const h of scopedHistory) {
     if (h.to_stage === "r1_booked" && h.changed_by && !r1BookedBy.has(h.lead_id)) {
@@ -481,7 +505,8 @@ export async function fetchCounselorDashboardUncached(
   }
   for (const lid of Array.from(r1Booked)) {
     const by = r1BookedBy.get(lid);
-    const cid = by && byCounselor.has(by) ? by : leadOwner.get(lid);
+    // Booked by a counselor → theirs (even when the filter hides them); else the owner's
+    const cid = by && counselorIds.has(by) ? by : leadOwner.get(lid);
     const row = cid ? byCounselor.get(cid) : undefined;
     if (row) row.pipeline.r1Booked += 1;
   }
@@ -667,7 +692,7 @@ export async function fetchCounselorDashboardUncached(
         o.outcome.rejected += 1;
       } else if (LOST_SET.has(f.stage)) {
         o.outcome.closedLost += 1;
-      } else if (f.stage === "dnp" || f.stage === "no_show" || f.stage === "reschedule") {
+      } else if (f.stage === "dnp" || f.stage === "dnp_whatsapp_replied" || f.stage === "no_show" || f.stage === "reschedule") {
         o.outcome.dnp += 1;
       } else if (f.stage === "call_logged_nurturing") {
         o.outcome.nurturing += 1;

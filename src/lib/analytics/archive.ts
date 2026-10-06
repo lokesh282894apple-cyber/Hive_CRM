@@ -48,6 +48,9 @@ const SOURCE: Record<string, [tab: string, metric: string][]> = {
   r3Completed: [["2026", "r3.on_calendar_to_conducted"]],
   r3NoShow: [["2026", "r3.on_calendar_to_r3_no_show"]],
   r3Reschedule: [["2026", "r3.on_calendar_to_r3_resch"]],
+  r3Moved: [["2026", "r3.r3_conducted_to_offered"]],
+  // (the sheet's own label says r1_reject on the R3 row)
+  r3Reject: [["2026", "r3.r3_conducted_to_r1_reject"]],
   offer: [["2026", "offer.total_offered"], ["Waterfall Funnel - Outputs", "offered"]],
   won: [["2026", "offer.closed_won"]],
   lost: [["2026", "offer.closed_lost"]],
@@ -147,6 +150,9 @@ export function resolveArchiveMonths(rows: ArchiveRow[], daily: ArchiveDailyRow[
     r3Completed: ["R3", "conducted"],
     r3NoShow: ["R3", "no_show"],
     r3Reschedule: ["R3", "rescheduled"],
+    r3Moved: ["R3", "offered"],
+    r3Reject: ["R3", "rejected"],
+    offer: ["R3", "offered"],
   };
 
   return months.map((month) => {

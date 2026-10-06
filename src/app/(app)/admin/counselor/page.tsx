@@ -51,6 +51,15 @@ export default async function AdminCounselorPage({
   const courseId = searchParams.course || null;
   const cohortId = searchParams.cohort || null;
   const counselorId = searchParams.counselor || null;
+  // Pipeline counts by lead created date unless "when it happened" is picked (team, 6 Oct)
+  const basis = searchParams.basis === "activity" ? "activity" : "cohort";
+  const basisHref = (b: "cohort" | "activity") => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(searchParams)) if (v && k !== "basis") q.set(k, v);
+    if (b === "activity") q.set("basis", "activity");
+    const qs = q.toString();
+    return `/admin/counselor${qs ? `?${qs}` : ""}`;
+  };
 
   const dash = await fetchCounselorDashboard(supabase, {
     sinceIso: dateRange.overall ? null : dateRange.sinceIso,
@@ -59,6 +68,7 @@ export default async function AdminCounselorPage({
     courseId,
     cohortId,
     counselorId,
+    basis,
   });
 
   const courseMap = new Map(courses.map((c) => [c.id, c.name]));
@@ -140,6 +150,7 @@ export default async function AdminCounselorPage({
         <input type="hidden" name="from" value={dateRange.fromDate} />
         <input type="hidden" name="to" value={dateRange.toDate} />
         {dateRange.overall ? <input type="hidden" name="overall" value="1" /> : null}
+        {basis === "activity" ? <input type="hidden" name="basis" value="activity" /> : null}
       </SyncedAnalyticsFilters>
 
       <p className="mb-2 text-xs font-semibold uppercase tracking-eyebrow text-muted">
@@ -186,9 +197,33 @@ export default async function AdminCounselorPage({
         />
       </div>
 
-      <p className="mb-2 text-xs font-semibold uppercase tracking-eyebrow text-muted">
-        Pipeline — first time each lead reached the stage, inside the date range (R1 booked credited to who booked it; other stages to the current owner)
-      </p>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-eyebrow text-muted">
+          {basis === "cohort"
+            ? "Pipeline — leads created in the dates, every stage they reached (any time)"
+            : "Pipeline — first time each lead reached the stage, inside the dates"}{" "}
+          · R1 booked credited to who booked it; other stages to the current owner
+        </p>
+        <div className="flex gap-1 text-xs">
+          <span className="self-center text-muted">Count by</span>
+          {(
+            [
+              ["cohort", "Lead created date"],
+              ["activity", "When it happened"],
+            ] as const
+          ).map(([b, label]) => (
+            <Link
+              key={b}
+              href={basisHref(b)}
+              className={`rounded-full border px-3 py-1 font-semibold ${
+                basis === b ? "border-navy bg-navy text-white" : "border-border bg-white text-navy"
+              }`}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+      </div>
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <StatCard
           label="Allocated · created in range"
