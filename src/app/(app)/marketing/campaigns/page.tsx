@@ -34,7 +34,7 @@ export default async function MarketingCampaignsPage() {
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
     (process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
-      : "https://hive-crm-sigma.vercel.app");
+      : "https://hivecrm-nu.vercel.app");
 
   // Prefer public site origin for influencer links when configured
   const linkOrigin =
