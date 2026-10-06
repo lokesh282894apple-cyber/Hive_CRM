@@ -744,11 +744,24 @@ export async function markNoShowOrReschedule(input: {
     return { ok: false, error: "Reason is required when the student informed us" };
   }
 
-  const { error } = await supabase
+  // A no-show needs an interview in that round — otherwise the lead would jump
+  // to "R1 No Show" without ever being booked and inflate no-show counts
+  const { count: roundBookings } = await supabase
+    .from("interview_bookings")
+    .select("id", { count: "exact", head: true })
+    .eq("lead_id", input.leadId)
+    .eq("round", input.round);
+  if (!roundBookings) {
+    return { ok: false, error: `No ${input.round} interview is booked for this lead — book one first.` };
+  }
+
+  const { data: moved, error } = await supabase
     .from("leads")
     .update({ stage: stageMap[input.round] })
-    .eq("id", input.leadId);
+    .eq("id", input.leadId)
+    .select("id");
   if (error) return { ok: false, error: error.message };
+  if (!moved?.length) return { ok: false, error: "Not saved — you don't have access to this lead" };
 
   // Attach reason to the latest open booking for this round
   const { data: openBooking } = await supabase

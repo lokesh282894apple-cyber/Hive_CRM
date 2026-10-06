@@ -11,7 +11,6 @@ import {
 import {
   fetchLeadMarketing,
 } from "@/app/actions/lead-detail";
-import { markNoShowOrReschedule } from "@/app/actions/interviews";
 import {
   CALL_OUTCOMES,
   LEAD_SOURCES,
@@ -213,6 +212,10 @@ export function LeadDetailClient({
       ? funnel.bookingRequiredSlugs
       : ["r1_booked", "r2_booked", "r3_booked", "r1_reschedule", "r2_reschedule", "r3_reschedule"]
   );
+  const stageRank = (slug: string) => {
+    const i = allStageSlugs.indexOf(slug);
+    return i === -1 ? 1e6 : i;
+  };
   const stageOptions = (
     isAdmin
       ? allStageSlugs
@@ -226,7 +229,10 @@ export function LeadDetailClient({
             "closed_lost",
           ])
         )
-  ).filter((s) => !bookingRequired.has(s) || s === localLead.stage);
+  )
+    .filter((s) => !bookingRequired.has(s) || s === localLead.stage)
+    // Funnel order (group, then position) — not database order
+    .sort((a, b) => stageRank(a) - stageRank(b));
 
   const upcomingInterview = useMemo(() => {
     const ts = Date.now();
@@ -833,8 +839,11 @@ export function LeadDetailClient({
                   ? "Pick reason in popup…"
                   : "Update stage"}
               </button>
+              {/* Only rounds this lead was actually booked for */}
               <div className="mt-4 grid grid-cols-2 gap-2">
-                {(["R1", "R2", "R3"] as InterviewRound[]).map((round) => (
+                {(["R1", "R2", "R3"] as InterviewRound[])
+                  .filter((round) => interviewBookings.some((b) => b.round === round))
+                  .map((round) => (
                   <div key={round} className="contents">
                     <button
                       type="button"
@@ -843,21 +852,12 @@ export function LeadDetailClient({
                     >
                       {round} No Show
                     </button>
-                    <button
-                      type="button"
-                      className="btn-ghost border border-border text-xs"
-                      onClick={() =>
-                        startTransition(async () => {
-                          reportResult(await markNoShowOrReschedule({
-                            leadId: localLead.id,
-                            round,
-                            kind: "reschedule",
-                          }));
-                        })
-                      }
+                    <a
+                      href={`${leadsBasePath}/${localLead.id}/book-interview`}
+                      className="btn-ghost border border-border text-center text-xs"
                     >
                       {round} Reschedule
-                    </button>
+                    </a>
                   </div>
                 ))}
               </div>

@@ -97,7 +97,16 @@ function buildConfig(
   stages: FunnelStageRow[],
   transitionRows: FunnelTransitionRow[]
 ): FunnelConfig {
-  const active = stages.filter((s) => s.active).sort((a, b) => a.sort_order - b.sort_order);
+  // sort_order is a position *within* a group — order by group first, or
+  // every stage dropdown comes out jumbled across the funnel
+  const groupOrder = new Map(groups.map((g) => [g.key, g.sort_order]));
+  const active = stages
+    .filter((s) => s.active)
+    .sort(
+      (a, b) =>
+        (groupOrder.get(a.group_key) ?? 999) - (groupOrder.get(b.group_key) ?? 999) ||
+        a.sort_order - b.sort_order
+    );
   const labels: Record<string, string> = {};
   for (const s of active) labels[s.slug] = s.label;
 
