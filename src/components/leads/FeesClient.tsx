@@ -31,6 +31,7 @@ import { normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { istDateKey } from "@/lib/tz";
+import { reportResult } from "@/components/ui/Toaster";
 
 const FEE_ELIGIBLE: Stage[] = ["offered", "closed_paid"];
 type FeeTab = "direct" | "one_shot" | "loan";
@@ -651,12 +652,12 @@ export function FeesClient({
                           if (!Number.isFinite(hitVal) || hitVal < 0) return;
                           const ded = Math.max(0, expected - hitVal);
                           startTransition(async () => {
-                            await recordInstallmentPayment(inst.id, leadId, hitVal, {
+                            reportResult(await recordInstallmentPayment(inst.id, leadId, hitVal, {
                               amountHitBank: hitVal,
                               deductions: ded,
                               markPaid: true,
                               dateHitBank: istDateKey(),
-                            });
+                            }));
                           });
                         }}
                       >

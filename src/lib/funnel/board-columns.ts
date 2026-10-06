@@ -82,6 +82,25 @@ export function columnsFromFunnel(
   });
 
   if (density === "breakdown") {
+    // Hidden stages still hold leads (e.g. old "Lead Created") — fold each into
+    // the next visible lane of its group (or the last one) so no card vanishes.
+    const foldedInto = new Map<string, string[]>();
+    const byGroupVisible = new Map<string, FunnelStageRow[]>();
+    for (const stage of active) {
+      if (!stage.show_on_board) continue;
+      const list = byGroupVisible.get(stage.group_key) ?? [];
+      list.push(stage);
+      byGroupVisible.set(stage.group_key, list);
+    }
+    for (const stage of active) {
+      if (stage.show_on_board) continue;
+      const visible = byGroupVisible.get(stage.group_key) ?? [];
+      const target =
+        visible.find((v) => v.sort_order > stage.sort_order) ?? visible[visible.length - 1];
+      if (!target) continue;
+      foldedInto.set(target.slug, [...(foldedInto.get(target.slug) ?? []), stage.slug]);
+    }
+
     const cols: BoardColumnDef[] = [];
     for (const stage of active) {
       if (!stage.show_on_board) continue;
@@ -94,7 +113,7 @@ export function columnsFromFunnel(
         id: stage.slug,
         label: stage.label,
         hint: section,
-        stages: [stage.slug as Stage],
+        stages: [stage.slug, ...(foldedInto.get(stage.slug) ?? [])] as Stage[],
         dropStage: stage.slug as Stage,
         accent: accentFor(stage),
         section,

@@ -31,7 +31,7 @@ import {
 import { StageBadge } from "@/components/ui/Primitives";
 import { cn, formatDate, formatDurationSince, formatRelativeAgo } from "@/lib/utils";
 import { LeadOfferFields } from "@/components/leads/LeadOfferFields";
-import { LeadCardApprovals } from "@/components/leads/LeadCardApprovals";
+import { LeadCardApprovals, type ApprovalRole } from "@/components/leads/LeadCardApprovals";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import { leadSourceClassLabel } from "@/lib/leads/source-class";
 import type { Cohort, Course, LeadWithRelations } from "@/types/database";
@@ -52,6 +52,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { differenceInDays } from "date-fns";
 import { Layers, LayoutGrid, Phone } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 function isStale(lead: LeadWithRelations) {
   const anchor = lead.last_contacted_at ?? lead.created_at;
@@ -239,7 +240,7 @@ function LeadCard({
   onClaim?: (id: string) => void;
   cohortLabel?: string | null;
   disableDrag?: boolean;
-  canWriteApproval?: boolean;
+  canWriteApproval?: ApprovalRole | null;
   selected?: boolean;
   onSelect?: (id: string) => void;
 }) {
@@ -358,7 +359,7 @@ function LeadCard({
               >
                 <LeadCardApprovals
                   lead={lead}
-                  canWriteApproval={Boolean(canWriteApproval)}
+                  canWriteApproval={canWriteApproval ?? null}
                 />
                 <LeadOfferFields lead={lead} compact />
               </div>
@@ -397,7 +398,7 @@ function BoardColumn({
   onClaim?: (id: string) => void;
   cohortNums?: Map<string, string>;
   disableDrag?: boolean;
-  canWriteApproval?: boolean;
+  canWriteApproval?: ApprovalRole | null;
   selectedLeadId?: string | null;
   onSelectLead?: (id: string) => void;
   stageTotals?: Record<string, number>;
@@ -1042,7 +1043,7 @@ export function PipelineBoard({
                   onClaim={onClaim}
                   cohortNums={cohortNums}
                   disableDrag={!dndReady}
-                  canWriteApproval={Boolean(isAdmin)}
+                  canWriteApproval={isAdmin ? "admin" : "counselor"}
                   selectedLeadId={selectedLeadId}
                   onSelectLead={onSelectLead}
                   stageTotals={stageTotals}
@@ -1169,7 +1170,7 @@ export function PipelineBoard({
                   | "not_booked"
                   | "booked"
                   | "done",
-              });
+              }).then((r) => reportResult(r));
             }
             setStageAdvance(null);
           }}

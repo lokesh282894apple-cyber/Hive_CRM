@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getAllCohorts, getAllCourses } from "@/lib/catalog";
 import { cohortDisplayLabel, uniqueCohortYears } from "@/lib/cohorts/display";
 import { resolveStructuredRange } from "@/lib/analytics/date-range";
@@ -28,7 +28,9 @@ export default async function ProgramFeesPage({
   searchParams: Record<string, string | undefined>;
 }) {
   await requireUser(["admin", "program"]);
-  const supabase = createClient();
+  // Program sees every student's fees; their own database access can't read
+  // leads / instalments / loans, so read with the server client after the role check.
+  const supabase = createAdminClient();
 
   const [courses, cohorts] = await Promise.all([
     getAllCourses(),

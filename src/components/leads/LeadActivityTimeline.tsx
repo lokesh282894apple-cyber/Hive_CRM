@@ -73,7 +73,7 @@ export function LeadActivityTimeline({
       title: `${h.from_stage ? STAGE_LABELS[h.from_stage as Stage] ?? h.from_stage : "—"} → ${
         STAGE_LABELS[h.to_stage as Stage] ?? h.to_stage
       }`,
-      detail: h.notes,
+      detail: h.notes ?? h.reason ?? null,
     })),
     ...interviews.map((b) => ({
       id: `iv-${b.id}`,

@@ -4,6 +4,7 @@ import { updateLeadQualification } from "@/app/actions/marketing-dashboard";
 import { DQ_REASON_LABELS, FINANCIAL_CHECKS, QUALIFICATION_INTENTS } from "@/lib/marketing/aql";
 import { useTransition } from "react";
 import { BUSINESS_TZ } from "@/lib/tz";
+import { reportResult } from "@/components/ui/Toaster";
 
 export function LeadQualificationPanel({
   leadId,
@@ -35,12 +36,12 @@ export function LeadQualificationPanel({
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
           start(async () => {
-            await updateLeadQualification({
+            reportResult(await updateLeadQualification({
               leadId,
               qualification_intent: (fd.get("intent") as string) || null,
               financial_check: (fd.get("financial_check") as string) || null,
               dq_reason: (fd.get("dq_reason") as string) || null,
-            });
+            }));
           });
         }}
       >

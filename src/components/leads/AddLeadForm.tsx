@@ -17,6 +17,7 @@ export function AddLeadForm({
   const router = useRouter();
   const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [existingId, setExistingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const filteredCohorts = useMemo(
@@ -32,6 +33,7 @@ export function AddLeadForm({
       const res = await createLead(fd);
       if (!res.ok) {
         setError(res.error);
+        setExistingId(res.id ?? null);
         return;
       }
       router.push("/leads");
@@ -113,7 +115,19 @@ export function AddLeadForm({
           />
         </div>
       </div>
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <p className="text-sm text-danger">
+          {error}
+          {existingId ? (
+            <>
+              {" "}
+              <a href={`/leads/${existingId}`} className="font-semibold underline">
+                Open existing lead
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       <button type="submit" className="btn-primary" disabled={pending}>
         {pending ? "Creating…" : "Create Lead"}
       </button>

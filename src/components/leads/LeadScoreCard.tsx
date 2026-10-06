@@ -8,6 +8,7 @@ import {
 import type { ScoreBreakdown, ScoreReason } from "@/lib/leads/score";
 import { useMemo, useState, useTransition } from "react";
 import { BUSINESS_TZ } from "@/lib/tz";
+import { reportResult } from "@/components/ui/Toaster";
 
 export const LEAD_SCORE_DETAIL_ID = "lead-conversion-detail";
 
@@ -172,7 +173,7 @@ export function LeadScoreCard({
               disabled={pending}
               onClick={() =>
                 startTransition(async () => {
-                  await recomputeLeadScoreAction(leadId);
+                  reportResult(await recomputeLeadScoreAction(leadId));
                 })
               }
             >
@@ -291,7 +292,7 @@ export function LeadScoreCard({
                   disabled={pending}
                   onClick={() =>
                     startTransition(async () => {
-                      await clearLeadScoreOverride(leadId);
+                      reportResult(await clearLeadScoreOverride(leadId));
                       setReason("");
                     })
                   }

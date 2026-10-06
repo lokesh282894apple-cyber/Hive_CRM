@@ -34,6 +34,16 @@ const OUTCOME_STAGE: Record<InterviewRound, Partial<Record<InterviewOutcome, Sta
   R3: { confirmed: "r3_tbb", reject: "r3_reject", tbb: "yet_to_offer" },
 };
 
+/**
+ * Counselors book panelists' free slots, but only panelists / admins may write
+ * interviewer_availability — mark slots booked / free with the server client
+ * (callers have already checked the role).
+ */
+async function slotDb() {
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  return createAdminClient();
+}
+
 export async function addAvailabilitySlot(formData: FormData): Promise<ActionResult> {
   const user = await requireUser(["interviewer", "admin"]);
   const supabase = createClient();
@@ -145,7 +155,7 @@ export async function bookInterview(input: {
       .eq("id", input.rescheduleBookingId)
       .single();
     if (old?.availability_slot_id) {
-      await supabase
+      await (await slotDb())
         .from("interviewer_availability")
         .update({ status: "free" })
         .eq("id", old.availability_slot_id);
@@ -195,15 +205,22 @@ export async function bookInterview(input: {
 
   if (error || !booking) return { ok: false, error: error?.message ?? "Booking failed" };
 
-  await supabase
+  await (await slotDb())
     .from("interviewer_availability")
     .update({ status: "booked" })
     .eq("id", input.availabilitySlotId);
 
-  await supabase
+  const { data: movedLead, error: moveErr } = await supabase
     .from("leads")
     .update({ stage: ROUND_BOOKED[input.round] })
-    .eq("id", input.leadId);
+    .eq("id", input.leadId)
+    .select("id");
+  if (moveErr || !movedLead?.length) {
+    return {
+      ok: false,
+      error: `Interview booked, but the lead's stage didn't change${moveErr ? `: ${moveErr.message}` : " (no access to this lead)"}`,
+    };
+  }
 
   // Google Meet on shared admissions calendar
   let meetLink: string | null = null;
@@ -396,7 +413,7 @@ export async function bookInterviewManual(input: {
       .eq("id", input.rescheduleBookingId)
       .single();
     if (old?.availability_slot_id) {
-      await supabase
+      await (await slotDb())
         .from("interviewer_availability")
         .update({ status: "free" })
         .eq("id", old.availability_slot_id);
@@ -448,10 +465,17 @@ export async function bookInterviewManual(input: {
     return { ok: false, error: error?.message ?? "Booking failed" };
   }
 
-  await supabase
+  const { data: movedLead, error: moveErr } = await supabase
     .from("leads")
     .update({ stage: ROUND_BOOKED[input.round] })
-    .eq("id", input.leadId);
+    .eq("id", input.leadId)
+    .select("id");
+  if (moveErr || !movedLead?.length) {
+    return {
+      ok: false,
+      error: `Interview booked, but the lead's stage didn't change${moveErr ? `: ${moveErr.message}` : " (no access to this lead)"}`,
+    };
+  }
 
   let meetLink: string | null = null;
   let warning: string | undefined;
@@ -598,6 +622,11 @@ export async function submitInterviewOutcome(input: {
   if (user.role === "interviewer" && booking.interviewer_id !== user.id) {
     return { ok: false, error: "Not your interview" };
   }
+  // Panelists may move the lead after their own interview, but the leads table
+  // only lets admins / the owning counselor write — so write with the server
+  // client once the check above has passed.
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const db = createAdminClient();
 
   const scoreBad = validateScorePair(
     input.profileScore,
@@ -608,7 +637,7 @@ export async function submitInterviewOutcome(input: {
   if (scoreBad) return scoreBad;
 
   if (booking.round === "R3" && input.outcome === "reject") {
-    await supabase
+    const { error: bookErr } = await supabase
       .from("interview_bookings")
       .update({
         outcome: input.outcome,
@@ -617,10 +646,15 @@ export async function submitInterviewOutcome(input: {
         submitted_at: new Date().toISOString(),
       })
       .eq("id", input.bookingId);
-    await supabase.from("leads").update({ stage: "closed_deferred" }).eq("id", booking.lead_id);
+    if (bookErr) return { ok: false, error: bookErr.message };
+    const { error: leadErr } = await db
+      .from("leads")
+      .update({ stage: "closed_deferred" })
+      .eq("id", booking.lead_id);
+    if (leadErr) return { ok: false, error: `Outcome saved, lead not moved: ${leadErr.message}` };
   } else {
     const nextStage = OUTCOME_STAGE[booking.round as InterviewRound]?.[input.outcome];
-    await supabase
+    const { error: bookErr } = await supabase
       .from("interview_bookings")
       .update({
         outcome: input.outcome,
@@ -629,8 +663,13 @@ export async function submitInterviewOutcome(input: {
         submitted_at: new Date().toISOString(),
       })
       .eq("id", input.bookingId);
+    if (bookErr) return { ok: false, error: bookErr.message };
     if (nextStage) {
-      await supabase.from("leads").update({ stage: nextStage }).eq("id", booking.lead_id);
+      const { error: leadErr } = await db
+        .from("leads")
+        .update({ stage: nextStage })
+        .eq("id", booking.lead_id);
+      if (leadErr) return { ok: false, error: `Outcome saved, lead not moved: ${leadErr.message}` };
     }
   }
 
@@ -647,7 +686,7 @@ export async function submitInterviewOutcome(input: {
   if (!scored.ok) return scored;
 
   const { recomputeLeadScore } = await import("@/lib/leads/score");
-  await recomputeLeadScore(supabase, booking.lead_id);
+  await recomputeLeadScore(db, booking.lead_id);
 
   if (input.gradeTier && input.gradeScore != null) {
     const { upsertPanelistGrade } = await import("@/app/actions/leads");

@@ -58,6 +58,7 @@ import { formatCurrency, formatDateTime } from "@/lib/utils";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 type Tab = "info" | "calling" | "activity" | "marketing";
 
@@ -384,7 +385,7 @@ export function LeadDetailClient({
                 disabled={pending}
                 onClick={() =>
                   startTransition(async () => {
-                    await claimLead(lead.id);
+                    reportResult(await claimLead(lead.id));
                   })
                 }
               >
@@ -847,11 +848,11 @@ export function LeadDetailClient({
                       className="btn-ghost border border-border text-xs"
                       onClick={() =>
                         startTransition(async () => {
-                          await markNoShowOrReschedule({
+                          reportResult(await markNoShowOrReschedule({
                             leadId: localLead.id,
                             round,
                             kind: "reschedule",
-                          });
+                          }));
                         })
                       }
                     >

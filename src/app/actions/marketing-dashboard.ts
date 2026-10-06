@@ -1,5 +1,7 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -8,7 +10,7 @@ import {
   parseMetaAdCsv,
   parseSocialCsv,
 } from "@/lib/marketing/csv-import";
-import { computeAqlAt } from "@/lib/marketing/aql";
+import { computeAqlAt, meetsAqlCriteria } from "@/lib/marketing/aql";
 import { revalidatePath } from "next/cache";
 import { invalidateMarketingCaches } from "@/lib/marketing/query-cache";
 import { fetchAllPages } from "@/lib/supabase/paginate";
@@ -121,7 +123,7 @@ export async function updateLeadQualification(input: {
   meta_ad_set?: string | null;
   meta_ad_name?: string | null;
 }): Promise<DashResult> {
-  await requireUser(["counselor", "admin", "marketing"]);
+  const user = await requireUser(["counselor", "admin", "marketing"]);
   const supabase = createClient();
   const { data: existing } = await supabase
     .from("leads")
@@ -139,17 +141,30 @@ export async function updateLeadQualification(input: {
   if (input.meta_ad_set !== undefined) patch.meta_ad_set = input.meta_ad_set;
   if (input.meta_ad_name !== undefined) patch.meta_ad_name = input.meta_ad_name;
 
+  // A field set to null in this save is cleared — don't fall back to the old value
   const merged = {
     qualification_intent:
-      (patch.qualification_intent as string) ?? existing.qualification_intent,
-    financial_check: (patch.financial_check as string) ?? existing.financial_check,
+      "qualification_intent" in patch
+        ? (patch.qualification_intent as string | null)
+        : existing.qualification_intent,
+    financial_check:
+      "financial_check" in patch ? (patch.financial_check as string | null) : existing.financial_check,
     existing_aql_at: existing.aql_at,
   };
   const aqlAt = computeAqlAt(merged);
   if (aqlAt && !existing.aql_at) patch.aql_at = aqlAt;
+  // No longer intent Good/Maybe + financial Pass → no longer an AQL
+  if (existing.aql_at && !meetsAqlCriteria(merged)) patch.aql_at = null;
 
-  const { error } = await supabase.from("leads").update(patch).eq("id", input.leadId);
+  // Marketing can read leads but not write them; it may edit qualification only
+  let db: SupabaseClient = supabase;
+  if (user.role === "marketing") {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    db = createAdminClient();
+  }
+  const { data: saved, error } = await db.from("leads").update(patch).eq("id", input.leadId).select("id");
   if (error) return { ok: false, error: error.message };
+  if (!saved?.length) return { ok: false, error: "Not saved — you don't have access to this lead" };
   revalidatePath(`/leads/${input.leadId}`);
   revalidatePath("/marketing/qualification");
   invalidateMarketingCaches();

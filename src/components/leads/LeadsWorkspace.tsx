@@ -36,6 +36,7 @@ import { LayoutGrid, List, Search } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition, useOptimistic } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 export function LeadsWorkspace({
   leads,
@@ -1038,7 +1039,7 @@ export function LeadsWorkspace({
           courseId={optimisticFilters.courseId}
           onClaim={(id) =>
             startTransition(async () => {
-              await claimLead(id);
+              reportResult(await claimLead(id));
             })
           }
         />
@@ -1381,7 +1382,7 @@ export function LeadsWorkspace({
                                   disabled={pending}
                                   onClick={() =>
                                     startTransition(async () => {
-                                      await claimLead(l.id);
+                                      reportResult(await claimLead(l.id));
                                     })
                                   }
                                 >
@@ -1394,7 +1395,7 @@ export function LeadsWorkspace({
                                   disabled={pending}
                                   onChange={(e) =>
                                     startTransition(async () => {
-                                      await reassignLead(l.id, e.target.value);
+                                      reportResult(await reassignLead(l.id, e.target.value));
                                     })
                                   }
                                 >

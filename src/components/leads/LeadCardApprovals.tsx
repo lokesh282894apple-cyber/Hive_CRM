@@ -4,10 +4,13 @@ import { setLeadApproval, updateLeadCardFields } from "@/app/actions/leads";
 import type { LeadWithCard } from "@/lib/leads/card-metrics";
 import { useState, useTransition } from "react";
 
-const APPROVAL_SLOTS: { slot: string; label: string }[] = [
-  { slot: "leadership", label: "Approved by Nikhil" },
-  { slot: "admissions", label: "Approved by Admissions" },
-  { slot: "panel", label: "Approved by Panel" },
+export type ApprovalRole = "admin" | "counselor" | "interviewer";
+
+/** Who may tick each approval: admins any, the admissions team theirs, panelists theirs. */
+const APPROVAL_SLOTS: { slot: string; label: string; roles: ApprovalRole[] }[] = [
+  { slot: "leadership", label: "Approved by Nikhil", roles: ["admin"] },
+  { slot: "admissions", label: "Approved by Admissions", roles: ["admin", "counselor"] },
+  { slot: "panel", label: "Approved by Panel", roles: ["admin", "interviewer"] },
 ];
 
 /** Recording URL + multi-slot approval controls for panel-round cards. */
@@ -16,9 +19,11 @@ export function LeadCardApprovals({
   canWriteApproval,
 }: {
   lead: LeadWithCard;
-  canWriteApproval: boolean;
+  /** Viewer's role; null = read-only */
+  canWriteApproval: ApprovalRole | null;
 }) {
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState(
     lead.cardMetrics?.recordingUrl ||
       (lead as { recording_url?: string | null }).recording_url ||
@@ -50,12 +55,13 @@ export function LeadCardApprovals({
               null;
             if (next === prev) return;
             startTransition(async () => {
-              await updateLeadCardFields(lead.id, { recording_url: next });
+              const res = await updateLeadCardFields(lead.id, { recording_url: next });
+              setError(res.ok ? null : res.error);
             });
           }}
         />
       </label>
-      {APPROVAL_SLOTS.map(({ slot, label }) => {
+      {APPROVAL_SLOTS.map(({ slot, label, roles }) => {
         const existing = lead.cardMetrics?.approvals?.find((a) => a.slot === slot);
         const approved = Boolean(existing?.status);
         return (
@@ -63,16 +69,17 @@ export function LeadCardApprovals({
             <input
               type="checkbox"
               checked={approved}
-              disabled={pending || !canWriteApproval}
+              disabled={pending || !canWriteApproval || !roles.includes(canWriteApproval)}
               onChange={(e) => {
                 const status = e.target.checked;
                 startTransition(async () => {
-                  await setLeadApproval({
+                  const res = await setLeadApproval({
                     leadId: lead.id,
                     slot,
                     label,
                     status,
                   });
+                  setError(res.ok ? null : res.error);
                 });
               }}
             />
@@ -83,6 +90,7 @@ export function LeadCardApprovals({
           </label>
         );
       })}
+      {error ? <p className="text-[11px] text-danger">{error}</p> : null}
     </div>
   );
 }

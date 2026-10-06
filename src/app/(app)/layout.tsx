@@ -4,6 +4,7 @@ import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/ui-prefs";
 import { cookies } from "next/headers";
 import { TopBar } from "@/components/shell/TopBar";
 import { NavProgress } from "@/components/shell/NavProgress";
+import { Toaster } from "@/components/ui/Toaster";
 import { AiChatWidget } from "@/components/shell/AiChatWidget";
 import { FunnelProvider } from "@/components/funnel/FunnelProvider";
 import { ImpersonationProvider } from "@/components/shell/ImpersonationProvider";
@@ -47,6 +48,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6">{children}</main>
         </div>
         <AiChatWidget enabled={showAi} />
+        <Toaster />
       </div>
     </ImpersonationProvider>
   );

@@ -10,6 +10,8 @@ import {
 } from "@/lib/constants";
 import { ensureAdmissionFeeLine, normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 import { istDateKey } from "@/lib/tz";
 
@@ -19,12 +21,21 @@ async function requireProgram() {
   return requireUser(["admin", "program"]);
 }
 
+/**
+ * The Program team works every student's fees, but the database rules on
+ * leads / instalments / loans only let admins and the lead's counselor in.
+ * Callers check the role first (requireProgram), then write with this client.
+ */
+function programDb(): SupabaseClient {
+  return createAdminClient();
+}
+
 function touch() {
   revalidateLeadPath("/program/fees");
 }
 
 async function syncLoanRowForDeal(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseClient,
   feeId: string,
   stage: string,
   gross?: number | null
@@ -78,7 +89,7 @@ export async function updateFeeTrackerStudent(input: {
   active_deadline?: string | null;
 }): Promise<ProgramResult> {
   await requireProgram();
-  const supabase = createClient();
+  const supabase = programDb();
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of [
     "nikhil_remark",
@@ -198,7 +209,7 @@ export async function upsertFeePaymentLine(input: {
   payment_status: "Paid" | "Yet to Pay";
 }): Promise<ProgramResult> {
   await requireProgram();
-  const supabase = createClient();
+  const supabase = programDb();
   const paid = input.payment_status === "Paid";
   const hit = Number(input.amount_hit_bank ?? (paid ? input.amount : 0)) || 0;
   const deductions =
@@ -265,7 +276,7 @@ export async function updateLoanStatus(input: {
   disbursement_date?: string | null;
 }): Promise<ProgramResult> {
   await requireProgram();
-  const supabase = createClient();
+  const supabase = programDb();
   const stage = normalizeLoanStage(input.stage);
   const { data: existing } = await supabase
     .from("loans")
@@ -339,8 +350,9 @@ export async function updateLoanStatus(input: {
 }
 
 export async function ensureConvertedFeeScaffold(leadId: string): Promise<ProgramResult> {
-  await requireUser(["admin", "program", "counselor"]);
-  const supabase = createClient();
+  const user = await requireUser(["admin", "program", "counselor"]);
+  // Counselors stay on their own access rules; Program / admin see every student
+  const supabase: SupabaseClient = user.role === "counselor" ? createClient() : programDb();
   const { data: existing } = await supabase
     .from("fee_records")
     .select("id")

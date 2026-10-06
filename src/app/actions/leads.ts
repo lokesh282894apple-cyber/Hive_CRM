@@ -128,6 +128,10 @@ async function ensureApplicationFeeLine(
   });
 }
 
+function stageLabel(funnel: { stages: { slug: string; label: string }[] }, slug: string) {
+  return funnel.stages.find((s) => s.slug === slug)?.label ?? slug.replace(/_/g, " ");
+}
+
 function touchLeadPaths(leadId?: string) {
   if (leadId) revalidateLeadPath(`/leads/${leadId}`);
   revalidateLeadPath("/leads");
@@ -180,6 +184,26 @@ export async function createLead(
 
   if (!payload.name || !payload.phone) {
     return { ok: false, error: "Name and phone are required" };
+  }
+
+  // One person → one lead: website forms already match by phone / email; do the same here
+  {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { findExistingLead } = await import("@/lib/leads/identity");
+    const admin = createAdminClient();
+    const match = await findExistingLead(admin, payload.phone, payload.email);
+    if (match) {
+      const { data: owner } = match.lead.lead_allocated_to
+        ? await admin.from("users").select("name").eq("id", match.lead.lead_allocated_to).maybeSingle()
+        : { data: null };
+      return {
+        ok: false,
+        error: `${match.lead.name} already exists (same ${match.matchedBy}) — owned by ${
+          owner?.name?.trim() || "nobody yet"
+        }. Open the existing lead instead of adding a new one.`,
+        id: match.lead.id,
+      };
+    }
   }
 
   const { data, error } = await supabase.from("leads").insert(payload).select("id").single();
@@ -270,7 +294,10 @@ export async function updateLeadStage(
     const allowedFromConst = STAGE_TRANSITIONS[lead.stage as Stage] ?? [];
     const allowed = allowedFromDb.length ? allowedFromDb : allowedFromConst;
     if (!allowed.includes(stage)) {
-      return { ok: false, error: `Cannot move from ${lead.stage} to ${stage}` };
+      return {
+        ok: false,
+        error: `Can't move from ${stageLabel(funnel, lead.stage)} to ${stageLabel(funnel, stage)} — pick one of the next stages`,
+      };
     }
   }
 
@@ -328,7 +355,7 @@ export async function updateLeadStage(
     ? rejectAtStageFromLeadStage(lead.stage)
     : null;
 
-  const { error } = await supabase
+  const { data: movedRows, error } = await supabase
     .from("leads")
     .update({
       stage,
@@ -344,18 +371,13 @@ export async function updateLeadStage(
           }
         : {}),
     })
-    .eq("id", leadId);
+    .eq("id", leadId)
+    .select("id");
   if (error) return { ok: false, error: error.message };
+  if (!movedRows?.length) return { ok: false, error: "Not saved — you don't have access to this lead" };
 
-  if (reason) {
-    await supabase.from("stage_history").insert({
-      lead_id: leadId,
-      from_stage: lead.stage,
-      to_stage: stage,
-      changed_by: user.id,
-      notes: reason,
-    });
-  }
+  // The leads trigger writes the stage-history row (with stage_reason as its
+  // reason); inserting another here doubled every reasoned move.
 
   await recomputeLeadScore(supabase, leadId);
 
@@ -420,8 +442,34 @@ export async function updateLeadInfo(
     preferred_industry: String(formData.get("preferred_industry") || "").trim() || null,
   };
 
-  const { error } = await supabase.from("leads").update(payload).eq("id", leadId);
-  if (error) return { ok: false, error: error.message };
+  // A course without a cohort (or a cohort from another course) drops the lead
+  // out of cohort filters — default to the course's current cohort.
+  if (payload.course_id) {
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const admin = createAdminClient();
+    let cohortOk = false;
+    if (payload.cohort_id) {
+      const { data: co } = await admin.from("cohorts").select("course_id").eq("id", payload.cohort_id).maybeSingle();
+      cohortOk = co?.course_id === payload.course_id;
+    }
+    if (!cohortOk) {
+      const { resolveCohortForCourse } = await import("@/lib/leads/resolve-cohort");
+      payload.cohort_id = await resolveCohortForCourse(admin, payload.course_id);
+    }
+  }
+
+  const { data: saved, error } = await supabase.from("leads").update(payload).eq("id", leadId).select("id");
+  if (error) {
+    if (/row-level security/i.test(error.message)) {
+      return {
+        ok: false,
+        error:
+          "You can't move this lead to that course / cohort — ask an admin to add it to your access (Users & Roles → Edit).",
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+  if (!saved?.length) return { ok: false, error: "Not saved — you don't have access to this lead" };
 
   await recomputeLeadScore(supabase, leadId);
 
@@ -659,10 +707,24 @@ export async function updateLeadCardFields(
     recording_url?: string | null;
   }
 ): Promise<ActionResult> {
-  await requireUser(["counselor", "admin", "interviewer"]);
-  const supabase = createClient();
-  const { error } = await supabase.from("leads").update(patch).eq("id", leadId);
+  const user = await requireUser(["counselor", "admin", "interviewer"]);
+  let supabase: SupabaseClient = createClient();
+  if (user.role === "interviewer") {
+    // Panelists can't write to leads directly — allow it for leads they interview
+    const { data: booking } = await supabase
+      .from("interview_bookings")
+      .select("id")
+      .eq("lead_id", leadId)
+      .eq("interviewer_id", user.id)
+      .limit(1)
+      .maybeSingle();
+    if (!booking) return { ok: false, error: "You can only edit leads you are interviewing" };
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    supabase = createAdminClient();
+  }
+  const { data, error } = await supabase.from("leads").update(patch).eq("id", leadId).select("id");
   if (error) return { ok: false, error: error.message };
+  if (!data?.length) return { ok: false, error: "Not saved — you don't have access to this lead" };
   touchLeadPaths(leadId);
   return { ok: true };
 }
@@ -674,9 +736,25 @@ export async function setLeadApproval(input: {
   label?: string;
   status: boolean;
 }): Promise<ActionResult> {
-  const user = await requireUser(["admin", "interviewer"]);
-  const supabase = createClient();
+  const user = await requireUser(["admin", "interviewer", "counselor"]);
   const slot = input.slot || "leadership";
+  const allowed: Record<string, string[]> = {
+    leadership: ["admin"],
+    admissions: ["admin", "counselor"],
+    panel: ["admin", "interviewer"],
+  };
+  if (!(allowed[slot] ?? ["admin"]).includes(user.role)) {
+    return { ok: false, error: "You can't change this approval" };
+  }
+  let supabase: SupabaseClient = createClient();
+  if (user.role === "counselor") {
+    // The approvals table only lets admins / panelists write; counselors may
+    // tick Admissions on leads they can open.
+    const { data: canSee } = await supabase.from("leads").select("id").eq("id", input.leadId).maybeSingle();
+    if (!canSee) return { ok: false, error: "You don't have access to this lead" };
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    supabase = createAdminClient();
+  }
   const label = input.label || (slot === "leadership" ? "Approved by Nikhil" : slot);
   const now = new Date().toISOString();
   const { error } = await supabase.from("lead_approvals").upsert(

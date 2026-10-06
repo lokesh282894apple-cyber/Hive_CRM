@@ -14,6 +14,7 @@ import {
 } from "@/app/actions/marketing-dashboard";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 const CHANNELS = [
   "Meta",
@@ -348,7 +349,7 @@ export function CalendarStatusButtons({
 
   function setStatus(status: string) {
     start(async () => {
-      await updateCalendarItemStatus(id, status);
+      reportResult(await updateCalendarItemStatus(id, status));
     });
   }
 
@@ -591,7 +592,7 @@ export function TaskStatusSelect({ id, status }: { id: string; status: string })
       defaultValue={status}
       onChange={(e) => {
         start(async () => {
-          await updateMarketingTaskStatus(id, e.target.value);
+          reportResult(await updateMarketingTaskStatus(id, e.target.value));
         });
       }}
     >

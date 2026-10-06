@@ -1,6 +1,6 @@
 "use server";
 
-import { requireUser } from "@/lib/auth";
+import { requireAuth, requireUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 
@@ -40,7 +40,9 @@ export async function recordLeadStageScore(input: {
   intentScore: number;
   notes?: string | null;
 }): Promise<ActionResult> {
-  const user = await requireUser(["counselor", "admin", "interviewer"]);
+  const ctx = await requireAuth(["counselor", "admin", "interviewer"]);
+  // While an admin uses View as, the row must be written as the signed-in admin
+  const user = ctx.impersonating ? ctx.actor : ctx.user;
   const profile = Number(input.profileScore);
   const intent = Number(input.intentScore);
   if (

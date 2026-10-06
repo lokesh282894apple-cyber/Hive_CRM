@@ -11,6 +11,7 @@ import {
   type OfferCallStatus,
 } from "@/lib/constants";
 import { useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 type OfferLead = LeadQualityFields & {
   id: string;
@@ -35,7 +36,7 @@ export function LeadOfferFields({
 
   function save(patch: Parameters<typeof updateLeadCardFields>[1]) {
     startTransition(async () => {
-      await updateLeadCardFields(lead.id, patch);
+      reportResult(await updateLeadCardFields(lead.id, patch));
     });
   }
 

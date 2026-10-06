@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/ui/Primitives";
 import type { AppUser, Cohort, CounselorScope, Course } from "@/types/database";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 function PasswordCell({
   password,
@@ -412,12 +413,12 @@ export function UsersClient({
                       disabled={pending}
                       onChange={(e) =>
                         startTransition(async () => {
-                          await updateUserProfile({
+                          reportResult(await updateUserProfile({
                             id: u.id,
                             name: u.name,
                             role: e.target.value as Role,
                             active: u.active,
-                          });
+                          }));
                         })
                       }
                     >
@@ -447,12 +448,12 @@ export function UsersClient({
                       className="btn-ghost text-xs"
                       onClick={() =>
                         startTransition(async () => {
-                          await updateUserProfile({
+                          reportResult(await updateUserProfile({
                             id: u.id,
                             name: u.name,
                             role: u.role,
                             active: !u.active,
-                          });
+                          }));
                         })
                       }
                     >

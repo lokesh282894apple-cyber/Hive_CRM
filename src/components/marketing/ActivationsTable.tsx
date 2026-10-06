@@ -3,6 +3,7 @@
 import { updateActivationStatus } from "@/app/actions/marketing-dashboard";
 import { formatInr } from "@/lib/marketing/metrics";
 import { useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 type ActivationRow = {
   id: string;
@@ -24,7 +25,7 @@ export function ActivationsTable({ rows }: { rows: ActivationRow[] }) {
 
   function markDone(id: string) {
     start(async () => {
-      await updateActivationStatus(id, "done");
+      reportResult(await updateActivationStatus(id, "done"));
     });
   }
 

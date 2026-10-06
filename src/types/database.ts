@@ -171,6 +171,7 @@ export type StageHistory = {
   changed_by: string | null;
   changed_at: string;
   notes: string | null;
+  reason?: string | null;
 };
 
 export type InterviewerAvailability = {

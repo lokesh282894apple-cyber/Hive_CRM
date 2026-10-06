@@ -14,6 +14,7 @@ import { cohortEntryLabel, cohortIntakeHint } from "@/lib/cohorts/display";
 import type { AppUser, Cohort, Course, LoanVendor } from "@/types/database";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState, useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 type Tab = "courses" | "counselors" | "vendors" | "fees" | "scoring" | "triggers" | "sequences";
 
@@ -386,19 +387,19 @@ export function SettingsClient({
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             wrap(async () => {
-              await updateAppSetting(
+              reportResult(await updateAppSetting(
                 "days_between_installments",
                 Number(fd.get("days_between_installments"))
-              );
-              await updateAppSetting(
+              ));
+              reportResult(await updateAppSetting(
                 "default_installment_count",
                 Number(fd.get("default_installment_count"))
-              );
+              ));
               const spend = Number(fd.get("manual_monthly_ad_spend") || 0);
-              await updateAppSetting(
+              reportResult(await updateAppSetting(
                 "manual_monthly_ad_spend",
                 spend > 0 ? { amount: Math.round(spend) } : { amount: 0 }
-              );
+              ));
               return { ok: true };
             });
           }}

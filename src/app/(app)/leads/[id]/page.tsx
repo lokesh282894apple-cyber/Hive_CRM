@@ -51,7 +51,7 @@ export default async function LeadDetailPage({
     getAllCohorts(),
     supabase
       .from("stage_history")
-      .select("id, lead_id, from_stage, to_stage, changed_at, notes, changed_by")
+      .select("id, lead_id, from_stage, to_stage, changed_at, notes, reason, changed_by")
       .eq("lead_id", params.id)
       .order("changed_at", { ascending: false })
       .limit(40),

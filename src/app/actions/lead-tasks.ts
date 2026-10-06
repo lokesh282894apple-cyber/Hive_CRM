@@ -60,7 +60,8 @@ export async function createLeadTask(input: {
     notes: input.notes?.trim()?.slice(0, 2000) || null,
     due_at: new Date(input.dueAt).toISOString(),
     status: "open",
-    created_by: ctx.user.id,
+    // signed-in user (the admin while using View as) — the table requires it
+    created_by: ctx.impersonating ? ctx.actor.id : ctx.user.id,
   });
   if (error) return { ok: false, error: error.message };
   touchTaskPaths(input.leadId);

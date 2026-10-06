@@ -11,6 +11,7 @@ import {
 } from "date-fns";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { FormEvent, useMemo, useState, useTransition } from "react";
+import { reportResult } from "@/components/ui/Toaster";
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 9); // 9–19
 
@@ -45,7 +46,7 @@ export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[]
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
-      await addAvailabilitySlot(fd);
+      reportResult(await addAvailabilitySlot(fd));
       (e.target as HTMLFormElement).reset();
     });
   }
@@ -56,7 +57,7 @@ export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[]
     fd.set("start_time", `${String(hour).padStart(2, "0")}:00`);
     fd.set("end_time", `${String(hour + 1).padStart(2, "0")}:00`);
     startTransition(async () => {
-      await addAvailabilitySlot(fd);
+      reportResult(await addAvailabilitySlot(fd));
     });
   }
 
@@ -158,7 +159,7 @@ export function AvailabilityClient({ slots }: { slots: InterviewerAvailability[]
                               disabled={pending}
                               onClick={() =>
                                 startTransition(async () => {
-                                  await removeAvailabilitySlot(s.id);
+                                  reportResult(await removeAvailabilitySlot(s.id));
                                 })
                               }
                             >
