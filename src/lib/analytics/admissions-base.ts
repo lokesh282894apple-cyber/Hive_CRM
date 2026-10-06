@@ -13,6 +13,7 @@ export type BaseLead = {
   created_at: string;
   updated_at: string;
   last_contacted_at: string | null;
+  offer_call_status?: string | null;
 };
 
 export type BaseHistory = {
@@ -115,7 +116,7 @@ export const getAdmissionsBase = cache(
           let q = db
             .from("leads")
             .select(
-              "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at"
+              "id, name, stage, source, course_id, cohort_id, lead_allocated_to, created_at, updated_at, last_contacted_at, offer_call_status"
             );
           if (counselorId) q = q.eq("lead_allocated_to", counselorId);
           if (courseId) q = q.eq("course_id", courseId);

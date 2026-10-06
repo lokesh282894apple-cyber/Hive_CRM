@@ -45,13 +45,13 @@ const R1_SERIES: SeriesDef[] = [
   },
   {
     id: "r1_booked",
-    label: "R1 booked",
+    label: "R1 on calendar",
     kind: "count",
     value: (m) => m.roundFunnel.R1.onCalendar,
   },
   {
     id: "r1_booked_pct",
-    label: "R1 booked :: leads %",
+    label: "R1 on calendar :: leads %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R1.onCalendar, m.leadTotals.total),
   },
@@ -63,7 +63,7 @@ const R1_SERIES: SeriesDef[] = [
   },
   {
     id: "r1_conducted_pct",
-    label: "R1 conducted :: booked %",
+    label: "R1 conducted :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R1.conducted, m.roundFunnel.R1.onCalendar),
   },
@@ -75,7 +75,7 @@ const R1_SERIES: SeriesDef[] = [
   },
   {
     id: "r1_no_show_pct",
-    label: "R1 no show :: booked %",
+    label: "R1 no show :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R1.noShow, m.roundFunnel.R1.onCalendar),
   },
@@ -87,19 +87,19 @@ const R1_SERIES: SeriesDef[] = [
   },
   {
     id: "r1_reschedule_pct",
-    label: "R1 reschedule :: booked %",
+    label: "R1 reschedule :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R1.reschedule, m.roundFunnel.R1.onCalendar),
   },
   {
     id: "r2_booked",
-    label: "R2 booked",
+    label: "R2 on calendar",
     kind: "count",
     value: (m) => m.roundFunnel.R2.onCalendar,
   },
   {
     id: "r2_from_r1_pct",
-    label: "R2 booked :: R1 booked %",
+    label: "R2 on calendar :: R1 on calendar %",
     kind: "rate",
     value: (m) =>
       pct(m.roundFunnel.R2.onCalendar, m.roundFunnel.R1.onCalendar),
@@ -109,7 +109,7 @@ const R1_SERIES: SeriesDef[] = [
 const R2_SERIES: SeriesDef[] = [
   {
     id: "r2_booked",
-    label: "R2 booked",
+    label: "R2 on calendar",
     kind: "count",
     value: (m) => m.roundFunnel.R2.onCalendar,
   },
@@ -121,7 +121,7 @@ const R2_SERIES: SeriesDef[] = [
   },
   {
     id: "r2_conducted_pct",
-    label: "R2 conducted :: booked %",
+    label: "R2 conducted :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R2.conducted, m.roundFunnel.R2.onCalendar),
   },
@@ -133,7 +133,7 @@ const R2_SERIES: SeriesDef[] = [
   },
   {
     id: "r2_no_show_pct",
-    label: "R2 no show :: booked %",
+    label: "R2 no show :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R2.noShow, m.roundFunnel.R2.onCalendar),
   },
@@ -145,19 +145,19 @@ const R2_SERIES: SeriesDef[] = [
   },
   {
     id: "r2_reschedule_pct",
-    label: "R2 reschedule :: booked %",
+    label: "R2 reschedule :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R2.reschedule, m.roundFunnel.R2.onCalendar),
   },
   {
     id: "r3_booked",
-    label: "R3 booked",
+    label: "R3 on calendar",
     kind: "count",
     value: (m) => m.roundFunnel.R3.onCalendar,
   },
   {
     id: "r3_from_r2_pct",
-    label: "R3 booked :: R2 booked %",
+    label: "R3 on calendar :: R2 on calendar %",
     kind: "rate",
     value: (m) =>
       pct(m.roundFunnel.R3.onCalendar, m.roundFunnel.R2.onCalendar),
@@ -167,7 +167,7 @@ const R2_SERIES: SeriesDef[] = [
 const R3_SERIES: SeriesDef[] = [
   {
     id: "r3_booked",
-    label: "R3 booked",
+    label: "R3 on calendar",
     kind: "count",
     value: (m) => m.roundFunnel.R3.onCalendar,
   },
@@ -179,7 +179,7 @@ const R3_SERIES: SeriesDef[] = [
   },
   {
     id: "r3_conducted_pct",
-    label: "R3 conducted :: booked %",
+    label: "R3 conducted :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R3.conducted, m.roundFunnel.R3.onCalendar),
   },
@@ -191,7 +191,7 @@ const R3_SERIES: SeriesDef[] = [
   },
   {
     id: "r3_no_show_pct",
-    label: "R3 no show :: booked %",
+    label: "R3 no show :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R3.noShow, m.roundFunnel.R3.onCalendar),
   },
@@ -203,7 +203,7 @@ const R3_SERIES: SeriesDef[] = [
   },
   {
     id: "r3_reschedule_pct",
-    label: "R3 reschedule :: booked %",
+    label: "R3 reschedule :: on calendar %",
     kind: "rate",
     value: (m) => pct(m.roundFunnel.R3.reschedule, m.roundFunnel.R3.onCalendar),
   },

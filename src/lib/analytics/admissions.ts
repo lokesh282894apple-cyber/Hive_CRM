@@ -349,10 +349,18 @@ export async function fetchAdmissionsAnalytics(
     ...STAGE_GROUPS.filter((g) => !["open", "all"].includes(g.id)),
     { id: "won", label: "Closed Won", stages: ["closed_paid"] as Stage[] },
     { id: "lost", label: "Closed Lost", stages: [...LOST_STAGES] as Stage[] },
-  ].map((g) => ({
-    name: g.label,
-    count: all.filter((l) => (g.stages as readonly string[]).includes(l.stage)).length,
-  }));
+  ].map((g) => {
+    // Post-offer rows split Offered by offer-call status (not every offered lead in each)
+    const call = { offer_call_not_booked: "not_booked", offer_call_booked: "booked", offer_call_done: "done" }[
+      g.id as string
+    ];
+    return {
+      name: g.label,
+      count: call
+        ? all.filter((l) => l.stage === "offered" && (l.offer_call_status ?? "not_booked") === call).length
+        : all.filter((l) => (g.stages as readonly string[]).includes(l.stage)).length,
+    };
+  });
 
   const stageCounts = new Map<string, number>();
   for (const l of all) {

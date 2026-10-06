@@ -123,11 +123,30 @@ export async function fetchCounselorHomeViaRpc(
   const lost = countStages(LOST_STAGES);
   const closed = won + lost;
 
+  // The three post-offer rows split Offered by offer-call status — stage counts
+  // alone put every offered lead in all three rows.
+  let offeredQ = db.from("leads").select("offer_call_status").eq("stage", "offered");
+  if (counselorId) offeredQ = offeredQ.eq("lead_allocated_to", counselorId);
+  const { data: offeredRows } = await offeredQ;
+  const offerCall = { not_booked: 0, booked: 0, done: 0 } as Record<string, number>;
+  for (const o of offeredRows ?? []) {
+    const k = (o.offer_call_status as string | null) ?? "not_booked";
+    offerCall[k in offerCall ? k : "not_booked"] += 1;
+  }
+  const offerCallGroup: Record<string, string> = {
+    offer_call_not_booked: "not_booked",
+    offer_call_booked: "booked",
+    offer_call_done: "done",
+  };
+
   const funnelGroups = [
     ...STAGE_GROUPS.filter((g) => !["open", "all"].includes(g.id)),
     { id: "won", label: "Closed Won", stages: ["closed_paid"] as Stage[] },
     { id: "lost", label: "Closed Lost", stages: [...LOST_STAGES] as Stage[] },
-  ].map((g) => ({ name: g.label, count: countStages(g.stages) }));
+  ].map((g) => ({
+    name: g.label,
+    count: offerCallGroup[g.id] ? offerCall[offerCallGroup[g.id]] : countStages(g.stages),
+  }));
 
   const stageBreakdown = byCount(
     r.stage_counts.map((s) => ({
