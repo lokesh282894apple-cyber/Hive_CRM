@@ -26,7 +26,8 @@ import {
 } from "@/lib/marketing/metrics";
 import { meetsAqlCriteria } from "@/lib/marketing/aql";
 import { isClosedStage } from "@/lib/constants";
-import { istDateKey, istEndIso, istMonthKey, istStartIso } from "@/lib/tz";
+import { istDateKey, istEndIso, istMonthKey, istParts, istStartIso } from "@/lib/tz";
+import { loadTouchSignals } from "@/lib/marketing/touch-signals";
 import { bookedRevenueByConvertMonth, realisedRevenueByMonth } from "@/lib/analytics/revenue-events";
 import { ARCHIVE_UNTIL_MONTH, fetchArchiveMonths } from "@/lib/analytics/archive";
 import {
@@ -1284,21 +1285,20 @@ export async function fetchMonthlyMarketingDataUncached(
 ): Promise<MonthlyMktRow[]> {
   const admin = db();
   const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const { year: nowY, month: nowM } = istParts(now);
+  const monthAgo = (back: number) => {
+    const d = new Date(Date.UTC(nowY, nowM - 1 - back, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  };
+  const currentMonth = istMonthKey(now);
 
-  const oldest = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1);
-  const fromDate = `${oldest.getFullYear()}-${String(oldest.getMonth() + 1).padStart(2, "0")}-01`;
+  const fromDate = `${monthAgo(monthsBack)}-01`;
   const toDate = istDateKey(now);
   const fromIso = istStartIso(fromDate);
   const toIso = istEndIso(toDate);
 
   const monthKeys: string[] = [];
-  for (let i = monthsBack; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    monthKeys.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
-    );
-  }
+  for (let i = monthsBack; i >= 0; i--) monthKeys.push(monthAgo(i));
 
   const emptyTotals = () => ({
     sessions: 0,
@@ -1902,6 +1902,10 @@ export async function fetchChannelFunnelUncached(
     "lead_id, first_touch_campaign_id, session_id"
   );
   const attrByLead = new Map(attrs.map((a) => [a.lead_id, a]));
+  const touch = await loadTouchSignals(
+    admin,
+    leads.filter((l) => !l.utm_medium || !l.utm_source).map((l) => l.id)
+  );
 
   const empty = (): Omit<
     ChannelFunnelRow,
@@ -1955,11 +1959,12 @@ export async function fetchChannelFunnelUncached(
     const camp = attr?.first_touch_campaign_id
       ? campMap.get(attr.first_touch_campaign_id)
       : null;
+    const s = touch.get(l.id);
     const key = classifyMarketingChannel({
-      utmSource: l.utm_source,
-      utmMedium: l.utm_medium,
+      utmSource: l.utm_source || s?.utmSource || null,
+      utmMedium: l.utm_medium || s?.utmMedium || null,
       channelName: camp?.channelName ?? null,
-      sourceType: camp?.sourceType ?? null,
+      sourceType: camp?.sourceType ?? s?.campaignType ?? null,
       leadSource: l.source,
     });
     const row = byChannel.get(key)!;

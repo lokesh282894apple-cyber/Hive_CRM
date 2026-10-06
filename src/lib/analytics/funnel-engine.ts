@@ -22,6 +22,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllPages } from "@/lib/supabase/paginate";
 import { isInorganicLead } from "@/lib/marketing/metrics";
+import { loadTouchSignals } from "@/lib/marketing/touch-signals";
 
 export const MILESTONES = [
   "r1Booked",
@@ -257,7 +258,7 @@ async function loadViaRpc(
     console.error("[funnel-engine] rpc_funnel_leads failed, using row path:", error.message);
     return null;
   }
-  return ((data ?? []) as RpcLead[])
+  const mapped = ((data ?? []) as RpcLead[])
     .filter((l) => l.source !== PAST_STUDENT_SOURCE)
     .map((l) => {
       // First entry per stage is all milestonesFor needs from history
@@ -284,6 +285,7 @@ async function loadViaRpc(
         stagesEver: Array.from(new Set([...history.map((h) => h.to_stage), l.stage])),
       };
     });
+  return applyPaidSession(admin, mapped);
 }
 
 /** Row-by-row path — fallback, and used by /api/admin/verify-metrics as the parity reference. */
@@ -343,7 +345,9 @@ export async function loadFunnelLeadsByIdRows(admin: SupabaseClient, ids: string
 
   // Past students are entered by hand with a back-dated enrolment — they were
   // never marketing leads in the CRM (the archived sheet covers those months)
-  return leads.filter((l) => l.source !== PAST_STUDENT_SOURCE).map((l) => {
+  return applyPaidSession(
+    admin,
+    leads.filter((l) => l.source !== PAST_STUDENT_SOURCE).map((l) => {
     const camp = attrBy.get(l.id);
     return {
       id: l.id,
@@ -361,7 +365,32 @@ export async function loadFunnelLeadsByIdRows(admin: SupabaseClient, ids: string
       at: milestonesFor(histBy.get(l.id) ?? [], bookBy.get(l.id) ?? []),
       stagesEver: Array.from(new Set([...(histBy.get(l.id) ?? []).map((h) => h.to_stage), l.stage])),
     };
+  })
+  );
+}
+
+/**
+ * The RPC and the row path only see the lead's own utm_medium and the
+ * first-touch campaign. A paid visit often leaves both blank and stores
+ * utm_medium=paid on the session, with the paid campaign on last touch.
+ */
+async function applyPaidSession(admin: SupabaseClient, leads: FunnelLead[]): Promise<FunnelLead[]> {
+  if (!leads.length) return leads;
+  const signals = await loadTouchSignals(
+    admin,
+    leads.map((l) => l.id)
+  );
+  const next = leads.map((l) => {
+    const s = signals.get(l.id);
+    const inorganic =
+      l.inorganic ||
+      isInorganicLead({
+        utm_medium: s?.utmMedium ?? null,
+        campaignSourceType: s?.campaignType ?? null,
+      });
+    return inorganic === l.inorganic ? l : { ...l, inorganic };
   });
+  return next;
 }
 
 export type SplitCount = { total: number; org: number; inorg: number };

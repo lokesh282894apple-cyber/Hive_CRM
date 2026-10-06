@@ -83,8 +83,10 @@ export type AttributionSource = {
   lead_id: string;
   campaign_name: string | null;
   channel_name: string | null;
-  /** campaigns.source_type when attributed */
+  /** campaigns.source_type when attributed (first touch, else last touch) */
   source_type: string | null;
+  /** utm_medium on the linked visit, when the lead row didn't store one */
+  utm_medium?: string | null;
 };
 
 /** Calendar day in India (CRM default) — avoids UTC shifting visits onto the wrong day. */
@@ -687,20 +689,43 @@ export async function fetchAttributionForLeads(
   if (!leadIds.length) return map;
 
   // Chunked: the board passes up to 250 ids (~9 KB of URL)
-  const data = await mapInChunks<{ lead_id: string; first_touch_campaign_id: string | null }>(
-    leadIds,
-    async (chunk) => {
-      const { data: rows } = await supabase
-        .from("lead_attribution")
-        .select("lead_id, first_touch_campaign_id")
-        .in("lead_id", chunk);
-      return rows ?? [];
-    }
-  );
+  const data = await mapInChunks<{
+    lead_id: string;
+    first_touch_campaign_id: string | null;
+    last_touch_campaign_id: string | null;
+    session_id: string | null;
+  }>(leadIds, async (chunk) => {
+    const { data: rows } = await supabase
+      .from("lead_attribution")
+      .select("lead_id, first_touch_campaign_id, last_touch_campaign_id, session_id")
+      .in("lead_id", chunk);
+    return rows ?? [];
+  });
 
   const campaignIds = Array.from(
-    new Set((data ?? []).map((d) => d.first_touch_campaign_id).filter(Boolean))
+    new Set(
+      (data ?? [])
+        .flatMap((d) => [d.first_touch_campaign_id, d.last_touch_campaign_id])
+        .filter(Boolean)
+    )
   ) as string[];
+  const sessionIds = Array.from(
+    new Set((data ?? []).map((d) => d.session_id).filter(Boolean))
+  ) as string[];
+  const sessionMedium = new Map<string, string | null>();
+  if (sessionIds.length) {
+    const sessions = await mapInChunks<{ id: string; utm_medium: string | null }>(
+      sessionIds,
+      async (chunk) => {
+        const { data: rows } = await supabase
+          .from("visitor_sessions")
+          .select("id, utm_medium")
+          .in("id", chunk);
+        return rows ?? [];
+      }
+    );
+    for (const s of sessions) sessionMedium.set(s.id, s.utm_medium);
+  }
 
   if (!campaignIds.length) {
     for (const row of data ?? []) {
@@ -709,6 +734,7 @@ export async function fetchAttributionForLeads(
         campaign_name: null,
         channel_name: null,
         source_type: null,
+        utm_medium: row.session_id ? sessionMedium.get(row.session_id) ?? null : null,
       });
     }
     return map;
@@ -736,14 +762,14 @@ export async function fetchAttributionForLeads(
   );
 
   for (const row of data ?? []) {
-    const camp = row.first_touch_campaign_id
-      ? campMap.get(row.first_touch_campaign_id)
-      : null;
+    const campId = row.first_touch_campaign_id ?? row.last_touch_campaign_id;
+    const camp = campId ? campMap.get(campId) : null;
     map.set(row.lead_id, {
       lead_id: row.lead_id,
       campaign_name: camp?.name ?? null,
       channel_name: camp?.channelName ?? null,
       source_type: camp?.sourceType ?? null,
+      utm_medium: row.session_id ? sessionMedium.get(row.session_id) ?? null : null,
     });
   }
   return map;

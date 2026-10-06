@@ -95,7 +95,8 @@ export default async function AdminLeadsPage({
       ...l,
       sourceClass: classifyLeadSource(
         l.source,
-        attrMap.get(l.id)?.source_type ?? null
+        attrMap.get(l.id)?.source_type ?? null,
+        attrMap.get(l.id)?.utm_medium ?? null
       ),
       nextOpenTask: tasks?.next ?? null,
       openTaskCount: tasks?.openCount ?? 0,

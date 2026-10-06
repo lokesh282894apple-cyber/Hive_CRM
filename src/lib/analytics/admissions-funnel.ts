@@ -3,6 +3,7 @@ import { cachedAdmissionsQuery } from "@/lib/analytics/admissions-cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdmissionsBase } from "@/lib/analytics/admissions-base";
 import { classifyLeadSource } from "@/lib/leads/source-class";
+import { loadTouchSignals } from "@/lib/marketing/touch-signals";
 import { istDateKey, istMonthKey, istStartIso } from "@/lib/tz";
 import { LOST_STAGES, WON_STAGES } from "@/lib/constants";
 
@@ -342,13 +343,14 @@ function buildLeadFacts(
   bookings: BookingRow[],
   attrMap: Map<string, string | null>,
   periodStart: string,
-  periodEndExclusive: string
+  periodEndExclusive: string,
+  sessionMedium: Map<string, string | null> = new Map()
 ): Map<string, LeadFacts> {
   const map = new Map<string, LeadFacts>();
   for (const lead of leads) {
     map.set(lead.id, {
       lead,
-      attr: classifyLeadSource(lead.source, attrMap.get(lead.id)),
+      attr: classifyLeadSource(lead.source, attrMap.get(lead.id), sessionMedium.get(lead.id)),
       stagesEver: new Set([lead.stage]),
       stagesInPeriod: new Set(),
       stagesByDay: new Map(),
@@ -726,6 +728,7 @@ function buildStripRow(opts: {
   history: HistoryRow[];
   bookings: BookingRow[];
   attrMap: Map<string, string | null>;
+  sessionMedium?: Map<string, string | null>;
   start: string;
   endExclusive: string;
   attribution: FunnelAttribution;
@@ -736,7 +739,8 @@ function buildStripRow(opts: {
     opts.bookings,
     opts.attrMap,
     opts.start,
-    opts.endExclusive
+    opts.endExclusive,
+    opts.sessionMedium
   );
   const monthAll = Array.from(monthFactsMap.values());
   const created = createdBetween(monthAll, opts.start, opts.endExclusive);
@@ -845,6 +849,14 @@ export async function fetchAdmissionsFunnelUncached(
   void supabase;
 
   const leads = base.leads as LeadRow[];
+  const touch = await loadTouchSignals(
+    createAdminClient(),
+    leads.map((l) => l.id)
+  );
+  const sessionMedium = new Map<string, string | null>();
+  for (const [id, s] of Array.from(touch.entries())) {
+    if (s.utmMedium) sessionMedium.set(id, s.utmMedium);
+  }
   const history = base.history as HistoryRow[];
   const bookings = base.bookings.map((b) => ({
     lead_id: b.lead_id,
@@ -867,7 +879,8 @@ export async function fetchAdmissionsFunnelUncached(
     bookings,
     attrMap,
     periodStart,
-    endExclusive
+    endExclusive,
+    sessionMedium
   );
   const allFacts = Array.from(allFactsMap.values());
   const facts = filterAttr(allFacts, attribution);
@@ -922,12 +935,13 @@ export async function fetchAdmissionsFunnelUncached(
         pointDate: `${key}-01`,
         leads,
         history,
-        bookings,
-        attrMap,
-        start: b.start,
-        endExclusive: b.endExclusive,
-        attribution,
-      })
+          bookings,
+          attrMap,
+          sessionMedium,
+          start: b.start,
+          endExclusive: b.endExclusive,
+          attribution,
+        })
     );
   }
 
@@ -952,6 +966,7 @@ export async function fetchAdmissionsFunnelUncached(
           history,
           bookings,
           attrMap,
+          sessionMedium,
           start,
           endExclusive: endEx,
           attribution,

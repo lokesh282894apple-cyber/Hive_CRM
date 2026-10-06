@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { validateCronAuth } from "@/lib/marketing/track-auth";
+import { istMonthKey, monthLastDay } from "@/lib/tz";
 import {
   fetchChannelFunnel,
   fetchLeadFunnel,
@@ -26,9 +27,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const monthKey = istMonthKey();
+  const lastDay = Number(monthLastDay(monthKey).slice(8));
   const defaults = parseMarketingFilters({});
 
   const jobs: [string, () => Promise<unknown>][] = [

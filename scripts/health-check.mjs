@@ -259,6 +259,36 @@ await check("Usage", "Calls with a duration entered (last 7 days)", async () => 
     [`${withDur} of ${c.length} connected calls`], "Talk time stays 0 until durations are entered");
 });
 
+await check("Marketing", "Paid-ad visits behind leads matched to an organic campaign (last 14 days)", async () => {
+  // The tracker re-matches a returning visitor's campaign when they come back via
+  // an ad; if that regresses, paid leads show as organic on campaign / ROI pages.
+  const PAID = new Set(["paid", "cpc", "ppc", "cpm", "paidsocial"]);
+  const camps = new Map((await get("campaigns?select=id,source_type")).map((c) => [c.id, c.source_type]));
+  const recent = await get(`leads?select=id,name&created_at=gte.${daysAgo(14)}`);
+  const attrs = [];
+  for (let i = 0; i < recent.length; i += 150) {
+    const chunk = recent.slice(i, i + 150).map((l) => l.id).join(",");
+    attrs.push(...(await get(`lead_attribution?select=lead_id,session_id&lead_id=in.(${chunk})`)));
+  }
+  const sessIds = attrs.map((a) => a.session_id).filter(Boolean);
+  const med = new Map();
+  for (let i = 0; i < sessIds.length; i += 150) {
+    for (const s of await get(`visitor_sessions?select=id,utm_medium,matched_campaign_id&id=in.(${sessIds.slice(i, i + 150).join(",")})`)) {
+      med.set(s.id, { medium: (s.utm_medium || "").toLowerCase(), camp: s.matched_campaign_id });
+    }
+  }
+  const name = new Map(recent.map((l) => [l.id, l.name]));
+  // A visit tagged paid must be matched to a paid campaign. (A lead whose first
+  // visit was genuinely organic and who returned via an ad is fine — the pages
+  // count the paid visit.)
+  const bad = attrs.filter((a) => {
+    const v = med.get(a.session_id);
+    return v && PAID.has(v.medium) && camps.get(v.camp) === "organic";
+  });
+  report("Marketing", "Paid-ad visits behind leads matched to an organic campaign (last 14 days)", bad.length,
+    bad.map((a) => name.get(a.lead_id)), "Re-run supabase/migrations/20261006150000_data_fixes_3.sql");
+});
+
 // ── Print ──────────────────────────────────────────────────────────
 const bad = results.filter((r) => !r.ok);
 const stamp = new Date(now + IST).toISOString().slice(0, 16).replace("T", " ");
