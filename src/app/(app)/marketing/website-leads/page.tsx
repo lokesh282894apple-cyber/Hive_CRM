@@ -47,7 +47,7 @@ export default async function MarketingWebsiteLeadsPage({
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-muted">{r.stage}</td>
-                <td className="px-3 py-2">{Math.round(r.timeOnSiteSec / 60)}m {r.timeOnSiteSec % 60}s</td>
+                <td className="px-3 py-2">{Math.floor(r.timeOnSiteSec / 60)}m {r.timeOnSiteSec % 60}s</td>
                 <td className="px-3 py-2">{r.pageviews}</td>
                 <td className="px-3 py-2 max-w-[200px] truncate text-muted">{r.lastPage ?? "—"}</td>
                 <td className="px-3 py-2">

@@ -1094,11 +1094,12 @@ export async function fetchMetaAdPerformance(
       utm_content: string | null;
       meta_campaign_name: string | null;
       utm_campaign: string | null;
+      website_session_id: string | null;
     }>(
       (from, to) =>
         admin
           .from("leads")
-          .select("id, meta_ad_name, utm_content, meta_campaign_name, utm_campaign")
+          .select("id, meta_ad_name, utm_content, meta_campaign_name, utm_campaign, website_session_id")
           .gte("created_at", istStartIso(filters.fromDate))
           .lte("created_at", istEndIso(filters.toDate))
           .order("id", { ascending: true })
@@ -1107,12 +1108,31 @@ export async function fetchMetaAdPerformance(
     ),
   ]);
 
+  // Website leads carry their ad tags on the visit, not on the lead row — without
+  // this every ad showed 0 CRM leads.
+  const sessionIds = Array.from(
+    new Set(leads.map((l) => l.website_session_id).filter((x): x is string => Boolean(x)))
+  );
+  const sessionTags = new Map<string, { utm_content: string | null; utm_campaign: string | null }>();
+  for (let i = 0; i < sessionIds.length; i += 300) {
+    const { data } = await admin
+      .from("visitor_sessions")
+      .select("id, utm_content, utm_campaign")
+      .in("id", sessionIds.slice(i, i + 300));
+    for (const r of data ?? []) sessionTags.set(r.id as string, r as { utm_content: string | null; utm_campaign: string | null });
+  }
+
   const leadsByAdTag = new Map<string, number>();
   const leadsByCampaign = new Map<string, number>();
   for (const l of leads) {
-    const tags = new Set([norm(l.meta_ad_name), norm(l.utm_content)].filter(Boolean));
+    const sess = l.website_session_id ? sessionTags.get(l.website_session_id) : undefined;
+    const tags = new Set(
+      [norm(l.meta_ad_name), norm(l.utm_content), norm(sess?.utm_content ?? null)].filter(Boolean)
+    );
     for (const t of Array.from(tags)) leadsByAdTag.set(t, (leadsByAdTag.get(t) ?? 0) + 1);
-    const camps = new Set([norm(l.meta_campaign_name), norm(l.utm_campaign)].filter(Boolean));
+    const camps = new Set(
+      [norm(l.meta_campaign_name), norm(l.utm_campaign), norm(sess?.utm_campaign ?? null)].filter(Boolean)
+    );
     for (const c of Array.from(camps)) leadsByCampaign.set(c, (leadsByCampaign.get(c) ?? 0) + 1);
   }
 
@@ -1587,15 +1607,16 @@ export async function fetchLeadWebsiteMetrics(
       String(b.occurred_at).localeCompare(String(a.occurred_at))
     );
     const pageviews = evs.filter((e) => e.event_type === "pageview").length;
-    const first = evs[evs.length - 1]?.occurred_at;
-    const last = evs[0]?.occurred_at;
+    // Active time: add up gaps between consecutive events, ignoring gaps over
+    // 30 min (that's a later visit). First-to-last across return visits showed
+    // weeks ("64979m") as time on site.
+    const times = evs.map((e) => new Date(e.occurred_at).getTime()).sort((a, b) => a - b);
     let timeSec = 0;
-    if (first && last) {
-      timeSec = Math.max(
-        0,
-        Math.round((new Date(last).getTime() - new Date(first).getTime()) / 1000)
-      );
+    for (let i = 1; i < times.length; i++) {
+      const gap = (times[i] - times[i - 1]) / 1000;
+      if (gap > 0 && gap <= 30 * 60) timeSec += gap;
     }
+    timeSec = Math.round(timeSec);
     rows.push({
       leadId: l.id,
       name: l.name,

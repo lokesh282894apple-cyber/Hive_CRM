@@ -132,6 +132,9 @@ function inferRejectAtStage(stage: string): string {
 type LeadRejectRow = {
   id: string;
   stage: string;
+  course_id?: string | null;
+  cohort_id?: string | null;
+  lead_allocated_to?: string | null;
   reject_kind?: string | null;
   reject_at_stage?: string | null;
   stage_reason: string | null;
@@ -140,7 +143,14 @@ type LeadRejectRow = {
 
 async function fetchRejectionFunnelUncached(
   supabase: SupabaseClient,
-  opts: { sinceIso: string; untilExclusiveIso: string }
+  opts: {
+    sinceIso: string;
+    untilExclusiveIso: string;
+    /** Same filters as the rest of Admission Analytics */
+    courseId?: string | null;
+    cohortId?: string | null;
+    counselorId?: string | null;
+  }
 ): Promise<RejectionFunnel> {
   let schemaPending = false;
 
@@ -173,7 +183,7 @@ async function fetchRejectionFunnelUncached(
     leadRows = await mapInChunks(leadIds, async (chunk) => {
       const { data, error } = await supabase
         .from("leads")
-        .select("id, stage, reject_kind, reject_at_stage, stage_reason, reject_reason_category")
+        .select("id, stage, reject_kind, reject_at_stage, stage_reason, reject_reason_category, course_id, cohort_id, lead_allocated_to")
         .in("id", chunk);
       if (error) throw new Error(error.message);
       return (data ?? []) as LeadRejectRow[];
@@ -182,10 +192,20 @@ async function fetchRejectionFunnelUncached(
     if (!isMissingColumnError(err)) throw err;
     schemaPending = true;
     leadRows = await mapInChunks(leadIds, async (chunk) => {
-      const { data } = await supabase.from("leads").select("id, stage, stage_reason").in("id", chunk);
+      const { data } = await supabase
+        .from("leads")
+        .select("id, stage, stage_reason, course_id, cohort_id, lead_allocated_to")
+        .in("id", chunk);
       return (data ?? []) as LeadRejectRow[];
     });
   }
+  // Course / cohort / counselor filters (were ignored — the panel always showed everyone)
+  leadRows = leadRows.filter(
+    (l) =>
+      (!opts.courseId || l.course_id === opts.courseId) &&
+      (!opts.cohortId || l.cohort_id === opts.cohortId) &&
+      (!opts.counselorId || l.lead_allocated_to === opts.counselorId)
+  );
   const leadById = new Map(leadRows.map((l) => [l.id, l]));
   // The rejection event (stage entered in range) decides kind and stage;
   // the reason comes from the lead row (history rows carry it from 2 Oct 2026)
@@ -215,6 +235,7 @@ async function fetchRejectionFunnelUncached(
   let offeredPending = 0;
 
   for (const id of offeredIds) {
+    if (!leadById.has(id)) continue;
     const stageNow = leadById.get(id)?.stage;
     if (stageNow === "offered_accepted" || stageNow === "closed_paid") offeredAccepted += 1;
     else if (stageNow === "student_reject") offeredStudentReject += 1;
@@ -369,7 +390,7 @@ async function fetchRejectionFunnelUncached(
 export { emptyFunnel };
 
 const fetchRejectionFunnelCached = cachedAdmissionsQuery(
-  "fetchRejectionFunnel-v3-events",
+  "fetchRejectionFunnel-v4-filters",
   (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) => JSON.stringify(opts ?? null),
   (opts: Parameters<typeof fetchRejectionFunnelUncached>[1]) =>
     fetchRejectionFunnelUncached(createAdminClient(), opts)

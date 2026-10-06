@@ -101,7 +101,11 @@ export default async function MarketingHeatmapsPage({
             <div className="panel p-4">
               <p className="eyebrow mb-2">Top pages (30d)</p>
               <div className="flex flex-wrap gap-2">
-                {sortHeatmapPages(topPages.map((p) => p.page_url))
+                {/* Most-clicked first; 0-click entries are mostly UTM / #section copies */}
+                {topPages
+                  .filter((p) => (p.clicks ?? 0) > 0)
+                  .sort((a, b) => (b.clicks ?? 0) - (a.clicks ?? 0))
+                  .map((p) => p.page_url)
                   .slice(0, 12)
                   .map((pageUrl) => {
                     const p = topPages.find((t) => t.page_url === pageUrl);

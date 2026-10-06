@@ -3,7 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader, StatCard } from "@/components/ui/Primitives";
 import { MarketingSubNav } from "@/components/marketing/MarketingSubNav";
 import { RangeTabs } from "@/components/marketing/RangeTabs";
-import { fetchConversionsList, parseRange, type RangeKey } from "@/lib/marketing/queries";
+import { fetchConversionsList, parseRange, rangeStartIso, type RangeKey } from "@/lib/marketing/queries";
+import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { BUSINESS_TZ } from "@/lib/tz";
 
@@ -19,7 +20,14 @@ export default async function MarketingConversionsPage({
   await requireUser(["admin", "marketing"]);
   const range = parseRange(searchParams.range) as RangeKey;
   const supabase = createClient();
-  const rows = await fetchConversionsList(supabase, range, 100);
+  const [rows, { count: totalAttributed }] = await Promise.all([
+    fetchConversionsList(supabase, range, 100),
+    // The list is the latest 100; the card needs the real total for the range
+    createAdminClient()
+      .from("lead_attribution")
+      .select("id", { count: "exact", head: true })
+      .gte("converted_at", rangeStartIso(range)),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -33,9 +41,9 @@ export default async function MarketingConversionsPage({
       <MarketingSubNav section="website" />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <StatCard label="Attributed leads" value={rows.length} />
+        <StatCard label="Attributed leads" value={totalAttributed ?? rows.length} />
         <StatCard
-          label="Unique channels"
+          label="Unique channels (latest 100)"
           value={new Set(rows.map((r) => r.channel_name).filter(Boolean)).size}
         />
       </div>

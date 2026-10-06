@@ -181,6 +181,9 @@ export default async function AdminAnalyticsPage({
     fetchRejectionFunnel(supabase, {
       sinceIso: istStartIso(fromDate),
       untilExclusiveIso: istStartIso(addDays(toDate, 1)),
+      courseId,
+      cohortId,
+      counselorId,
     }).catch((err) => {
       console.error("[fetchRejectionFunnel]", err);
       return emptyFunnel(true);
