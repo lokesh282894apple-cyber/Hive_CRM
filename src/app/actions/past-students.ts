@@ -2,6 +2,8 @@
 
 import { requireUser } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recomputeFeeRemaining } from "@/lib/fees/recompute";
+import { feeOwedAfterAdmission } from "@/lib/fees/status";
 import { invalidateLeadCaches, revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 import {
   FEE_LINE_TYPES,
@@ -170,6 +172,13 @@ export async function savePastStudentFees(
     if (!FEE_LINE_TYPES.includes(p.lineType)) {
       return { ok: false, error: `Payment ${i + 1}: pick what the payment was for.` };
     }
+    const admissionAmt = num(input.fee.admissionFee);
+    if (p.lineType === "admission_fee" && admissionAmt != null && Math.abs(p.amount - admissionAmt) > 1) {
+      return {
+        ok: false,
+        error: `Payment ${i + 1} is marked "Admission fee" but is ₹${p.amount.toLocaleString("en-IN")} — the admission fee is ₹${admissionAmt.toLocaleString("en-IN")}. Mark the rest as Instalment / One-shot / Loan disbursal.`,
+      };
+    }
     const hit = num(p.amountHitBank);
     if (hit != null && (!Number.isFinite(hit) || hit < 0 || hit > p.amount)) {
       return { ok: false, error: `Payment ${i + 1}: amount hit bank must be between 0 and the amount.` };
@@ -181,7 +190,8 @@ export async function savePastStudentFees(
       return { ok: false, error: `Upcoming due ${i + 1}: enter a date and an amount.` };
     }
   }
-  const owed = net ?? total;
+  // Fee owed = gross incl. GST − admission fee (net without GST is finance's own figure)
+  const owed = feeOwedAfterAdmission({ total_fee: total, admission_fee: num(input.fee.admissionFee) });
   if (input.fee.paymentMode === "loan") {
     if (!input.loan) return { ok: false, error: "Enter the loan details." };
     if (!Number.isFinite(input.loan.amount) || input.loan.amount <= 0) {
@@ -373,22 +383,13 @@ export async function savePastStudentFees(
     if (error) return { ok: false, error: `Fee saved, but the loan failed: ${error.message}` };
   }
 
-  // ── remaining = owed − everything received (same rule as the fee tracker)
-  const { data: all } = await db
-    .from("installments")
-    .select("amount_realised, amount_hit_bank")
-    .eq("fee_record_id", feeId);
-  const received = (all ?? []).reduce((s, r) => {
-    const hit = Number(r.amount_hit_bank) || 0;
-    return s + (hit > 0 ? hit : Number(r.amount_realised) || 0);
-  }, 0);
-  const remaining = Math.max(0, owed - received);
-  await db.from("fee_records").update({ remaining_fee: remaining }).eq("id", feeId);
+  // remaining = (gross incl. GST − admission fee) − payments other than the admission fee
+  const remaining = await recomputeFeeRemaining(db, feeId);
 
   invalidateLeadCaches();
   revalidateLeadPath("/program/fees");
   revalidateLeadPath("/admin/payments");
   revalidateLeadPath("/program/past-students");
   revalidateLeadPath(`/leads/${leadId}`);
-  return { ok: true, leadId, created, remainingFee: remaining };
+  return { ok: true, leadId, created, remainingFee: remaining ?? owed };
 }

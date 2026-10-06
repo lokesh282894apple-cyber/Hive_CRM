@@ -11,6 +11,8 @@ import {
 import { ensureAdmissionFeeLine, normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recomputeFeeRemaining } from "@/lib/fees/recompute";
+import { feeOwedAfterAdmission } from "@/lib/fees/status";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 import { istDateKey } from "@/lib/tz";
@@ -138,11 +140,17 @@ export async function updateFeeTrackerStudent(input: {
   const dealStage = (patch.deal_stage as string | undefined) ?? input.deal_stage;
 
   if (mode === "loan" || (dealStage && isFeeDealLoanStage(dealStage))) {
+    const { data: feeForLoan } = await supabase
+      .from("fee_records")
+      .select("total_fee, gross_fee_with_gst, admission_fee")
+      .eq("id", input.feeId)
+      .maybeSingle();
+    // The loan covers gross − admission fee
     await syncLoanRowForDeal(
       supabase,
       input.feeId,
       dealStage && isFeeDealLoanStage(dealStage) ? dealStage : "docs_to_share",
-      input.gross_fee_with_gst
+      feeForLoan ? feeOwedAfterAdmission(feeForLoan) : input.gross_fee_with_gst
     );
   }
 
@@ -167,14 +175,11 @@ export async function updateFeeTrackerStudent(input: {
     if (!existingOneShot) {
       const { data: fee } = await supabase
         .from("fee_records")
-        .select("total_fee, net_fee_without_gst, remaining_fee")
+        .select("total_fee, gross_fee_with_gst, admission_fee")
         .eq("id", input.feeId)
         .maybeSingle();
-      const amount =
-        Number(fee?.net_fee_without_gst) ||
-        Number(fee?.remaining_fee) ||
-        Number(fee?.total_fee) ||
-        0;
+      // One-shot = gross incl. GST − admission fee (was the net-without-GST figure)
+      const amount = fee ? feeOwedAfterAdmission(fee) : 0;
       await supabase.from("installments").insert({
         fee_record_id: input.feeId,
         installment_number: 1,
@@ -191,6 +196,8 @@ export async function updateFeeTrackerStudent(input: {
     }
   }
 
+  // Gross / admission edits change what the student owes
+  await recomputeFeeRemaining(supabase, input.feeId);
   touch();
   return { ok: true };
 }
@@ -240,29 +247,7 @@ export async function upsertFeePaymentLine(input: {
     if (error) return { ok: false, error: error.message };
   }
 
-  // Recompute fee remaining from realised / hit-bank totals
-  const { data: all } = await supabase
-    .from("installments")
-    .select("amount_realised, amount_hit_bank, amount_to_realise, payment_status, deductions")
-    .eq("fee_record_id", input.feeRecordId);
-  const { data: fee } = await supabase
-    .from("fee_records")
-    .select("total_fee, net_fee_without_gst")
-    .eq("id", input.feeRecordId)
-    .maybeSingle();
-  const owed =
-    Number(fee?.net_fee_without_gst) || Number(fee?.total_fee) || 0;
-  // Settled = bank amount + deductions (TDS / charges) on paid lines
-  const realisedSum = (all ?? []).reduce((s, r) => {
-    const hitBank = Number(r.amount_hit_bank) || 0;
-    const ded = r.payment_status === "Paid" ? Number(r.deductions) || 0 : 0;
-    if (hitBank > 0) return s + hitBank + ded;
-    return s + (Number(r.amount_realised) || 0) + ded;
-  }, 0);
-  await supabase
-    .from("fee_records")
-    .update({ remaining_fee: Math.max(0, owed - realisedSum) })
-    .eq("id", input.feeRecordId);
+  await recomputeFeeRemaining(supabase, input.feeRecordId);
 
   touch();
   return { ok: true };

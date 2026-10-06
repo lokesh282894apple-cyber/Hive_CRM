@@ -68,19 +68,35 @@ export type FeeBalance = {
   remaining: number;
 };
 
+/**
+ * Fee owed = gross fee incl. GST − admission fee (the admission fee is taken up
+ * front and tracked as its own line). Net-without-GST is HiveSchool's own
+ * after-GST figure for finance — it is NOT what the student owes.
+ */
+export function feeOwedAfterAdmission(fee: {
+  total_fee?: number | string | null;
+  gross_fee_with_gst?: number | string | null;
+  admission_fee?: number | string | null;
+}): number {
+  const gross = Number(fee.gross_fee_with_gst) || Number(fee.total_fee) || 0;
+  return Math.max(0, gross - (Number(fee.admission_fee) || 0));
+}
+
+/** Admission / application fee lines sit outside "fee owed" — don't count them as paid against it. */
+export function countsTowardsFeeOwed(lineType: string | null | undefined): boolean {
+  return lineType !== "admission_fee" && lineType !== "application_fee";
+}
+
 export function computeFeeBalance(
   fee: Pick<
     FeeRecord,
     "total_fee" | "remaining_fee" | "net_fee_without_gst" | "gross_fee_with_gst" | "gross_fee_ex_gst"
-  >,
+  > & { admission_fee?: number | null },
   lines: Installment[]
 ): FeeBalance {
-  const owed =
-    Number(fee.net_fee_without_gst) ||
-    Number(fee.gross_fee_ex_gst) ||
-    Number(fee.total_fee) ||
-    0;
-  const paid = lines.reduce((sum, l) => {
+  const owed = feeOwedAfterAdmission(fee);
+  const plan = lines.filter((l) => countsTowardsFeeOwed((l as { line_type?: string | null }).line_type));
+  const paid = plan.reduce((sum, l) => {
     const hit = Number(l.amount_hit_bank) || 0;
     if (hit > 0) return sum + hit;
     if (l.payment_status === "Paid" || l.status === "paid") {
@@ -88,12 +104,12 @@ export function computeFeeBalance(
     }
     return sum + (Number(l.amount_realised) || 0);
   }, 0);
-  // A paid line is settled in full: what hit the bank plus the bank / TDS
-  // deduction. Counting only the bank amount left e.g. ₹1,000 "remaining" on a
-  // fully paid student.
-  const deducted = lines.reduce(
+  // A paid line is settled in full: bank amount + the bank / TDS deduction
+  const deducted = plan.reduce(
     (sum, l) =>
-      l.payment_status === "Paid" || l.status === "paid" ? sum + (Number(l.deductions) || 0) : sum,
+      (l.payment_status === "Paid" || l.status === "paid") && (Number(l.amount_hit_bank) || 0) > 0
+        ? sum + (Number(l.deductions) || 0)
+        : sum,
     0
   );
   const remaining = lines.length

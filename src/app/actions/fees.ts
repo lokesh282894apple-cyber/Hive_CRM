@@ -3,6 +3,9 @@
 import { requireUser, isAdmin } from "@/lib/auth";
 import type { InstallmentStatus, LoanStage, PaymentMode, Stage } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
+import { recomputeFeeRemaining } from "@/lib/fees/recompute";
+import { feeOwedAfterAdmission } from "@/lib/fees/status";
+import { ensureAdmissionFeeLine } from "@/lib/program/fee-tracker";
 import type { AppUser } from "@/types/database";
 import { revalidateLeadPath } from "@/lib/analytics/admissions-cache";
 import { addDays as istAddDays, istDateKey } from "@/lib/tz";
@@ -142,6 +145,7 @@ export async function setOfferFee(input: {
       })
       .eq("id", existing.id);
     if (error) return { ok: false, error: error.message };
+    await recomputeFeeRemaining(supabase, existing.id);
 
     if (input.paymentMode === "loan") {
       const { data: loan } = await supabase
@@ -188,6 +192,7 @@ export async function setOfferFee(input: {
     .single();
 
   if (error) return { ok: false, error: error.message };
+  await recomputeFeeRemaining(supabase, data.id);
   revalidateLeadPath(`/leads/${input.leadId}/fees`);
   revalidateLeadPath(`/leads/${input.leadId}`);
   return { ok: true, feeRecordId: data.id };
@@ -262,12 +267,30 @@ export async function generateInstallments(input: {
   const days = await getDaysBetween();
   const feeId = set.feeRecordId;
 
-  await supabase.from("installments").delete().eq("fee_record_id", feeId);
-  await supabase.from("loans").delete().eq("fee_record_id", feeId);
+  // Never wipe money already received: regenerating used to delete paid lines
+  const guard = await guardPaidPlan(supabase, feeId);
+  if (guard) return guard;
+  await clearUnpaidPlan(supabase, feeId);
+
+  // The plan covers gross − admission fee; the admission fee is its own line
+  const { data: feeRow } = await supabase
+    .from("fee_records")
+    .select("total_fee, gross_fee_with_gst, admission_fee")
+    .eq("id", feeId)
+    .single();
+  const planTotal = feeOwedAfterAdmission({ ...feeRow, total_fee: input.totalFee, gross_fee_with_gst: input.totalFee });
+  const admissionFee = Number(feeRow?.admission_fee) || 0;
+  if (admissionFee > 0) await ensureAdmissionFeeLine(supabase, feeId, admissionFee);
 
   const rows = [];
   const start = new Date();
-  const amounts = mode === "one_shot" ? [input.totalFee] : input.amounts;
+  const given = input.amounts.reduce((n, a) => n + (Number(a) || 0), 0);
+  const amounts =
+    mode === "one_shot"
+      ? [planTotal]
+      : Math.abs(given - planTotal) <= 1
+        ? input.amounts
+        : splitEqually(planTotal, count);
   for (let i = 0; i < count; i++) {
     const amount = amounts[i] ?? 0;
     const deadline =
@@ -292,17 +315,72 @@ export async function generateInstallments(input: {
     .update({
       payment_mode: mode,
       total_fee: input.totalFee,
-      remaining_fee: input.totalFee,
       one_shot_deadline:
         mode === "one_shot" ? input.oneShotDeadline ?? rows[0]?.deadline : null,
       fee_set_by: user.id,
       fee_set_at: new Date().toISOString(),
     })
     .eq("id", feeId);
+  await recomputeFeeRemaining(supabase, feeId);
 
   revalidateLeadPath(`/leads/${input.leadId}/fees`);
   revalidateLeadPath(`/leads/${input.leadId}`);
   return { ok: true };
+}
+
+function splitEqually(total: number, n: number): number[] {
+  const count = Math.max(1, n);
+  const base = Math.floor(total / count);
+  const arr = Array.from({ length: count }, () => base);
+  arr[count - 1] = total - base * (count - 1);
+  return arr;
+}
+
+type PlanLine = {
+  line_type: string | null;
+  amount_realised: number | null;
+  amount_hit_bank: number | null;
+  status: string | null;
+  payment_status: string | null;
+};
+const isPaidPlanLine = (l: PlanLine) =>
+  l.line_type !== "admission_fee" &&
+  l.line_type !== "application_fee" &&
+  (Number(l.amount_realised) > 0 || Number(l.amount_hit_bank) > 0 || l.status === "paid" || l.payment_status === "Paid");
+
+/** Refuse to rebuild a plan once money has been recorded against it. */
+async function guardPaidPlan(
+  supabase: ReturnType<typeof createClient>,
+  feeId: string,
+  includeLoan = true
+): Promise<ActionResult | null> {
+  const [{ data: lines }, { data: loan }] = await Promise.all([
+    supabase
+      .from("installments")
+      .select("line_type, amount_realised, amount_hit_bank, status, payment_status")
+      .eq("fee_record_id", feeId),
+    supabase.from("loans").select("amount_realised").eq("fee_record_id", feeId).maybeSingle(),
+  ]);
+  if ((lines ?? []).some((l) => isPaidPlanLine(l as PlanLine)) || (includeLoan && Number(loan?.amount_realised) > 0)) {
+    return {
+      ok: false,
+      error: "Payments are already recorded on this plan — edit the existing lines instead of creating a new plan.",
+    };
+  }
+  return null;
+}
+
+/** Remove unpaid plan lines (and an unpaid loan); keep the admission / application fee lines. */
+async function clearUnpaidPlan(supabase: ReturnType<typeof createClient>, feeId: string, includeLoan = true) {
+  await supabase
+    .from("installments")
+    .delete()
+    .eq("fee_record_id", feeId)
+    .not("line_type", "in", "(admission_fee,application_fee)");
+  await supabase.from("installments").delete().eq("fee_record_id", feeId).is("line_type", null);
+  if (includeLoan) {
+    await supabase.from("loans").delete().eq("fee_record_id", feeId).or("amount_realised.is.null,amount_realised.eq.0");
+  }
 }
 
 export async function recordInstallmentPayment(
@@ -366,28 +444,7 @@ export async function recordInstallmentPayment(
     .eq("id", installmentId);
   if (error) return { ok: false, error: error.message };
 
-  const { data: all } = await supabase
-    .from("installments")
-    .select("amount_realised, amount_hit_bank, deductions, status, payment_status")
-    .eq("fee_record_id", inst.fee_record_id);
-  // Settled = what hit the bank + deductions on paid lines (TDS / transfer charges)
-  const realisedSum = (all ?? []).reduce((s, r) => {
-    const h = Number(r.amount_hit_bank) || Number(r.amount_realised) || 0;
-    const paidLine = r.status === "paid" || r.payment_status === "Paid";
-    return s + h + (paidLine ? Number(r.deductions) || 0 : 0);
-  }, 0);
-
-  const { data: fee } = await supabase
-    .from("fee_records")
-    .select("total_fee, net_fee_without_gst")
-    .eq("id", inst.fee_record_id)
-    .single();
-
-  const owed = Number(fee?.net_fee_without_gst) || Number(fee?.total_fee ?? 0);
-  await supabase
-    .from("fee_records")
-    .update({ remaining_fee: recomputeRemaining(owed, realisedSum) })
-    .eq("id", inst.fee_record_id);
+  await recomputeFeeRemaining(supabase, inst.fee_record_id);
 
   revalidateLeadPath(`/leads/${leadId}/fees`);
   revalidateLeadPath(`/leads/${leadId}`);
@@ -479,10 +536,20 @@ export async function upsertLoan(input: {
     lockedTotal = Number(existingFee.total_fee);
   }
 
-  await supabase.from("installments").delete().eq("fee_record_id", feeId!);
+  // Switching to a loan removes unpaid plan lines only — never received money
+  const guard = await guardPaidPlan(supabase, feeId!, false);
+  if (guard) return guard;
+  await clearUnpaidPlan(supabase, feeId!, false);
 
+  const { data: feeRow } = await supabase
+    .from("fee_records")
+    .select("gross_fee_with_gst, admission_fee")
+    .eq("id", feeId!)
+    .single();
+  // The loan covers gross − admission fee
+  const loanTotal = feeOwedAfterAdmission({ ...feeRow, total_fee: lockedTotal });
   const amountRealised = input.amountRealised ?? 0;
-  const remaining = recomputeRemaining(lockedTotal, amountRealised);
+  const remaining = recomputeRemaining(loanTotal, amountRealised);
 
   const { data: existing } = await supabase
     .from("loans")
@@ -493,7 +560,7 @@ export async function upsertLoan(input: {
   const loanPayload = {
     fee_record_id: feeId!,
     stage: input.stage,
-    total_fee: lockedTotal,
+    total_fee: loanTotal,
     remaining_fee: remaining,
     deadline_to_hit: input.deadlineToHit || null,
     amount_realised: amountRealised,
@@ -514,6 +581,8 @@ export async function upsertLoan(input: {
       remaining_fee: remaining,
     })
     .eq("id", feeId!);
+  const admission = Number(feeRow?.admission_fee) || 0;
+  if (admission > 0) await ensureAdmissionFeeLine(supabase, feeId!, admission);
 
   revalidateLeadPath(`/leads/${input.leadId}/fees`);
   revalidateLeadPath(`/leads/${input.leadId}`);

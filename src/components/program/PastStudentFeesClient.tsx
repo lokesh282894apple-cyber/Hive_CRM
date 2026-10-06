@@ -21,6 +21,7 @@ import {
 } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import { istDateKey } from "@/lib/tz";
+import { countsTowardsFeeOwed, feeOwedAfterAdmission } from "@/lib/fees/status";
 
 type Option = { id: string; name: string };
 type CohortOption = { id: string; courseId: string; label: string };
@@ -95,10 +96,14 @@ export function PastStudentFeesClient({
 
   const cohortOptions = cohorts.filter((c) => !courseId || c.courseId === courseId);
   const total = toNum(totalText) ?? 0;
-  const owed = toNum(netText) ?? total;
+  // Fee owed = gross incl. GST − admission fee; the admission-fee payment is
+  // shown on its own, not counted against it (net without GST is finance's figure)
+  const owed = feeOwedAfterAdmission({ total_fee: total, admission_fee: toNum(admissionText) });
   const received = useMemo(
     () =>
-      payments.reduce((s, p) => s + (toNum(p.hitText) ?? toNum(p.amountText) ?? 0), 0),
+      payments
+        .filter((p) => countsTowardsFeeOwed(p.lineType))
+        .reduce((s, p) => s + (toNum(p.hitText) ?? toNum(p.amountText) ?? 0), 0),
     [payments]
   );
   const upcoming = dues.reduce((s, d) => s + (toNum(d.amountText) ?? 0), 0);
@@ -121,7 +126,9 @@ export function PastStudentFeesClient({
         amountText: "",
         hitText: "",
         mode: "Bank transfer",
-        lineType: rows.length === 0 ? "admission_fee" : "installment",
+        // Default to an instalment — defaulting the first row to "Admission fee"
+        // filed whole fee payments as the admission fee
+        lineType: "installment",
       },
     ]);
   }
@@ -626,7 +633,9 @@ export function PastStudentFeesClient({
       <section className="panel flex flex-wrap items-center justify-between gap-4 p-6">
         <div className="grid grid-cols-3 gap-6 text-sm">
           <div>
-            <p className="text-[11px] uppercase text-muted">Fee owed</p>
+            <p className="text-[11px] uppercase text-muted" title="Gross fee incl. GST − admission fee">
+              Fee owed
+            </p>
             <p className="font-semibold text-navy">{formatCurrency(owed)}</p>
           </div>
           <div>

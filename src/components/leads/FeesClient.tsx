@@ -94,9 +94,14 @@ export function FeesClient({
   const [oneShotDeadline, setOneShotDeadline] = useState(
     feeRecord?.one_shot_deadline ?? ""
   );
+  // The plan covers gross − admission fee; the admission fee is its own line
+  const planTotal = Math.max(
+    0,
+    Number(totalFee) - (Number(admissionFee === "" ? feeRecord?.admission_fee ?? 0 : admissionFee) || 0)
+  );
   const equalAmount = useMemo(
-    () => (count > 0 ? Math.round(Number(totalFee) / count) : 0),
-    [count, totalFee]
+    () => (count > 0 ? Math.round(planTotal / count) : 0),
+    [count, planTotal]
   );
   const [amounts, setAmounts] = useState<number[]>(
     installments.length
@@ -342,8 +347,8 @@ export function FeesClient({
             {formatCurrency(lockedTotal ?? totalFee)}
           </p>
           <div className="mt-2 flex flex-wrap gap-3 text-sm">
-            <span className="text-muted">
-              Owed{" "}
+            <span className="text-muted" title="Gross fee incl. GST − admission fee">
+              Owed (after admission fee){" "}
               <span className="font-semibold text-navy">
                 {formatCurrency(balance.owed)}
               </span>
@@ -477,7 +482,7 @@ export function FeesClient({
                         const res = await generateInstallments({
                           leadId,
                           count: 1,
-                          amounts: [Number(totalFee)],
+                          amounts: [planTotal],
                           totalFee: Number(totalFee),
                           paymentMode: "one_shot",
                           oneShotDeadline: oneShotDeadline || null,
@@ -507,7 +512,7 @@ export function FeesClient({
                         onChange={(e) => {
                           const n = Math.max(1, Number(e.target.value) || 1);
                           setCount(n);
-                          syncAmounts(n, Number(totalFee));
+                          syncAmounts(n, planTotal);
                         }}
                       />
                     </div>

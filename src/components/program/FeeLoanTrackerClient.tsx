@@ -473,7 +473,10 @@ export function FeeLoanTrackerClient({
                           </span>
                         </td>
                         <td className="px-3 py-2 text-xs">{s.fee.nikhil_remark || "—"}</td>
-                        <td className="px-3 py-2 text-xs">{s.fee.scholarship_offered || "—"}</td>
+                        <td className="px-3 py-2 text-xs">{s.fee.scholarship_offered ||
+                          ((s.fee as { scholarship_pct?: number | null }).scholarship_pct
+                            ? `${(s.fee as { scholarship_pct?: number | null }).scholarship_pct}%`
+                            : "—")}</td>
                         <td className="px-3 py-2 tabular-nums">
                           {formatCurrency(
                             Number(s.fee.gross_fee_with_gst ?? s.fee.total_fee) || 0
@@ -1516,8 +1519,8 @@ function StudentEditor({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-4 rounded-xl border border-border bg-white px-3 py-2 text-xs">
-        <span>
-          Owed <strong className="text-navy">{formatCurrency(bal.owed)}</strong>
+        <span title="Gross fee incl. GST − admission fee">
+          Owed (after admission fee) <strong className="text-navy">{formatCurrency(bal.owed)}</strong>
         </span>
         <span>
           Paid <strong className="text-navy">{formatCurrency(bal.paid)}</strong>

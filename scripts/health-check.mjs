@@ -197,20 +197,35 @@ await check("Data", "Duplicate stage-history rows (last 7 days)", async () => {
   }
   report("Data", "Duplicate stage-history rows (last 7 days)", d);
 });
-await check("Data", "Paid students with a fee record but remaining ≠ lines", async () => {
-  const fees = await get("fee_records?select=id,lead_id,total_fee,net_fee_without_gst,remaining_fee");
-  const lines = await get("installments?select=fee_record_id,amount_hit_bank,amount_realised,deductions,status,payment_status");
+await check("Data", "Fee remaining doesn't match the payments", async () => {
+  // Rule: owed = gross incl. GST − admission fee; admission / application fee
+  // lines are not counted against it; deductions on paid lines settle in full.
+  const fees = await get("fee_records?select=id,lead_id,total_fee,gross_fee_with_gst,admission_fee,remaining_fee,leads(name)");
+  const lines = await get("installments?select=id,fee_record_id,line_type,amount_to_realise,amount_hit_bank,amount_realised,deductions,status,payment_status");
   const by = new Map();
   for (const l of lines) by.set(l.fee_record_id, [...(by.get(l.fee_record_id) || []), l]);
-  const x = fees.filter((f) => {
+  const bad = [];
+  for (const f of fees) {
     const ls = by.get(f.id) || [];
-    if (!ls.length) return false;
-    const owed = Number(f.net_fee_without_gst) || Number(f.total_fee) || 0;
-    const settled = ls.reduce((s, l) => s + (Number(l.amount_hit_bank) || Number(l.amount_realised) || 0) +
-      ((l.status === "paid" || l.payment_status === "Paid") ? Number(l.deductions) || 0 : 0), 0);
-    return Math.abs(Math.max(0, owed - settled) - Number(f.remaining_fee || 0)) > 1;
-  });
-  report("Data", "Paid students with a fee record but remaining ≠ lines", x.length, x.map((f) => f.lead_id));
+    const owed = Math.max(0, (Number(f.gross_fee_with_gst) || Number(f.total_fee) || 0) - (Number(f.admission_fee) || 0));
+    const plan = ls.filter((l) => l.line_type !== "admission_fee" && l.line_type !== "application_fee");
+    const settled = plan.reduce((s, l) => {
+      const hit = Number(l.amount_hit_bank) || 0;
+      const paid = l.status === "paid" || l.payment_status === "Paid";
+      return s + (hit || Number(l.amount_realised) || 0) + (paid && hit > 0 ? Number(l.deductions) || 0 : 0);
+    }, 0);
+    const name = f.leads?.name || f.lead_id;
+    if (ls.length && Math.abs(Math.max(0, owed - settled) - Number(f.remaining_fee || 0)) > 1) {
+      bad.push(`${name}: stored ₹${Math.round(f.remaining_fee)} vs ₹${Math.round(Math.max(0, owed - settled))}`);
+    }
+    for (const l of ls) {
+      if (l.line_type === "admission_fee" && Number(f.admission_fee) > 0 && Number(l.amount_to_realise) > Number(f.admission_fee) + 1) {
+        bad.push(`${name}: "Admission fee" payment of ₹${Math.round(l.amount_to_realise)} is bigger than the admission fee`);
+      }
+    }
+  }
+  report("Data", "Fee remaining doesn't match the payments", bad.length, bad,
+    "Run supabase/migrations/20261007100000_fee_owed_after_admission.sql");
 });
 await check("Data", "Closed–Paid students with no fee record", async () => {
   const fees = new Set((await get("fee_records?select=lead_id")).map((f) => f.lead_id));
