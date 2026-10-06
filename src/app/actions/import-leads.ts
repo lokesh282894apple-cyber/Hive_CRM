@@ -153,30 +153,43 @@ export async function importLeadsFromCsv(input: {
     }
 
     try {
-      // Prefer match by hubspot_id, then phone
-      let existingId: string | null = null;
+      // Prefer match by hubspot_id, then the same phone / email matching website forms use
+      let existing: Record<string, unknown> | null = null;
       if (d.hubspot_id) {
         const { data: byHs } = await admin
           .from("leads")
-          .select("id")
+          .select("*")
           .eq("hubspot_id", d.hubspot_id)
           .maybeSingle();
-        existingId = byHs?.id ?? null;
+        existing = byHs ?? null;
       }
-      if (!existingId) {
-        const { data: byPhone } = await admin
-          .from("leads")
-          .select("id")
-          .eq("phone", d.phone)
-          .maybeSingle();
-        existingId = byPhone?.id ?? null;
+      if (!existing) {
+        const { findExistingLead } = await import("@/lib/leads/identity");
+        const match = await findExistingLead(admin, String(d.phone ?? ""), (d.email as string | null) ?? null);
+        if (match) {
+          const { data: row } = await admin.from("leads").select("*").eq("id", match.lead.id).maybeSingle();
+          existing = row ?? null;
+        }
       }
 
-      if (existingId) {
+      if (existing) {
+        // Never overwrite what the team has already worked on (stage, owner,
+        // course, dates…) — only fill fields that are still empty.
+        const patch: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(payload)) {
+          if (v == null || v === "") continue;
+          if (k === "stage") continue;
+          const cur = existing[k];
+          if (cur == null || cur === "") patch[k] = v;
+        }
+        if (!Object.keys(patch).length) {
+          updated++;
+          continue;
+        }
         const { error } = await admin
           .from("leads")
-          .update(payload)
-          .eq("id", existingId);
+          .update(patch)
+          .eq("id", existing.id as string);
         if (error) {
           errors.push({ row: rowNum, error: error.message });
           skipped++;

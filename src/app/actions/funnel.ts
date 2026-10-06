@@ -100,11 +100,36 @@ export async function upsertFunnelStage(input: {
   return { ok: true };
 }
 
+/** Leads still sitting in a stage — turning it off would hide them from the board. */
+async function leadsInStage(stageId: string): Promise<{ label: string; count: number } | null> {
+  const supabase = createClient();
+  const { data: stage } = await supabase
+    .from("funnel_stages")
+    .select("slug, label")
+    .eq("id", stageId)
+    .maybeSingle();
+  if (!stage) return null;
+  const { count } = await supabase
+    .from("leads")
+    .select("id", { count: "exact", head: true })
+    .eq("stage", stage.slug);
+  return { label: stage.label, count: count ?? 0 };
+}
+
 export async function setFunnelStageActive(
   id: string,
   active: boolean
 ): Promise<FunnelActionResult> {
   await requireUser(["admin"]);
+  if (!active) {
+    const inUse = await leadsInStage(id);
+    if (inUse?.count) {
+      return {
+        ok: false,
+        error: `${inUse.count} lead(s) are in "${inUse.label}" — move them to another stage before turning it off.`,
+      };
+    }
+  }
   const supabase = createClient();
   const { error } = await supabase
     .from("funnel_stages")
@@ -149,6 +174,13 @@ export async function deleteFunnelStage(
     .eq("id", id)
     .maybeSingle();
   if (!stage) return { ok: false, error: "Stage not found" };
+  const inUse = await leadsInStage(id);
+  if (inUse?.count) {
+    return {
+      ok: false,
+      error: `${inUse.count} lead(s) are in "${inUse.label}" — move them to another stage before removing it.`,
+    };
+  }
 
   const { error } = await supabase
     .from("funnel_stages")

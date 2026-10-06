@@ -540,14 +540,36 @@ export async function reassignLead(
   const supabase = createClient();
   const { data: before } = await supabase
     .from("leads")
-    .select("lead_allocated_to")
+    .select("lead_allocated_to, course_id, cohort_id")
     .eq("id", leadId)
     .maybeSingle();
-  const { error } = await supabase
+  if (!before) return { ok: false, error: "You don't have access to this lead" };
+  if (counselorId) {
+    // The new owner must be able to open the lead, or it vanishes from their board
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+    const { data: scopes } = await createAdminClient()
+      .from("counselor_scope")
+      .select("course_id, cohort_id")
+      .eq("user_id", counselorId);
+    const ok = (scopes ?? []).some(
+      (sc) =>
+        (!before.course_id || sc.course_id === before.course_id) &&
+        (!before.cohort_id || sc.cohort_id === before.cohort_id)
+    );
+    if (!ok) {
+      return {
+        ok: false,
+        error: "That counselor can't open this lead's course / cohort — add it to their access in Users & Roles first.",
+      };
+    }
+  }
+  const { data: saved, error } = await supabase
     .from("leads")
     .update({ lead_allocated_to: counselorId || null })
-    .eq("id", leadId);
+    .eq("id", leadId)
+    .select("id");
   if (error) return { ok: false, error: error.message };
+  if (!saved?.length) return { ok: false, error: "Not saved — you don't have access to this lead" };
   if (counselorId && counselorId !== before?.lead_allocated_to) {
     try {
       const { createAdminClient } = await import("@/lib/supabase/admin");

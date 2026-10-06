@@ -1,4 +1,15 @@
 import { differenceInDays } from "date-fns";
+import { isClosedStage } from "@/lib/constants";
+
+/** Leads nobody should be chasing: closed, rejected, or parked for a later batch. */
+function isDoneWith(stage: string): boolean {
+  return (
+    isClosedStage(stage) ||
+    stage.endsWith("_reject") ||
+    stage.endsWith("_rejected") ||
+    stage === "retarget_next_batch"
+  );
+}
 
 /**
  * Provisional Needs Immediate Attention rules.
@@ -33,8 +44,8 @@ export function evaluateAttentionReasons(
     reasons.push("Overdue installment deadline (provisional)");
   }
 
-  // Provisional: no contact logged in N days
-  if (last >= config.noContactDays) {
+  // Provisional: no contact logged in N days — only leads still being worked
+  if (!isDoneWith(lead.stage) && last >= config.noContactDays) {
     reasons.push(`No contact in ${config.noContactDays}+ days (provisional)`);
   }
 

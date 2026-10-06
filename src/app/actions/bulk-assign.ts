@@ -153,8 +153,8 @@ export async function applyBulkAssign(
   filters: BulkAssignFilters
 ): Promise<ActionResult<{ assigned: number; perCounselor: { id: string; name: string; count: number }[] }>> {
   await requireUser(["admin"]);
-  if (filters.counselorIds.length < 2) {
-    return { ok: false, error: "Select at least 2 counselors to split between." };
+  if (filters.counselorIds.length < 1) {
+    return { ok: false, error: "Select at least one counselor." };
   }
 
   const admin = createAdminClient();
@@ -172,6 +172,40 @@ export async function applyBulkAssign(
   const { ids, error } = await fetchMatchingLeadIds(filters);
   if (error) return { ok: false, error };
   if (!ids.length) return { ok: false, error: "No leads match these filters." };
+
+  // A counselor can only open leads of courses / cohorts in their access —
+  // assigning outside it makes the lead vanish from their board.
+  {
+    const { data: scopes } = await admin
+      .from("counselor_scope")
+      .select("user_id, course_id, cohort_id")
+      .in("user_id", valid.map((c) => c.id));
+    const leadRows: { course_id: string | null; cohort_id: string | null }[] = [];
+    for (let i = 0; i < ids.length; i += 300) {
+      const { data } = await admin.from("leads").select("course_id, cohort_id").in("id", ids.slice(i, i + 300));
+      leadRows.push(...(data ?? []));
+    }
+    const combos = new Map<string, { course_id: string | null; cohort_id: string | null }>();
+    for (const l of leadRows) combos.set(`${l.course_id}|${l.cohort_id}`, l);
+    const missing: string[] = [];
+    for (const c of valid) {
+      const mine = (scopes ?? []).filter((s) => s.user_id === c.id);
+      const blocked = Array.from(combos.values()).some(
+        (l) =>
+          !mine.some(
+            (s) =>
+              (!l.course_id || s.course_id === l.course_id) && (!l.cohort_id || s.cohort_id === l.cohort_id)
+          )
+      );
+      if (blocked) missing.push(c.name);
+    }
+    if (missing.length) {
+      return {
+        ok: false,
+        error: `${missing.join(", ")} can't open some of these leads (course / cohort not in their access). Add it in Users & Roles → Edit, or narrow the filters.`,
+      };
+    }
+  }
 
   const shuffled = shuffle([...ids]);
   const perCounselor = valid.map((c) => ({ id: c.id, name: c.name, count: 0 }));

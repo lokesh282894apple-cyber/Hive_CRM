@@ -189,14 +189,16 @@ export function BulkAssignClient({ counselors }: { counselors: Counselor[] }) {
 
           <button
             type="button"
-            disabled={pending || selected.length < 2}
+            disabled={pending || selected.length < 1}
             className="rounded-xl bg-navy px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             onClick={() => {
               if (
                 !confirm(
-                  `Randomly split matching leads across ${selectedCounselors
-                    .map((c) => c.name)
-                    .join(" & ")}?`
+                  selectedCounselors.length === 1
+                    ? `Assign all matching leads to ${selectedCounselors[0]!.name}?`
+                    : `Randomly split matching leads across ${selectedCounselors
+                        .map((c) => c.name)
+                        .join(" & ")}?`
                 )
               ) {
                 return;
