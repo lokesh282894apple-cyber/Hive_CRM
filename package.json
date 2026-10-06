@@ -11,7 +11,8 @@
     "seed:mock": "node --env-file=.env.local scripts/seed-mock-data.mjs",
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
     "leads:bulk-assign": "node --env-file=.env.local scripts/bulk-assign-leads.mjs",
-    "google:oauth": "node --env-file=.env.local scripts/google-oauth-refresh.mjs"
+    "google:oauth": "node --env-file=.env.local scripts/google-oauth-refresh.mjs",
+    "health": "node --env-file=.env.local scripts/health-check.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
