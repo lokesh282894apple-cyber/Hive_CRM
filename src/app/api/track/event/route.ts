@@ -85,6 +85,23 @@ export async function POST(request: NextRequest) {
 
     let matchedCampaignId = existing?.matched_campaign_id ?? null;
 
+    // A visitor first seen direct (matched "Unattributed / Organic") who later
+    // comes back through an ad keeps the same session — re-match when this hit
+    // carries campaign tags, or paid-ad leads stay counted as organic.
+    const hasCampaignSignal = Boolean(utm_source || utm_campaign || click_id || fbclid || gclid || li_fat_id || ttclid);
+    let replaceOrganic = false;
+    if (matchedCampaignId && hasCampaignSignal) {
+      const { data: cur } = await admin
+        .from("campaigns")
+        .select("source_type")
+        .eq("id", matchedCampaignId)
+        .maybeSingle();
+      if (!cur || cur.source_type === "organic") {
+        matchedCampaignId = null;
+        replaceOrganic = true;
+      }
+    }
+
     if (!matchedCampaignId) {
       matchedCampaignId = await resolveCampaignFromTraffic(admin, {
         utm_source,
@@ -126,7 +143,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       const patch: Record<string, unknown> = { last_seen_at: now };
-      if (matchedCampaignId && !existing.matched_campaign_id) {
+      if (matchedCampaignId && (!existing.matched_campaign_id || replaceOrganic)) {
         patch.matched_campaign_id = matchedCampaignId;
       }
       if (utm_source) patch.utm_source = utm_source;

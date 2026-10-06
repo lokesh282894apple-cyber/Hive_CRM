@@ -493,12 +493,19 @@ export const LEAD_LIST_TABS = [
 ] as const;
 
 /** Stages treated as “open pipeline” (exclude closed by default). */
+/** Rejected by Hive or by the student — out of the pipeline, though not a "Closed –" stage. */
+export const REJECTED_STAGES = STAGES.filter(
+  (s) => s === "admission_team_rejected" || s === "student_reject" || s.endsWith("_reject")
+) as Stage[];
+
+/** Still being worked: not closed and not rejected (rejected leads used to count as open). */
 export const OPEN_STAGES = STAGES.filter(
   (s) =>
     s !== "closed_paid" &&
     s !== "closed_deferred" &&
     s !== "closed_refund" &&
-    s !== "closed_lost"
+    s !== "closed_lost" &&
+    !(REJECTED_STAGES as readonly string[]).includes(s)
 ) as Stage[];
 
 export const STAGE_GROUPS = [
@@ -560,7 +567,14 @@ export const STAGE_GROUPS = [
   {
     id: "closed",
     label: "Closed",
-    stages: ["offered_accepted", "closed_paid", "closed_deferred", "closed_refund", "closed_lost"] as Stage[],
+    stages: [
+      "offered_accepted",
+      "closed_paid",
+      "closed_deferred",
+      "closed_refund",
+      "closed_lost",
+      ...REJECTED_STAGES,
+    ] as Stage[],
   },
   {
     id: "all",

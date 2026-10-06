@@ -597,11 +597,13 @@ function dayCountsFor(
   const c = emptyDayCounts();
   for (const f of facts) {
     const dayStages = f.stagesByDay.get(date) ?? new Set<string>();
-    const bookedToday =
-      hasAny(dayStages, booked) ||
-      f.bookings.some(
-        (b) => b.round === round && istDay(b.scheduled_at) === date
-      );
+    // One day per lead per round: the interview day when there is a booking,
+    // else the day the stage was entered. Counting both put a lead on two days
+    // (e.g. 14 R1 leads summed to 21 across the grid).
+    const roundBookings = f.bookings.filter((b) => b.round === round);
+    const bookedToday = roundBookings.length
+      ? roundBookings.some((b) => istDay(b.scheduled_at) === date)
+      : hasAny(dayStages, booked);
     if (!bookedToday && !hasAny(dayStages, allRound)) continue;
     if (!bookedToday) continue;
     c.onCalendar += 1;
@@ -853,7 +855,9 @@ export async function fetchAdmissionsFunnelUncached(
 
   const attrMap = new Map<string, string | null>();
   for (const r of base.attrs) {
-    const cid = r.last_touch_campaign_id ?? r.first_touch_campaign_id;
+    // First touch — the same rule as the marketing funnel engine, so a lead is
+    // organic / inorganic identically on every page
+    const cid = r.first_touch_campaign_id ?? r.last_touch_campaign_id;
     attrMap.set(r.lead_id, cid ? base.campaignTypeById.get(cid) ?? null : null);
   }
 

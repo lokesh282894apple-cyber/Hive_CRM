@@ -431,8 +431,10 @@ function BoardColumn({
   }, [column.stages, leads, stageTotals]);
 
   // Exact total when the board is capped; otherwise the loaded cards are all of them
+  // Offer-call lanes split one stage (Offered) by call status, so the stage
+  // total would show every offered lead in all three lanes — count the cards.
   const columnTotal =
-    stageTotals && column.stages?.length
+    stageTotals && column.stages?.length && !column.offerCallStatus
       ? column.stages.reduce((n, s) => n + (stageTotals[s] ?? 0), 0)
       : leads.length;
 
