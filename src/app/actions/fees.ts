@@ -368,11 +368,13 @@ export async function recordInstallmentPayment(
 
   const { data: all } = await supabase
     .from("installments")
-    .select("amount_realised, amount_hit_bank")
+    .select("amount_realised, amount_hit_bank, deductions, status, payment_status")
     .eq("fee_record_id", inst.fee_record_id);
+  // Settled = what hit the bank + deductions on paid lines (TDS / transfer charges)
   const realisedSum = (all ?? []).reduce((s, r) => {
     const h = Number(r.amount_hit_bank) || Number(r.amount_realised) || 0;
-    return s + h;
+    const paidLine = r.status === "paid" || r.payment_status === "Paid";
+    return s + h + (paidLine ? Number(r.deductions) || 0 : 0);
   }, 0);
 
   const { data: fee } = await supabase

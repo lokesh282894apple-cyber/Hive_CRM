@@ -243,7 +243,7 @@ export async function upsertFeePaymentLine(input: {
   // Recompute fee remaining from realised / hit-bank totals
   const { data: all } = await supabase
     .from("installments")
-    .select("amount_realised, amount_hit_bank, amount_to_realise, payment_status")
+    .select("amount_realised, amount_hit_bank, amount_to_realise, payment_status, deductions")
     .eq("fee_record_id", input.feeRecordId);
   const { data: fee } = await supabase
     .from("fee_records")
@@ -252,10 +252,12 @@ export async function upsertFeePaymentLine(input: {
     .maybeSingle();
   const owed =
     Number(fee?.net_fee_without_gst) || Number(fee?.total_fee) || 0;
+  // Settled = bank amount + deductions (TDS / charges) on paid lines
   const realisedSum = (all ?? []).reduce((s, r) => {
     const hitBank = Number(r.amount_hit_bank) || 0;
-    if (hitBank > 0) return s + hitBank;
-    return s + (Number(r.amount_realised) || 0);
+    const ded = r.payment_status === "Paid" ? Number(r.deductions) || 0 : 0;
+    if (hitBank > 0) return s + hitBank + ded;
+    return s + (Number(r.amount_realised) || 0) + ded;
   }, 0);
   await supabase
     .from("fee_records")

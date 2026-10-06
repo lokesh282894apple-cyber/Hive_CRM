@@ -31,7 +31,7 @@ import { normalizeLoanStage } from "@/lib/program/fee-tracker";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { istDateKey } from "@/lib/tz";
-import { reportResult } from "@/components/ui/Toaster";
+import { notify, reportResult } from "@/components/ui/Toaster";
 
 const FEE_ELIGIBLE: Stage[] = ["offered", "closed_paid"];
 type FeeTab = "direct" | "one_shot" | "loan";
@@ -649,7 +649,11 @@ export function FeesClient({
                             `hit-${inst.id}`
                           ) as HTMLInputElement | null;
                           const hitVal = Number(el?.value || 0);
-                          if (!Number.isFinite(hitVal) || hitVal < 0) return;
+                          if (!Number.isFinite(hitVal) || hitVal <= 0) {
+                            notify("Enter the amount that actually hit the bank, then confirm.");
+                            el?.focus();
+                            return;
+                          }
                           const ded = Math.max(0, expected - hitVal);
                           startTransition(async () => {
                             reportResult(await recordInstallmentPayment(inst.id, leadId, hitVal, {

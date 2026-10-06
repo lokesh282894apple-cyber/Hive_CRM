@@ -88,10 +88,19 @@ export function computeFeeBalance(
     }
     return sum + (Number(l.amount_realised) || 0);
   }, 0);
-  const remaining =
-    fee.remaining_fee != null && Number(fee.remaining_fee) >= 0
+  // A paid line is settled in full: what hit the bank plus the bank / TDS
+  // deduction. Counting only the bank amount left e.g. ₹1,000 "remaining" on a
+  // fully paid student.
+  const deducted = lines.reduce(
+    (sum, l) =>
+      l.payment_status === "Paid" || l.status === "paid" ? sum + (Number(l.deductions) || 0) : sum,
+    0
+  );
+  const remaining = lines.length
+    ? Math.max(0, owed - paid - deducted)
+    : fee.remaining_fee != null && Number(fee.remaining_fee) >= 0
       ? Number(fee.remaining_fee)
-      : Math.max(0, owed - paid);
+      : owed;
   return { owed, paid, remaining };
 }
 
