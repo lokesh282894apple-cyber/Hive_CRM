@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
     courseId = resolved.courseId;
     cohortId = resolved.cohortId;
 
-    const allocatedTo = await pickCounselorForCourse(admin, courseId);
+    const allocatedTo = await pickCounselorForCourse(admin, courseId, { anyCounselorIfNoCourse: true });
 
     const match = await findExistingLead(admin, phone, email);
     let existing = match?.lead ?? null;

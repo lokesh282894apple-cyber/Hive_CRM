@@ -4,12 +4,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 /**
  * Fair round-robin among active counselors allocated to a program (course).
  * Pointer is stored per course so programs don't steal each other's turn.
+ * Leads with no course (reports, unknown forms) take turns across every active
+ * counselor when `anyCounselorIfNoCourse` is set; otherwise they stay unassigned.
  */
 export async function pickCounselorForCourse(
   admin: SupabaseClient,
-  courseId: string | null
+  courseId: string | null,
+  opts: { anyCounselorIfNoCourse?: boolean } = {}
 ): Promise<string | null> {
-  if (!courseId) return null;
+  if (!courseId) {
+    if (!opts.anyCounselorIfNoCourse) return null;
+    const { data: users } = await admin
+      .from("users")
+      .select("id")
+      .eq("role", "counselor")
+      .eq("active", true)
+      .order("id");
+    return nextInTurn(admin, "round_robin_last:no_course", (users ?? []).map((u) => u.id as string));
+  }
 
   const { data: allocs } = await admin
     .from("counselor_program_alloc")
@@ -36,10 +48,17 @@ export async function pickCounselorForCourse(
       .filter(Boolean) as string[];
   }
 
+  return nextInTurn(admin, `round_robin_last:${courseId}`, counselorIds);
+}
+
+async function nextInTurn(
+  admin: SupabaseClient,
+  key: string,
+  counselorIds: string[]
+): Promise<string | null> {
   const unique = Array.from(new Set(counselorIds));
   if (!unique.length) return null;
 
-  const key = `round_robin_last:${courseId}`;
   const { data: rr } = await admin
     .from("app_settings")
     .select("value")

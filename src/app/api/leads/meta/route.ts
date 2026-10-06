@@ -116,9 +116,9 @@ export async function POST(request: NextRequest) {
             );
             courseId = matchCourse?.id ?? null;
           }
-          const allocatedTo = courseId
-            ? await pickCounselorForCourse(admin, courseId)
-            : null;
+          const allocatedTo = await pickCounselorForCourse(admin, courseId, {
+            anyCounselorIfNoCourse: true,
+          });
           const { resolveCohortForCourse } = await import(
             "@/lib/leads/resolve-cohort"
           );
