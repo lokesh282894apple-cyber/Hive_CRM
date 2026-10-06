@@ -260,10 +260,11 @@ export async function fetchCounselorDashboardUncached(
       lead_id: string;
       to_stage: string;
       changed_at: string;
+      changed_by: string | null;
     }>((from, to) =>
       supabase
         .from("stage_history")
-        .select("lead_id, to_stage, changed_at")
+        .select("lead_id, to_stage, changed_at, changed_by")
         .gte("changed_at", since)
         .lt("changed_at", until)
         .order("changed_at", { ascending: true })
@@ -470,7 +471,20 @@ export async function fetchCounselorDashboardUncached(
     }
   };
   bump(nurturing, "nurturing");
-  bump(r1Booked, "r1Booked");
+  // R1 booked goes to the counselor who booked it (first move into R1 Booked);
+  // an admin booking, or no history row, falls back to the lead's owner.
+  const r1BookedBy = new Map<string, string>();
+  for (const h of scopedHistory) {
+    if (h.to_stage === "r1_booked" && h.changed_by && !r1BookedBy.has(h.lead_id)) {
+      r1BookedBy.set(h.lead_id, h.changed_by);
+    }
+  }
+  for (const lid of Array.from(r1Booked)) {
+    const by = r1BookedBy.get(lid);
+    const cid = by && byCounselor.has(by) ? by : leadOwner.get(lid);
+    const row = cid ? byCounselor.get(cid) : undefined;
+    if (row) row.pipeline.r1Booked += 1;
+  }
   bump(r1Conducted, "r1Conducted");
   bump(r1Reject, "r1Reject");
   bump(r2Booked, "r2Booked");
@@ -615,10 +629,12 @@ export async function fetchCounselorDashboardUncached(
     r1: { booked: 0, completed: 0, rejected: 0, noShow: 0, pending: 0 },
     fromR1: { r2: 0, r3: 0, offer: 0, convert: 0 },
   });
+  // Credited to the counselor who made the call (was the lead's current owner,
+  // so a counselor's dials and unique leads didn't match their own call log)
   const calledByOwner = new Map<string, Set<string>>();
   for (const c of scopedCalls) {
-    const owner = leadOwner.get(c.lead_id);
-    if (!owner) continue;
+    const owner = c.counselor_id;
+    if (!owner || !byCounselor.has(owner)) continue;
     let o = outcomeBy.get(owner);
     if (!o) {
       o = emptyOutcome(owner, byCounselor.get(owner)?.name ?? "Unknown");

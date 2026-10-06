@@ -187,7 +187,7 @@ export default async function AdminCounselorPage({
       </div>
 
       <p className="mb-2 text-xs font-semibold uppercase tracking-eyebrow text-muted">
-        Pipeline — first time each lead reached the stage, inside the date range (credited to current owner)
+        Pipeline — first time each lead reached the stage, inside the date range (R1 booked credited to who booked it; other stages to the current owner)
       </p>
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <StatCard
@@ -201,7 +201,16 @@ export default async function AdminCounselorPage({
           hint="Current open stock (not limited to date bar)"
         />
         <StatCard label="Nurturing (in range)" value={t.pipeline.nurturing} />
-        <StatCard label="R1 booked (in range)" value={t.pipeline.r1Booked} />
+        <StatCard
+          label="R1 booked (in range)"
+          value={t.pipeline.r1Booked}
+          hint={
+            dash.rows
+              .filter((r) => r.pipeline.r1Booked > 0)
+              .map((r) => `${r.name.trim()} ${r.pipeline.r1Booked}`)
+              .join(" · ") || undefined
+          }
+        />
         <StatCard label="R1 conducted (in range)" value={t.pipeline.r1Conducted} />
         <StatCard label="R2 booked (in range)" value={t.pipeline.r2Booked} />
         <StatCard label="R3 booked (in range)" value={t.pipeline.r3Booked} />
@@ -259,7 +268,7 @@ export default async function AdminCounselorPage({
         <div className="border-b border-border px-5 py-3">
           <p className="eyebrow">Calls → outcome, per counselor</p>
           <p className="mt-1 text-xs text-muted">
-            Leads called in the date range, credited to the lead&apos;s current owner. Each lead is counted once, at
+            Leads each counselor called in the date range (by who made the call). Each lead is counted once, at
             the furthest stage it has reached so far. % = share of total dials. R2 / R3 / Offer / Convert % = share
             of that counselor&apos;s R1 Booked.
           </p>
@@ -355,6 +364,7 @@ export default async function AdminCounselorPage({
                 <th className="eyebrow px-4 py-3">Open stock</th>
                 <th className="eyebrow px-4 py-3">Created in range</th>
                 <th className="eyebrow px-4 py-3">Calls</th>
+                <th className="eyebrow px-4 py-3">Unique leads</th>
                 <th className="eyebrow px-4 py-3">Calls/lead</th>
                 <th className="eyebrow px-4 py-3">Calls/day</th>
                 <th className="eyebrow px-4 py-3">Calls/mo</th>
@@ -386,6 +396,7 @@ export default async function AdminCounselorPage({
                   <td className="px-4 py-3">{r.calling.allocatedLeads}</td>
                   <td className="px-4 py-3">{r.calling.createdInRangeAllocated}</td>
                   <td className="px-4 py-3">{r.calling.totalCalls}</td>
+                  <td className="px-4 py-3">{r.calling.uniqueCalls}</td>
                   <td className="px-4 py-3">{r.calling.avgCallsPerLead}</td>
                   <td className="px-4 py-3">{r.calling.avgCallsPerDay}</td>
                   <td className="px-4 py-3">{r.calling.avgCallsPerMonth}</td>
