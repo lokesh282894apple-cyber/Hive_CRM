@@ -227,6 +227,16 @@ await check("Data", "Fee remaining doesn't match the payments", async () => {
   report("Data", "Fee remaining doesn't match the payments", bad.length, bad,
     "Run supabase/migrations/20261007100000_fee_owed_after_admission.sql");
 });
+await check("Data", "Loan money disbursed but not counted as received", async () => {
+  const loans = await get("loans?select=fee_record_id,amount_realised&amount_realised=gt.0");
+  const lines = await get("installments?select=fee_record_id,amount_hit_bank,amount_realised&line_type=eq.loan");
+  const inLines = new Map();
+  for (const l of lines) inLines.set(l.fee_record_id, (inLines.get(l.fee_record_id) || 0) + (Number(l.amount_hit_bank) || Number(l.amount_realised) || 0));
+  const bad = loans.filter((l) => Number(l.amount_realised) - (inLines.get(l.fee_record_id) || 0) > 1);
+  report("Data", "Loan money disbursed but not counted as received", bad.length,
+    bad.map((l) => `fee ${l.fee_record_id}: ₹${Math.round(l.amount_realised - (inLines.get(l.fee_record_id) || 0))} missing`),
+    "Run supabase/migrations/20261007110000_loan_disbursal_received.sql");
+});
 await check("Data", "Closed–Paid students with no fee record", async () => {
   const fees = new Set((await get("fee_records?select=lead_id")).map((f) => f.lead_id));
   const x = leads.filter((l) => l.stage === "closed_paid" && !fees.has(l.id));

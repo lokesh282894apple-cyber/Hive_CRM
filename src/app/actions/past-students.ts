@@ -381,6 +381,41 @@ export async function savePastStudentFees(
       ? await db.from("loans").update(loanRow).eq("id", loan.id)
       : await db.from("loans").insert({ ...loanRow, fee_record_id: feeId });
     if (error) return { ok: false, error: `Fee saved, but the loan failed: ${error.message}` };
+
+    // Disbursed loan money is money received. It only lived on the loan row, so
+    // Received / Remaining ignored it — record whatever isn't already entered as
+    // a "Loan disbursal" payment (never double-counts).
+    const { data: loanLines } = await db
+      .from("installments")
+      .select("amount_hit_bank, amount_realised")
+      .eq("fee_record_id", feeId)
+      .eq("line_type", "loan");
+    const alreadyIn = (loanLines ?? []).reduce(
+      (sum, l) => sum + (Number(l.amount_hit_bank) || Number(l.amount_realised) || 0),
+      0
+    );
+    const missing = disbursed - alreadyIn;
+    if (missing > 1) {
+      const day = input.loan.disbursementDate && DAY.test(input.loan.disbursementDate)
+        ? input.loan.disbursementDate
+        : today;
+      const { error: lineErr } = await db.from("installments").insert({
+        fee_record_id: feeId,
+        installment_number: ++n,
+        deadline: day,
+        amount_to_realise: missing,
+        amount_realised: missing,
+        status: "paid",
+        line_type: "loan",
+        mode_of_payment: "Loan disbursal",
+        amount_hit_bank: missing,
+        deductions: 0,
+        date_hit_bank: day,
+        payment_status: "Paid",
+        paid_at: istWallToIso(`${day}T12:00`),
+      });
+      if (lineErr) return { ok: false, error: `Loan saved, but the disbursal payment failed: ${lineErr.message}` };
+    }
   }
 
   // remaining = (gross incl. GST − admission fee) − payments other than the admission fee

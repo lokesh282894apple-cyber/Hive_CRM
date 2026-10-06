@@ -99,13 +99,17 @@ export function PastStudentFeesClient({
   // Fee owed = gross incl. GST − admission fee; the admission-fee payment is
   // shown on its own, not counted against it (net without GST is finance's figure)
   const owed = feeOwedAfterAdmission({ total_fee: total, admission_fee: toNum(admissionText) });
-  const received = useMemo(
-    () =>
-      payments
-        .filter((p) => countsTowardsFeeOwed(p.lineType))
-        .reduce((s, p) => s + (toNum(p.hitText) ?? toNum(p.amountText) ?? 0), 0),
-    [payments]
-  );
+  const received = useMemo(() => {
+    const counted = payments.filter((p) => countsTowardsFeeOwed(p.lineType));
+    const sum = counted.reduce((s, p) => s + (toNum(p.hitText) ?? toNum(p.amountText) ?? 0), 0);
+    // Disbursed loan money counts as received (saved as a Loan disbursal payment
+    // if it isn't already entered as one)
+    const loanRows = counted
+      .filter((p) => p.lineType === "loan")
+      .reduce((s, p) => s + (toNum(p.hitText) ?? toNum(p.amountText) ?? 0), 0);
+    const disbursed = payMode === "loan" ? toNum(loanDisbursedText) ?? 0 : 0;
+    return sum + Math.max(0, disbursed - loanRows);
+  }, [payments, payMode, loanDisbursedText]);
   const upcoming = dues.reduce((s, d) => s + (toNum(d.amountText) ?? 0), 0);
   const remaining = Math.max(0, owed - received);
 
@@ -623,8 +627,8 @@ export function PastStudentFeesClient({
             </label>
           </div>
           <p className="text-xs text-muted">
-            Loan money that reached you should also be added under “Payments already received” (For: Loan
-            disbursal) so the remaining fee is correct.
+            The amount disbursed counts as received automatically — no need to add it again under “Payments
+            already received”.
           </p>
         </section>
       ) : null}
